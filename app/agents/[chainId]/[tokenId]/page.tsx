@@ -13,6 +13,7 @@ import { proveAgent, type EndpointProof, type ProbedTool } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { checkX402Cached, networkName, type X402Check } from "@/lib/x402";
 import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/reputation";
+import { diagnose, failureLabel } from "@/lib/failure";
 import { classify } from "@/lib/taxonomy";
 import { assess, tierLabel } from "@/lib/signals";
 import { categoryLabel, seatColor } from "@/components/listing";
@@ -450,6 +451,27 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
         {proof.error && !desc && <Row label="Failure">{proof.error}</Row>}
       </dl>
 
+      {/* "Does not answer" is one word covering at least four situations, and
+          they are not the same proposition to somebody about to grant a spend
+          cap. A vanished domain is an abandonment; a 502 is a bad afternoon.
+          The 404 is the one worth naming: the host answered *about* this agent
+          to say it does not have it, which is a deregistration recorded
+          nowhere, because ERC-8004 has no way to write one down. */}
+      {(() => {
+        if (desc || !proof.error) return null;
+        const d = diagnose(proof.error);
+        if (!d || d.failure === "unknown") return null;
+        return (
+          <p className="mt-5 border-l-2 pl-3 text-sm" style={{ borderColor: "var(--seat-health)" }}>
+            <span className="font-semibold">{failureLabel(d.failure)}.</span>{" "}
+            <span className="text-ink-2">{d.summary}</span>
+            {d.transient && (
+              <span className="text-ink-3"> A later check may pass.</span>
+            )}
+          </p>
+        );
+      })()}
+
       {/* Says "at most a minute" rather than "live" because proofs are reused
           for 60s. Claiming freshness the code does not deliver would be the
           same kind of unearned confidence this page exists to strip out. */}
@@ -496,6 +518,23 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
       )}
 
       {proof.tools.length > 0 && <ToolTable tools={proof.tools} total={proof.toolCount ?? 0} />}
+
+      {/* The limit of Kawal's own claim, stated where the claim is made.
+          `hireable` means the endpoint completed an MCP handshake and listed
+          its tools. It does not mean any of those tools work: an agent that
+          answers `initialize`, names sixteen tools and errors on every one of
+          them scores exactly like an agent that does the job. Kawal is strict
+          about everyone else's unverified claims, and this is its own — so it
+          says so rather than deepening the probe by running strangers' tools
+          uninvited, which could cost them money or have side effects. */}
+      {proof.isMcp && (
+        <p className="mt-4 max-w-2xl text-sm text-ink-3">
+          Kawal completed the handshake and read the tool list. It did not run
+          any of them — executing a stranger&rsquo;s tool uninvited can cost them
+          money or move something. So this is evidence the agent answers, not
+          that it works.
+        </p>
+      )}
 
       <p className="label mt-4">
         {desc?.kind === "source-repository"

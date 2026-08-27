@@ -19,6 +19,8 @@ const PAGES = [
   ["agent with feedback", "/agents/56/31041"],
   ["compare", "/compare?ids=56:43129,56:45381"],
   ["mandate", "/mandate"],
+  // The seller-side page: its own layout, its own probe fan-out.
+  ["owner", "/owner?address=0xda977767452c5dd021624511f14df67b6c9c2c1b"],
   ["advantage", "/advantage"],
 ] as const;
 

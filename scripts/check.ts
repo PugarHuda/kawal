@@ -22,6 +22,8 @@ import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
 import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
 import { handleRpc, TOOLS, PROTOCOL_VERSION } from "../lib/server.mcp.ts";
+import { diagnose, failureLabel } from "../lib/failure.ts";
+import { challenge, PRICE_WEI, NETWORK } from "../lib/x402.terms.ts";
 import { buildFeedback, uptimePercent, windowDays, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
@@ -1271,4 +1273,88 @@ for (const tokenId of ["", "abc", "12x", "../../etc", "1e5"]) {
 const emptyQuery = await rpc("tools/call", { name: "find_agents", arguments: { query: "   " } });
 assert.equal(envelope(emptyQuery).result?.isError, true, "an empty search is refused");
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server");
+/* ------------------------------------------------ failure kinds ---
+ *
+ * "Does not answer" was one word covering four situations. Kawal's own log:
+ * 62 probes could not resolve a domain, 61 got `agent not found` from a host
+ * that was plainly alive, 38 got a Cloudflare 502, and a handful timed out.
+ * A vanished domain is an abandonment; a 502 is a bad afternoon; the 404 is a
+ * deregistration ERC-8004 has no way to record. Collapsing them loses the
+ * only part a buyer can act on.
+ */
+
+assert.equal(diagnose(null), null, "no error, no diagnosis");
+assert.equal(diagnose(""), null, "and an empty one is not a failure either");
+
+const gone = diagnose("blocked: could not resolve syenite.ai")!;
+assert.equal(gone.failure, "gone", "a dead domain is an abandonment");
+assert.equal(gone.transient, false, "waiting will not help");
+// The message is both a guard string and a DNS failure. The DNS reading is
+// the one worth showing: the guard did not refuse on policy, it could not
+// find the host.
+assert.notEqual(gone.failure, "blocked", "a resolve failure is not a policy refusal");
+
+const delisted = diagnose('HTTP 404: {"error":"agent not found"}')!;
+assert.equal(delisted.failure, "delisted", "a host that disowns an agent is not merely down");
+assert.match(delisted.summary, /deregistration/, "and the reason is named");
+
+const down = diagnose("HTTP 502: cloudflare error")!;
+assert.equal(down.failure, "down");
+assert.equal(down.transient, true, "an origin error may pass later");
+
+assert.equal(diagnose("HTTP 405: ")!.failure, "refusing", "a 4xx that is not 404 is a refusal");
+assert.equal(diagnose("HTTP 410: gone")!.failure, "delisted", "410 is as final as 404");
+assert.equal(diagnose("timed out after 6000ms")!.failure, "refusing");
+assert.equal(diagnose("timed out after 6000ms")!.transient, true);
+assert.equal(diagnose("blocked: refusing 127.0.0.1: loopback 127.0.0.0/8")!.failure, "blocked");
+
+// Anything unrecognised must say so rather than be filed under a guess.
+const odd = diagnose("the socket did something unusual")!;
+assert.equal(odd.failure, "unknown");
+assert.equal(odd.raw, "the socket did something unusual", "and the original text is always carried");
+for (const f of ["gone", "delisted", "down", "refusing", "blocked", "unknown"] as const) {
+  assert.ok(failureLabel(f).length > 0, `${f} has a label a person can read`);
+}
+
+/* ------------------------------------------------------- charging ---
+ *
+ * Kawal measured that 75 of 200 BSC registrations declare x402 support and
+ * that no reachable claimant ever issues a challenge. `/api/report` is the
+ * counter-example, which only means anything if Kawal's own reader can read
+ * it: a payment claim this project cannot verify is precisely what it refuses
+ * to publish about anybody else.
+ */
+
+const offered = challenge("0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92");
+
+// Through the reader written against a live q402 challenge, not against a spec.
+const readBack = readChallenge(offered);
+assert.notEqual(readBack, null, "Kawal's own challenge survives Kawal's own reader");
+assert.equal(readBack!.accepts.length, 1, "with exactly one way to pay");
+assert.equal(readBack!.accepts[0]!.amount, PRICE_WEI.toString(), "quoted in atomic units");
+assert.equal(readBack!.accepts[0]!.network, NETWORK, "on the chain it says");
+assert.equal(readBack!.serviceName, "Kawal deep report");
+assert.match(readBack!.quote ?? "", /X-PAYMENT/, "and the quote says how to pay it");
+
+// The same document must survive the header carrier, which is what a proxy
+// acts on without reading a body.
+const viaHeader = readChallenge(
+  JSON.parse(Buffer.from(JSON.stringify(offered), "utf8").toString("base64") === ""
+    ? "{}"
+    : Buffer.from(Buffer.from(JSON.stringify(offered), "utf8").toString("base64"), "base64").toString("utf8")),
+);
+assert.notEqual(viaHeader, null, "base64 round trip changes nothing");
+assert.equal(viaHeader!.accepts[0]!.payTo, offered.accepts[0]!.payTo);
+
+// The address is never invented. `challenge` renders what it is handed, and
+// the caller supplies an address derived from a key this instance holds.
+assert.equal(offered.accepts[0]!.payTo, "0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92");
+assert.ok(PRICE_WEI > 0n, "a price of nothing is not a price");
+
+// And the paid tool is advertised rather than hidden: a caller is entitled to
+// know what exists and what it costs before being refused.
+const paidTool = TOOLS.find((t) => t.name === "deep_report");
+assert.ok(paidTool, "the paid tool is listed with the free ones");
+assert.match(paidTool!.description, /costs money/, "and says so in its description");
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging");

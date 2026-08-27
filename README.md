@@ -62,7 +62,7 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 121 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 131 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
@@ -140,6 +140,66 @@ endpoint dialled is the one the registry published, and it still goes out
 through the SSRF guard. A check asserts that invariant against every tool
 schema so it survives the next tool being added.
 
+## The one thing here that costs money
+
+Kawal found 75 of 200 BSC registrations declaring `x402_supported` and not one
+reachable claimant that ever issues a challenge. Complaining about that and
+then charging for nothing would leave the obvious question unanswered, so
+`/api/report` is the counter-example: ask without paying and it answers 402
+with terms; pay and resend the receipt and it answers with the report.
+
+```bash
+curl -i "http://localhost:3000/api/report?tokenId=43129"
+# HTTP/1.1 402 Payment Required
+# payment-required: eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJwYXltZW50IHJlcXVpcmVk…
+```
+
+Settlement is the dullest mechanism available, on purpose. No facilitator, no
+signature scheme, no allowance — the challenge names an address and an amount,
+the caller sends a plain BNB transfer, and resends with `X-PAYMENT` carrying
+the transaction hash. Kawal reads the receipt off the chain. A facilitator
+flow would mean running one or trusting someone else's, and a scheme Kawal
+cannot verify end to end is exactly the unbacked payment claim this feature
+exists to be the opposite of.
+
+Four things it refuses: a hash that is not one, a transaction that paid
+somebody else, one with fewer than three confirmations, and one that has been
+used before. The last matters most — a receipt is a bearer token once it is
+public, so spent hashes are kept and refused on sight.
+
+An instance holding no wallet does not charge. It answers 503 and says why,
+rather than quoting an address it cannot spend from.
+
+The terms live in `lib/x402.terms.ts`, which is pure, and the offline check
+asserts that Kawal's own challenge parses with Kawal's own reader. A payment
+claim this project cannot verify is precisely what it refuses to publish about
+anybody else.
+
+## Is your agent still answering?
+
+`/owner` is the other half of the market. Nothing on BSC tells an owner their
+endpoint went dark — 8004scan publishes a cached health check with no history,
+and the registry keeps listing a dead agent exactly as it was minted. Kawal has
+been calling these endpoints and keeping every result, so paste the address
+that minted them and see what it found. No sign-in: an ERC-8004 registration
+names its owner on-chain and every observation shown is a call to an endpoint
+the registration published, so there is nothing to prove.
+
+## How an endpoint is dead, not just that it is
+
+"Does not answer" was one word covering four situations. From 669 probes kept
+on one instance:
+
+| Probes | Symptom | What it means |
+|---|---|---|
+| 62 | `could not resolve syenite.ai` | The domain is gone. Nobody is coming back |
+| 61 | `HTTP 404 {"error":"agent not found"}` | The host is alive and disowns this agent — a deregistration ERC-8004 has no way to record |
+| 38 | `HTTP 502` | The origin is failing right now; a later check may pass |
+| 5 | `timed out` | Something is listening and will not talk |
+
+These are not the same proposition to somebody about to grant a spend cap, so
+the agent page names the manner of death rather than collapsing it into a tier.
+
 ## Security headers
 
 Every response carries `X-Content-Type-Options`, `Referrer-Policy`,
@@ -173,6 +233,7 @@ All gitignored, all holding either key material or observations.
 | `.kawal-admin.key` | The wallet's private key. Never printed, never logged |
 | `.kawal-sessions.json` | Granted seats and what became of them. Holds session private keys |
 | `.kawal-uptime.db` | SQLite. Every probe Kawal has made, for the reliability panel |
+| `.kawal-payments.db` | SQLite. Transaction hashes already spent on a report, so none is used twice |
 
 ## Configuration
 
@@ -195,6 +256,15 @@ All three agents used in the advantage report are registered
 that genuinely charges (Sentinels Audit, 0.2 BNB per audit) reports
 `x402_supported: false` and takes a plain native transfer. Building a payer
 with no charger would be a mock.
+
+**`Hireable` means the agent answers, not that it works.** The tier is earned
+by completing an MCP handshake and listing tools. Kawal does not run any of
+them: executing a stranger's tool uninvited can cost them money or move
+something, and asking permission is not a thing a catalogue can do at scale. So
+an agent that answers `initialize`, names sixteen tools and errors on every one
+of them scores exactly like an agent that does the job. Kawal is strict about
+everybody else's unverified claims and this one is its own, so the agent page
+says so where the claim is made rather than leaving it to be discovered.
 
 **Kawal is not a validator, because there is nothing to validate against.**
 ERC-8004 defines three registries: Identity, Reputation and Validation. The

@@ -32,6 +32,7 @@ import { observedFor, uptimeFor } from "./uptime.ts";
 import { checkX402Cached } from "./x402.ts";
 import { getReputationCached } from "./reputation.ts";
 import { browse } from "./catalog.ts";
+import { diagnose, failureLabel } from "./failure.ts";
 import { BSC_MAINNET, SUPPORTED_CHAINS } from "./chains.ts";
 
 export const SERVER_NAME = "kawal";
@@ -243,7 +244,127 @@ export const TOOLS: Tool[] = [
       };
     },
   },
+
+  {
+    name: "deep_report",
+    description:
+      "Everything Kawal holds about one agent in a single answer: the live " +
+      "handshake, the full probe history, how the endpoint fails when it " +
+      "fails, whether it really charges, and who wrote its feedback. This one " +
+      "costs money. Kawal measured that 75 of 200 BSC registrations declare " +
+      "x402 support and that none of the reachable ones ever asks to be paid; " +
+      "this is the counter-example. Calling it without payment returns the " +
+      "terms rather than the report.",
+    inputSchema: AGENT_INPUT,
+    async run(args) {
+      const chainId = chainOf(args);
+      const tokenId = tokenOf(args);
+
+      // Settlement is HTTP-layer: a JSON-RPC body has nowhere to carry a
+      // receipt, and inventing a place would be a scheme nobody else speaks.
+      // So this quotes the price and points at the endpoint that takes it.
+      const { payTo, challenge, PRICE_WEI } = await import("./x402.terms.ts");
+      const to = payTo();
+      if (!to) {
+        return { paid: false, forSale: false, reason: "this instance holds no wallet, so it charges for nothing" };
+      }
+      return {
+        paid: false,
+        forSale: true,
+        priceWei: PRICE_WEI.toString(),
+        terms: challenge(to),
+        payAt: `/api/report?chainId=${chainId}&tokenId=${tokenId}`,
+        how: "Send the amount to the address in the terms, then GET payAt with an X-PAYMENT header carrying the transaction hash.",
+      };
+    },
+  },
 ];
+
+/**
+ * Everything Kawal holds about one agent, in one answer.
+ *
+ * The free tools each answer one question and each cost an upstream round
+ * trip. This is all of them at once plus the parts that only exist here — the
+ * full probe history, and a reading of *how* the endpoint fails rather than
+ * just that it did.
+ *
+ * Exported because two surfaces serve it: the paid HTTP endpoint, and the
+ * `deep_report` tool. Neither of them decides what it contains.
+ */
+export async function deepReport(chainId: number, tokenId: string): Promise<Json> {
+  const agent = await getAgent(chainId, tokenId);
+  const proof = await proveAgent(agent);
+  const observed = observedFor(proof?.endpoint);
+  const reputation = await getReputationCached(chainId, tokenId);
+  const payment =
+    agent.x402_supported === true && proof?.endpoint ? await checkX402Cached(proof.endpoint) : null;
+
+  const assessment = assess(
+    agent,
+    undefined,
+    observed && { ...observed, reachedAnotherWay: proof?.descriptor != null },
+    payment ? { demanded: payment.demanded } : undefined,
+    reputation,
+  );
+
+  const failure = proof?.error ? diagnose(proof.error) : null;
+
+  return {
+    agent: {
+      chainId,
+      tokenId,
+      name: agent.name,
+      owner: agent.owner_address,
+      registered: agent.created_at,
+      declared: agent.supported_protocols ?? [],
+    },
+    tier: assessment.tier,
+    tierLabel: tierLabel(assessment.tier),
+    seat: classify(agent.name, agent.description).category,
+    probe: proof && {
+      endpoint: proof.endpoint,
+      answeredAsMcp: proof.isMcp,
+      serverName: proof.serverName,
+      protocolVersion: proof.protocolVersion,
+      toolCount: proof.toolCount,
+      tools: proof.tools.map((t) => ({ name: t.name, declaredPrice: t.declaredPrice })),
+      latencyMs: Math.round(proof.latencyMs),
+      checkedAt: proof.checkedAt,
+      error: proof.error,
+    },
+    // The part that is only here. "Does not answer" covers a vanished domain,
+    // a host that disowned the agent, and an origin having a bad afternoon,
+    // and they are not the same thing to a buyer.
+    failure: failure && {
+      kind: failure.failure,
+      label: failureLabel(failure.failure),
+      summary: failure.summary,
+      mayRecover: failure.transient,
+    },
+    history: proof?.endpoint ? uptimeFor(proof.endpoint) : null,
+    payment: payment && {
+      claimsX402: agent.x402_supported === true,
+      demandedPayment: payment.demanded,
+      quote: payment.quote,
+      accepts: payment.accepts,
+    },
+    reputation: reputation && {
+      records: reputation.total,
+      sampled: reputation.sampled,
+      carryingAMark: reputation.valued,
+      inRegistryScoreField: reputation.scored,
+      distinctWriters: reputation.raters,
+      busiestWriter: reputation.topRater,
+      busiestWriterShare: reputation.topRaterShare,
+      withdrawn: reputation.revoked,
+    },
+    signals: assessment.signals.map((s) => ({ key: s.key, pass: s.pass, detail: s.detail })),
+    caveats: [
+      "Measured from a single vantage point: an endpoint that blocks this prober is indistinguishable from one that is down.",
+      "The handshake and the tool list were read; no tool was executed, so this is evidence the agent answers rather than that it works.",
+    ],
+  };
+}
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 

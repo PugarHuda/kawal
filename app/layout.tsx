@@ -58,6 +58,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               >
                 Evidence
               </Link>
+              {/* For the other side of the listing: an owner with no way to
+                  learn their endpoint went dark. */}
+              <Link
+                href="/owner"
+                className="-my-1 inline-flex items-center px-1 py-1.5 text-ink-2 hover:text-ink"
+              >
+                My agents
+              </Link>
             </nav>
           </div>
         </header>
