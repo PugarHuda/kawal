@@ -25,7 +25,7 @@ import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
 import { memo, clearMemo, memoStats } from "../lib/memo.ts";
 import { parseAgents, ScanAgentSchema } from "../lib/scan.schema.ts";
 import { readTool } from "../lib/probe.ts";
-import { verdictFor, type TaskResult } from "../lib/advantage.report.ts";
+import { verdictFor, winnerOf, type TaskResult } from "../lib/advantage.report.ts";
 import { explorerTx, explorerAddress } from "../lib/altana.ts";
 
 function agent(over: Partial<ScanAgent> = {}): ScanAgent {
@@ -656,6 +656,34 @@ const wide = verdictFor(
        { ...run(), path: "manual", ms: 50, coverage: { count: 1, unit: "vaults" } }),
 );
 assert.match(wide, /Hiring wins/, "a genuine breadth advantage must still be reported");
+
+// --- the marker on /advantage must agree with the sentence under it ---------
+//
+// The page marks a winner beside each row. Its first draft scored that
+// independently — "whoever covered more" — which matched the prose on the
+// numbers of the day and diverged the moment coverage was level: the verdict
+// read "Hiring is the better default here" while the row marked the manual
+// path as the winner. One rule now, asserted on the case that split them.
+
+const breadth = task(run({ coverage: { count: 14, unit: "vaults" } }),
+                     { ...run(), path: "manual", ms: 50, coverage: { count: 1, unit: "vaults" } });
+assert.equal(winnerOf(breadth), "hired", "a wide coverage gap goes to the agent");
+
+const shortfall = task(run({ coverage: { count: 1, unit: "markets" } }),
+                       { ...run(), path: "manual", coverage: { count: 567, unit: "markets" } });
+assert.equal(winnerOf(shortfall), "manual", "returning far less loses regardless of the clock");
+
+// Coverage level, agent faster. The old page rule called this for the manual
+// path; the verdict has always called it for the agent.
+const fastAgent = task(run({ ms: 40 }), { ...run(), path: "manual", ms: 200 });
+assert.equal(winnerOf(fastAgent), "hired", "level coverage is decided by the clock");
+assert.match(verdictFor(fastAgent), /Hiring is the better default/, "and the prose says the same");
+
+const fastManual = task(run({ ms: 900 }), { ...run(), path: "manual", ms: 100 });
+assert.equal(winnerOf(fastManual), "manual", "level coverage, slower agent, manual wins");
+assert.match(verdictFor(fastManual), /convenience, not information/, "and the prose says the same");
+
+assert.equal(winnerOf(task(run({ ok: false }), run())), "none", "a failed run has no winner to mark");
 
 // --- explorer links tolerate a chain we do not know -------------------------
 //

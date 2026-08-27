@@ -59,6 +59,42 @@ export function plural(count: number, unit: string) {
 }
 
 /**
+ * How the two paths compare on ground covered.
+ *
+ * Coverage only decides anything when the gap is wide enough to be about the
+ * answer rather than about noise, so the middle band is deliberately broad.
+ */
+function coverage(t: TaskResult): "breadth" | "shortfall" | "comparable" {
+  const ratio = t.hired.coverage.count / Math.max(t.manual.coverage.count, 1);
+  if (ratio >= 2) return "breadth";
+  if (ratio <= 0.5) return "shortfall";
+  return "comparable";
+}
+
+/**
+ * Which path a task went to, by the same rule `verdictFor` narrates.
+ *
+ * Exported because /advantage marks a winner beside each row, and the first
+ * draft of that page scored it independently — "whoever covered more" — which
+ * agreed with the prose on today's numbers and would have disagreed the first
+ * time an agent was both faster and level on coverage. A page contradicting
+ * the sentence printed under it is worse than a page with no marker.
+ */
+export function winnerOf(t: TaskResult): "hired" | "manual" | "none" {
+  if (!t.hired.ok || !t.manual.ok) return "none";
+  switch (coverage(t)) {
+    case "breadth":
+      return "hired";
+    case "shortfall":
+      return "manual";
+    default:
+      // Coverage is level, so the clock decides — the same tie-break the
+      // closing sentence of `verdictFor` makes in prose.
+      return t.hired.ms <= t.manual.ms ? "hired" : "manual";
+  }
+}
+
+/**
  * Scores a task on both axes and lets the numbers pick the winner.
  *
  * An earlier draft of this file asserted which path won each task in prose
@@ -83,23 +119,22 @@ export function verdictFor(t: TaskResult): string {
   }
 
   const timeRatio = t.hired.ms / Math.max(t.manual.ms, 1);
-  const coverRatio = t.hired.coverage.count / Math.max(t.manual.coverage.count, 1);
 
   const timeSentence =
     timeRatio <= 1
       ? `Hiring was ${(1 / timeRatio).toFixed(1)}x faster`
       : `Doing it yourself was ${timeRatio.toFixed(1)}x faster`;
 
-  // Coverage only decides anything when the gap is wide enough to be about the
-  // answer rather than about noise.
-  if (coverRatio >= 2) {
+  const width = coverage(t);
+
+  if (width === "breadth") {
     return (
       `${timeSentence}, but the agent returned ${t.hired.coverage.count} ` +
       `${t.hired.coverage.unit} against ${t.manual.coverage.count}. ` +
       `Hiring wins: matching that breadth by hand is many more calls, not one.`
     );
   }
-  if (coverRatio <= 0.5) {
+  if (width === "shortfall") {
     return (
       `${timeSentence}, and it returned more: ${t.manual.coverage.count} ` +
       `${t.manual.coverage.unit} against the agent's ${t.hired.coverage.count}. ` +

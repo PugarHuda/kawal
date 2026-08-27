@@ -16,6 +16,7 @@ const PAGES = [
   ["agent", "/agents/56/43129"],
   ["compare", "/compare?ids=56:43129,56:45381"],
   ["mandate", "/mandate"],
+  ["advantage", "/advantage"],
 ] as const;
 
 for (const [label, path] of PAGES) {

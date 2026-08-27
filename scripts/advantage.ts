@@ -459,6 +459,29 @@ path that was never tested.
 
 writeFileSync("ADVANTAGE.md", md);
 
+// The same results the markdown carries, in the shape /advantage renders.
+//
+// Written here rather than parsed back out of ADVANTAGE.md because a report
+// and a page reading the same prose would drift the first time either was
+// reworded. The raw payloads stay in their own files — task 3 alone is 700 kB,
+// and a page does not need to parse that to say the agent returned 550
+// markets.
+writeFileSync(
+  `${OUT_DIR}/results.json`,
+  JSON.stringify(
+    {
+      generatedAt,
+      tasks: tasks.map((t) => ({
+        ...t,
+        hired: { ...t.hired, output: clip(t.hired.output, 600) },
+        manual: { ...t.manual, output: clip(t.manual.output, 600) },
+      })),
+    },
+    null,
+    2,
+  ),
+);
+
 console.log(`\nwrote ADVANTAGE.md and ${OUT_DIR}/ (${tasks.length * 2} raw outputs)\n`);
 for (const t of tasks) {
   console.log(`${t.title}`);

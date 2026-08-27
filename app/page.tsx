@@ -55,6 +55,12 @@ export default async function Home() {
           >
             See the limits
           </Link>
+          <Link
+            href="/advantage"
+            className="rounded-sm border border-rule-2 px-5 py-2.5 text-sm font-medium text-ink-2 hover:text-ink"
+          >
+            Read the evidence
+          </Link>
         </div>
       </section>
 

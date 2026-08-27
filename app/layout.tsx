@@ -52,6 +52,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               >
                 Mandate
               </Link>
+              <Link
+                href="/advantage"
+                className="-my-1 inline-flex items-center px-1 py-1.5 text-ink-2 hover:text-ink"
+              >
+                Evidence
+              </Link>
             </nav>
           </div>
         </header>

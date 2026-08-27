@@ -1,1 +1,1 @@
-{"project":"venus","operation":"getAccountLiquidity","data":[{"chain":"bsc","pool":"CORE","borrowLimit":"64125.43","shortfall":"0.00"}]}
+{"project":"venus","operation":"getAccountLiquidity","data":[{"chain":"bsc","pool":"CORE","borrowLimit":"63758.38","shortfall":"0.00"}]}
