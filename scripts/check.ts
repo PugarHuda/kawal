@@ -693,7 +693,7 @@ const scratchDb = `${tmpdir()}/kawal-check-uptime.db`;
 for (const suffix of ["", "-journal", "-wal", "-shm"]) rmSync(`${scratchDb}${suffix}`, { force: true });
 process.env.KAWAL_UPTIME_DB = scratchDb;
 
-const { recordProbe, uptimeFor } = await import("../lib/uptime.ts");
+const { recordProbe, uptimeFor, observedTotals } = await import("../lib/uptime.ts");
 
 const proof = (over: Record<string, unknown> = {}) => ({
   endpoint: "https://example.test/mcp",
@@ -728,6 +728,14 @@ recordProbe(proof({ endpoint: dead, isMcp: false, latencyMs: 5000, error: "HTTP 
 const downtime = uptimeFor(dead)!;
 assert.equal(downtime.answered, 0, "an endpoint that never answered reports zero");
 assert.equal(downtime.medianMs, null, "no answering checks means no median to quote");
+
+// The home page band counts endpoints, not rows. `SUM(is_mcp)` would read 3
+// here — the three answering probes of one agent — and report more agents
+// answering than Kawal has ever called.
+const totals = observedTotals()!;
+assert.equal(totals.checks, 5, "every probe kept, across all endpoints");
+assert.equal(totals.endpoints, 2, "two distinct endpoints were dialled");
+assert.equal(totals.answered, 1, "one of them ever answered; rows are not endpoints");
 
 // --- capability, separate from permission ----------------------------------
 //

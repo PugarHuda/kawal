@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getStats, bscStats } from "@/lib/scan";
 import { CATEGORIES } from "@/lib/taxonomy";
 import { seatColor } from "@/components/listing";
+import { observedTotals } from "@/lib/uptime";
 
 /**
  * Rendered per request so the CSP nonce can reach the scripts.
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const stats = await getStats().catch(() => null);
+  const observed = observedTotals();
   const bsc = stats ? bscStats(stats) : undefined;
 
   const roster = bsc?.total_agents ?? 0;
@@ -73,6 +75,26 @@ export default async function Home() {
             label="ratings per agent"
             note={`${bsc.total_feedbacks.toLocaleString()} feedbacks spread across the whole chain`}
           />
+        </section>
+      )}
+
+      {observed && (
+        <section className="border-b border-rule bg-surface px-6 py-8">
+          <p className="label">Measured here, not read off the registry</p>
+          <p className="mt-3 max-w-2xl leading-relaxed text-ink-2">
+            Every figure above is 8004scan&rsquo;s. This one is Kawal&rsquo;s:{" "}
+            <strong className="tnum font-semibold text-ink">
+              {observed.checks.toLocaleString()}
+            </strong>{" "}
+            calls placed to{" "}
+            <strong className="tnum font-semibold text-ink">{observed.endpoints}</strong>{" "}
+            declared endpoints since{" "}
+            {new Date(observed.since * 1000).toISOString().slice(0, 10)}, of which{" "}
+            <strong className="tnum font-semibold text-ink">{observed.answered}</strong>{" "}
+            answered. The rest are either not there or speak a protocol this
+            prober does not — recorded as unknown rather than counted as a
+            failure.
+          </p>
         </section>
       )}
 

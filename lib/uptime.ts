@@ -191,3 +191,49 @@ export function observedFor(endpoint: string | null | undefined) {
   return seen ? { checks: seen.checks, answered: seen.answered } : undefined;
 }
 
+
+export type Observed = {
+  /** Every probe Kawal has kept, across all agents. */
+  checks: number;
+  /** Distinct endpoints called at least once. */
+  endpoints: number;
+  /** Of those, how many have ever answered as MCP. */
+  answered: number;
+  /** Unix seconds of the oldest retained observation. */
+  since: number;
+};
+
+/**
+ * What Kawal has measured for itself, across every agent it has called.
+ *
+ * The home page otherwise repeats 8004scan's figures, which are the registry's
+ * claims about itself — the exact thing this product exists to distrust. This
+ * is the only number on that page Kawal earned, so it is worth the one query.
+ *
+ * Null when the history is empty or unreadable, for the same reason
+ * `uptimeFor` is: a band reading "0 of 0" says less than no band.
+ */
+export function observedTotals(): Observed | null {
+  const handle = open();
+  if (!handle) return null;
+
+  try {
+    const row = handle
+      .prepare(
+        `SELECT COUNT(*)                                        AS checks,
+                COUNT(DISTINCT endpoint)                        AS endpoints,
+                COUNT(DISTINCT CASE WHEN is_mcp = 1
+                                    THEN endpoint END)          AS answered,
+                MIN(checked_at)                                 AS since
+           FROM probe`,
+      )
+      .get() as
+      | { checks: number; endpoints: number; answered: number; since: number | null }
+      | undefined;
+
+    if (!row || row.checks === 0) return null;
+    return { checks: row.checks, endpoints: row.endpoints, answered: row.answered, since: row.since ?? 0 };
+  } catch {
+    return null;
+  }
+}
