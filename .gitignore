@@ -46,6 +46,7 @@ next-env.d.ts
 .kawal-sessions.json.lock
 .kawal-sessions.json.tmp
 .kawal-uptime.db
+.kawal-payments.db
 
 # playwright mcp scratch
 .playwright-mcp/
