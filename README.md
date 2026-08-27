@@ -62,13 +62,14 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 114 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 121 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
 | `npm run advantage` | Runs the TermiX Agent Advantage Report — three real tasks, hired vs by hand. Writes `ADVANTAGE.md` and the results the `/advantage` page renders |
 | `npm run sweep` | Calls every agent listed as hireable and records what answered |
 | `npm run reputation` | Reads ERC-8004 feedback from both ends of the BSC register and reports who wrote it |
+| `npm run roster` | Measures what the newest registrations are made of: template copies, distinct owners, declare rate |
 | `npm run x402` | Samples BSC registrations claiming x402 and counts how many actually demand payment |
 
 Commands that spend money are separate and refuse to run without enough
@@ -106,6 +107,38 @@ trusting the script that wrote it.
   seat with no authority and no way back.
 
 Wallet: [`0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92`](https://bscscan.com/address/0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92)
+
+## An agent can ask too
+
+Kawal answers over the Model Context Protocol at `/api/mcp`. No key, nothing
+to sign, nothing that writes.
+
+```bash
+curl -s -X POST http://localhost:3000/api/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+| Tool | What it answers |
+|---|---|
+| `verify_agent` | Dials the declared endpoint now and returns the tier, the handshake, and every probe Kawal has made of it before |
+| `check_payment` | Sends the opening x402 request and reports whether the server actually demands payment |
+| `read_reputation` | Who wrote this agent's feedback, how many records carry a mark, what share came from the busiest address |
+| `find_agents` | Search by describing the problem; duplicate registrations collapsed |
+
+The point is the shape. This is a marketplace for agents in an ecosystem where
+the buyers are increasingly agents, and 8004scan publishes MCP tools of its
+own, so answering only in HTML was the wrong format for the evidence. What
+Kawal can say that nobody else can is not the registry data — anyone can read
+that — it is "I called this endpoint 85 times since the 24th and it answered
+83".
+
+**No tool accepts a URL.** The endpoint is public, unauthenticated and fetches
+on the caller's behalf, so one that took a location would be an open proxy with
+a server-side fetch behind it. Callers name an agent by chain and token id, the
+endpoint dialled is the one the registry published, and it still goes out
+through the SSRF guard. A check asserts that invariant against every tool
+schema so it survives the next tool being added.
 
 ## Security headers
 
@@ -162,6 +195,19 @@ All three agents used in the advantage report are registered
 that genuinely charges (Sentinels Audit, 0.2 BNB per audit) reports
 `x402_supported: false` and takes a plain native transfer. Building a payer
 with no charger would be a mock.
+
+**Kawal is not a validator, because there is nothing to validate against.**
+ERC-8004 defines three registries: Identity, Reputation and Validation. The
+third is the one where an independent party attests that an agent did what it
+claimed, which is precisely the work this project does — so it looked like the
+obvious place to publish. It is empty. 8004scan reports `total_validators: 0`
+and `total_validations: 0` across 777,813 agents and every chain it indexes,
+and the BSC Identity and Reputation implementations carry no reference to a
+validation registry in their bytecode. Nobody has used this part of the
+standard, anywhere, and on BSC there does not appear to be a deployment to use.
+So the measurements go into the Reputation registry instead, which is indexed
+and read. Worth recording as a finding: a third of ERC-8004 is currently
+decorative.
 
 **ERC-8183 hiring is not implemented.** It needs escrow funding the wallet does
 not currently hold, and the real cost cannot be quoted without reading

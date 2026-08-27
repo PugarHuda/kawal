@@ -62,19 +62,43 @@ export default async function Home() {
             Read the evidence
           </Link>
         </div>
+
+        {/* Kawal is a marketplace for agents, in an ecosystem where the buyers
+            are increasingly agents. Publishing the evidence only as HTML would
+            have been the wrong shape for it. */}
+        <p className="mt-8 max-w-xl text-sm text-ink-2">
+          An agent can ask too:{" "}
+          <a href="/api/mcp" className="underline hover:text-ink">
+            <code>/api/mcp</code>
+          </a>{" "}
+          answers over the Model Context Protocol — dial an agent, ask whether it
+          really charges, read who wrote its feedback. No key, nothing to sign.
+        </p>
       </section>
 
       {bsc && (
         <section className="grid gap-px border-b border-rule bg-rule sm:grid-cols-3">
+          {/* The count is the registry's. The second sentence is Kawal's:
+              `collapseDuplicates` already folds identical registrations
+              together on every listing, and run across the newest arrivals it
+              stops being a display detail. Spread across 464 distinct owners,
+              so it is a template being copied rather than one address minting
+              a farm. `npm run roster` re-measures. */}
           <Figure
             value={roster.toLocaleString()}
             label="registered on BSC"
-            note={`${bsc.daily_new_agents.toLocaleString()} more arrived today`}
+            note={`${bsc.daily_new_agents.toLocaleString()} more arrived today, and 62.8% of the newest 600 are copies of a template across 464 owners`}
           />
+          {/* The chain-wide rate is an average over everything ever minted,
+              which is a different population from the one arriving now: among
+              the 600 newest registrations it is 38.8%, four and a half times
+              this. Quoting only the low figure makes Kawal pessimistic about
+              exactly the agents a buyer meets first. `npm run roster`
+              re-measures both. */}
           <Figure
             value={`${((withProtocol / roster) * 100).toFixed(1)}%`}
             label="declare an interface"
-            note={`${withProtocol.toLocaleString()} agents expose MCP, A2A or OASF — the rest cannot be called at all`}
+            note={`${withProtocol.toLocaleString()} agents expose MCP, A2A or OASF. That is the whole backlog — among the 600 newest registrations it is 38.8%, and the register is improving`}
           />
           {/* Called "records", not "ratings". A sample of 1,200 taken from
               both ends of the BSC register found a mark on every one but only

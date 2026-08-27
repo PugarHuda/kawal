@@ -21,6 +21,7 @@ import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS } f
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
 import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
+import { handleRpc, TOOLS, PROTOCOL_VERSION } from "../lib/server.mcp.ts";
 import { buildFeedback, uptimePercent, windowDays, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
@@ -1170,4 +1171,104 @@ assert.equal(uptimePercent({ checks: 0, answered: 0 }), 0, "no probes is not a d
 assert.equal(uptimePercent({ checks: 3, answered: 1 }), 33.33, "rounded to the published precision");
 assert.equal(windowDays(stamped.getTime() / 1000, stamped.getTime() / 1000), 1, "a window is never zero days");
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback");
+/* ---------------------------------------------------- mcp server ---
+ *
+ * Kawal answers over MCP so agents can ask it things, which means it now has
+ * an unauthenticated public endpoint that makes outbound requests. The
+ * protocol handling is checked here rather than only against a running server:
+ * a transport bug is a bug in the one surface that has no browser in front of
+ * it to make the failure obvious.
+ */
+
+type RpcBody = {
+  result?: Record<string, unknown> & {
+    tools?: Array<Record<string, unknown>>;
+    serverInfo?: { name?: string };
+    capabilities?: { tools?: unknown };
+    protocolVersion?: string;
+    isError?: boolean;
+    content?: Array<{ text?: string }>;
+  };
+  error?: { code?: number; message?: string };
+};
+
+const rpc = (method: string, params?: unknown, id: unknown = 1) =>
+  handleRpc({ jsonrpc: "2.0", id, method, params });
+
+/** The envelope, named once, so these assertions are not eight casts. */
+const envelope = (r: { body: unknown }) => (r.body ?? {}) as RpcBody;
+
+const handshake = await rpc("initialize");
+assert.equal(handshake.status, 200);
+const initResult = envelope(handshake).result!;
+assert.equal(initResult.protocolVersion, PROTOCOL_VERSION, "the handshake names a revision");
+assert.equal(initResult.serverInfo?.name, "kawal");
+assert.ok(initResult.capabilities?.tools, "and declares the tools capability");
+
+const listed = await rpc("tools/list");
+const tools = envelope(listed).result!.tools!;
+assert.equal(tools.length, TOOLS.length, "every tool is listed");
+for (const t of tools) {
+  assert.ok(typeof t.name === "string" && t.name.length > 0, "a tool has a name");
+  assert.ok(String(t.description).length > 40, `${String(t.name)} explains itself`);
+  assert.equal((t.inputSchema as Record<string, unknown>).type, "object", `${String(t.name)} takes an object`);
+}
+
+// The security invariant, asserted rather than remembered.
+//
+// This endpoint is public, unauthenticated, and fetches on the caller's
+// behalf. A tool that accepted a URL would make it an open proxy with a
+// server-side fetch behind it. Callers name an agent and the endpoint dialled
+// is the one the registry published, so this must stay true as tools are
+// added.
+for (const t of TOOLS) {
+  const properties = (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+  for (const key of Object.keys(properties)) {
+    assert.doesNotMatch(
+      key,
+      /url|uri|endpoint|host|address/i,
+      `tool ${t.name} must not accept ${key}: a public fetcher that takes a location is an open proxy`,
+    );
+  }
+}
+
+// A notification has no id and must get no body: answering one leaves a
+// well-behaved client waiting for a reply to a statement.
+const notified = await handleRpc({ jsonrpc: "2.0", method: "notifications/initialized" });
+assert.equal(notified.status, 202, "a notification is accepted");
+assert.equal(notified.body, null, "and answered with nothing at all");
+
+// Unknown methods and unknown tools are told apart: one is a protocol fault,
+// the other is a question about something that does not exist.
+const unknownMethod = await rpc("resources/list");
+assert.equal(envelope(unknownMethod).error?.code, -32601);
+
+const unknownTool = await rpc("tools/call", { name: "drop_tables", arguments: {} });
+assert.equal(envelope(unknownTool).error?.code, -32601, "an unknown tool is not found");
+
+const malformed = await handleRpc("not an object");
+assert.equal(malformed.status, 400, "a non-object body is a parse error");
+
+const noMethod = await handleRpc({ jsonrpc: "2.0", id: 9 });
+assert.equal(envelope(noMethod).error?.code, -32600, "a message with no method is invalid");
+
+// Bad arguments come back as a tool result, not a transport fault: the caller
+// asked a valid question and is owed the reason it could not be answered.
+// These run offline because validation happens before any network call.
+const badChain = await rpc("tools/call", { name: "verify_agent", arguments: { chainId: 1, tokenId: "1" } });
+const badChainResult = envelope(badChain).result!;
+assert.equal(badChain.status, 200, "a rejected argument is still a successful exchange");
+assert.equal(badChainResult.isError, true, "but the result says it failed");
+assert.match(badChainResult.content![0]!.text!, /chainId must be one of/);
+
+for (const tokenId of ["", "abc", "12x", "../../etc", "1e5"]) {
+  const bad = await rpc("tools/call", { name: "verify_agent", arguments: { tokenId } });
+  const result = envelope(bad).result!;
+  assert.equal(result.isError, true, `token id ${JSON.stringify(tokenId)} is refused`);
+  assert.match(result.content![0]!.text!, /decimal token id/);
+}
+
+const emptyQuery = await rpc("tools/call", { name: "find_agents", arguments: { query: "   " } });
+assert.equal(envelope(emptyQuery).result?.isError, true, "an empty search is refused");
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server");
