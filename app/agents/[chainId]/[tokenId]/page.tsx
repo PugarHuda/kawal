@@ -12,6 +12,7 @@ import {
 import { proveAgent, type EndpointProof, type ProbedTool } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { checkX402Cached, networkName, type X402Check } from "@/lib/x402";
+import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/reputation";
 import { classify } from "@/lib/taxonomy";
 import { assess, tierLabel } from "@/lib/signals";
 import { categoryLabel, seatColor } from "@/components/listing";
@@ -45,10 +46,13 @@ export async function generateMetadata({ params }: PageProps<"/agents/[chainId]/
 export default async function AgentPage({ params }: PageProps<"/agents/[chainId]/[tokenId]">) {
   const { chainId, tokenId } = await params;
 
-  const [agent, quality, history] = await Promise.all([
+  const [agent, quality, history, reputation] = await Promise.all([
     getAgent(Number(chainId), tokenId).catch(() => null),
     getQuality(Number(chainId), tokenId),
     getScoreHistory(Number(chainId), tokenId),
+    // Read here rather than on the listing: this is one request per agent, and
+    // decorating fifty rows nobody has chosen yet would be fifty of them.
+    getReputationCached(Number(chainId), tokenId),
   ]);
   if (!agent) notFound();
 
@@ -76,6 +80,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
     undefined,
     observed && { ...observed, reachedAnotherWay: proof?.descriptor != null },
     payment ? { demanded: payment.demanded } : undefined,
+    reputation,
   );
   const registered = new Date(agent.created_at);
 
@@ -128,6 +133,8 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
       {proof && <LiveProbe proof={proof} uptime={uptimeFor(proof.endpoint)} />}
 
       {payment && <PaymentTerms check={payment} />}
+
+      {reputation && reputation.total > 0 && <TrackRecord r={reputation} />}
 
       {quality?.endpoint_health && (
         <section className="border-b border-rule py-8">
@@ -232,6 +239,96 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
  * request cannot see, and the wording has to leave room for that while
  * refusing to repeat an unverified claim as a checkmark.
  */
+/**
+ * Who wrote this agent's track record.
+ *
+ * `total_feedbacks` and `average_score` are counts the registry keeps without
+ * asking who wrote the records. Reading 1,200 of them across BSC found a mark
+ * on every one — a graded register, not an empty one — but only 53 addresses
+ * behind the lot, one of which wrote 265 of the oldest 600 under the tag
+ * `get top 1 rank >`. An average over that turns one party's opinion into a
+ * consensus.
+ *
+ * Concentration is reported, not judged. An uptime prober writing hundreds of
+ * honest records looks identical here to an owner talking about themselves,
+ * and the address is shown so the reader can go and tell them apart.
+ */
+function TrackRecord({ r }: { r: Reputation }) {
+  const unmarked = r.valued === 0;
+  const captured = r.raters === 1 || r.topRaterShare >= CAPTURED_SHARE;
+  const headline = unmarked
+    ? "Records carrying no mark"
+    : captured
+      ? "Feedback from almost one source"
+      : "Marked by several addresses";
+
+  return (
+    <section className="border-b border-rule py-8">
+      <h2 className="label">We read the feedback</h2>
+      <p className="mt-3 flex flex-wrap items-baseline gap-3">
+        <span
+          className="text-2xl font-semibold tracking-tight"
+          style={{ color: unmarked || captured ? "var(--brass)" : "var(--seat-yield)" }}
+        >
+          {headline}
+        </span>
+      </p>
+
+      <p className="mt-3 max-w-2xl text-sm text-ink-2">
+        {unmarked
+          ? "Every record on this agent was written without a mark. There is nothing here to judge on, whatever number the registry prints beside it."
+          : captured
+            ? "One address wrote most of what is here. That is not proof of anything — a scheduled uptime prober looks exactly like this — but it is one party's opinion rather than a market's, and it is worth knowing which before granting a spend cap."
+            : "Several separate addresses marked this agent. That is as close to a track record as ERC-8004 currently gets on BSC."}
+      </p>
+
+      <dl className="mt-6 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+        <Row label="Records held">
+          <span className="tnum">{r.total.toLocaleString()}</span>
+        </Row>
+        <Row label="Carrying a mark">
+          <span className="tnum">
+            {r.valued} of {r.sampled} read
+          </span>
+        </Row>
+        {/* 8004scan's own normalised field, which is what an `average_score`
+            is computed from. Null on 1,192 of 1,200 sampled chain-wide, so the
+            gap between this row and the one above is the gap between the marks
+            that exist and the marks the ecosystem averages. */}
+        <Row label="In the registry's score field">
+          <span className="tnum">
+            {r.scored} of {r.sampled}
+          </span>
+        </Row>
+        <Row label="Carrying a comment">
+          <span className="tnum">{r.commented}</span>
+        </Row>
+        <Row label="Distinct writers">
+          <span className="tnum">{r.raters}</span>
+        </Row>
+        {r.revoked > 0 && (
+          <Row label="Withdrawn">
+            <span className="tnum">{r.revoked}</span>
+          </Row>
+        )}
+        {r.topRater && (
+          <Row label="Busiest writer">
+            <a
+              href={`https://bscscan.com/address/${r.topRater}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="break-all underline hover:text-ink"
+            >
+              {r.topRater.slice(0, 10)}…{r.topRater.slice(-6)}
+            </a>
+            <span className="ml-2 tnum text-ink-3">{Math.round(r.topRaterShare * 100)}%</span>
+          </Row>
+        )}
+      </dl>
+    </section>
+  );
+}
+
 function PaymentTerms({ check }: { check: X402Check }) {
   const charged = check.demanded;
   return (
@@ -376,6 +473,21 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
                 : ""}
             </span>
           )}
+        </p>
+      )}
+
+      {/* What this measurement cannot see.
+          Kawal probes from one place, so it cannot tell "the agent is down"
+          from "the agent is unreachable from here" — an agent that geo-blocks
+          or ASN-blocks this prober is indistinguishable from one that is
+          broken. GEBO, the uptime agent writing feedback into this same
+          registry, publishes the identical defect about itself; borrowing the
+          habit costs nothing and a reliability figure with no stated blind
+          spot is asking to be over-trusted. */}
+      {uptime && uptime.checks > 1 && !desc && uptime.answered < uptime.checks && (
+        <p className="mt-3 max-w-2xl text-sm text-ink-3">
+          Measured from a single vantage point. A missed check means Kawal could
+          not reach it from here, which is not the same as the agent being down.
         </p>
       )}
 

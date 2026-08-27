@@ -20,6 +20,9 @@ import {
 import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
+import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
+import { buildFeedback, uptimePercent, windowDays, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
+import { decodeFunctionData, keccak256, toHex } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
 import { memo, clearMemo, memoStats } from "../lib/memo.ts";
@@ -941,4 +944,170 @@ assert.equal(networkName("eip155:56"), "BNB Smart Chain");
 assert.equal(networkName("eip155:8453"), "Base");
 assert.equal(networkName("eip155:999999"), "eip155:999999", "an unknown chain is shown as written");
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402");
+/* ---------------------------------------------------- reputation ---
+ *
+ * `assess` called any agent with total_feedbacks > 0 "rated" and printed the
+ * registry's average beside it. Reading 1,200 BSC records from both ends of
+ * the register found a mark on every one but only 53 addresses behind the lot,
+ * one of which wrote 265 of the oldest 600 under the tag `get top 1 rank >`.
+ * The thin part is who wrote them, not whether a number is there.
+ * `npm run reputation` re-measures.
+ */
+
+const fb = (over: Record<string, unknown> = {}) => ({
+  score: 80,
+  value: "8000",
+  value_decimals: 2,
+  comment: "fine",
+  is_revoked: false,
+  user_address: "0xAAA",
+  ...over,
+});
+
+const none = summarise([], 0, "t");
+assert.equal(none.raters, 0, "no records, no writers");
+assert.equal(none.topRaterShare, 0, "and no share to divide by zero over");
+assert.equal(isTrackRecord(none), false, "nothing read is not a track record");
+
+// A mark and 8004scan's normalised score are different fields, and the whole
+// point of reading the records was noticing they disagree: every sampled BSC
+// record carries a value, while 1,192 of 1,200 carry a null score. An earlier
+// version of this keyed the signal off `score` and failed essentially every
+// agent on the chain for a reason that had nothing to do with the agent.
+const scoreless = summarise(
+  [fb({ score: null }), fb({ score: null, user_address: "0xBBB" })],
+  2,
+  "t",
+);
+assert.equal(scoreless.scored, 0, "a null score is not a score");
+assert.equal(scoreless.valued, 2, "but the mark on the record still counts");
+assert.equal(isTrackRecord(scoreless), true, "and two marking addresses is a track record");
+
+// Scientific notation is how these arrive as often as plain digits.
+assert.equal(summarise([fb({ value: "1E+4" })], 1, "t").valued, 1, "1E+4 is a mark");
+assert.equal(summarise([fb({ value: null })], 1, "t").valued, 0, "a null value is not");
+assert.equal(summarise([fb({ value: "" })], 1, "t").valued, 0, "nor is an empty one");
+
+// Records with no mark at all cannot support a judgement.
+const unmarked = summarise(
+  [fb({ value: null }), fb({ value: null, user_address: "0xBBB" })],
+  2,
+  "t",
+);
+assert.equal(unmarked.valued, 0, "nothing marked");
+assert.equal(unmarked.raters, 2, "though the writers still count");
+assert.equal(isTrackRecord(unmarked), false, "and an unmarked pile is not a record");
+
+// Addresses differing only in case are one writer. Counting them as two would
+// report capture as diversity, which is the error that flatters.
+const cased = summarise([fb({ user_address: "0xAbC" }), fb({ user_address: "0xabc" })], 2, "t");
+assert.equal(cased.raters, 1, "one wallet in two casings is one writer");
+assert.equal(cased.topRaterShare, 1, "and it wrote everything");
+assert.equal(isTrackRecord(cased), false, "one address is not a market");
+
+// An empty comment string is not a comment.
+assert.equal(summarise([fb({ comment: "   " })], 1, "t").commented, 0, "whitespace is not a comment");
+
+// Withdrawn records are read, not dropped: hiding them would silently improve
+// every agent whose reviewer took it back.
+const withdrawn = summarise([fb({ is_revoked: true }), fb({ user_address: "0xBBB" })], 2, "t");
+assert.equal(withdrawn.revoked, 1, "a withdrawal is counted");
+assert.equal(withdrawn.sampled, 2, "and still counted as read");
+
+// The concentration line, exercised either side.
+const captured = summarise(
+  [fb(), fb(), fb(), fb({ user_address: "0xBBB" })],
+  4,
+  "t",
+);
+assert.equal(captured.topRaterShare, 0.75, "three of four from one address");
+assert.ok(captured.topRaterShare >= CAPTURED_SHARE, "which is over the line");
+assert.equal(isTrackRecord(captured), false, "so it describes the writer, not the agent");
+
+const spread = summarise(
+  [fb(), fb({ user_address: "0xBBB" }), fb({ user_address: "0xCCC" })],
+  3,
+  "t",
+);
+assert.ok(spread.topRaterShare < CAPTURED_SHARE, "an even spread stays under the line");
+assert.equal(isTrackRecord(spread), true, "several scoring addresses is a track record");
+
+// And the signal follows the reading rather than the count. The registration
+// below claims 40 feedbacks and a 4.8 average either way.
+const boasting = agent({ total_feedbacks: 40, average_score: 4.8 });
+const rowOf = (a: typeof boasting, r?: Parameters<typeof assess>[4]) =>
+  assess(a, undefined, undefined, undefined, r).signals.find((x) => x.key === "rated")!;
+
+assert.equal(rowOf(boasting).pass, true, "unread, the registry's count stands");
+assert.match(rowOf(boasting).detail, /records not read here/, "but it must not read as verified");
+assert.equal(rowOf(boasting, unmarked).pass, false, "read and unmarked is a failed signal");
+assert.match(rowOf(boasting, unmarked).detail, /nothing to judge on/);
+assert.equal(rowOf(boasting, captured).pass, false, "read and captured is a failed signal");
+assert.match(rowOf(boasting, captured).detail, /75% from one address/);
+assert.equal(rowOf(boasting, spread).pass, true, "read and spread passes");
+assert.match(rowOf(boasting, spread).detail, /from 3 addresses/);
+
+/* ------------------------------------------------------ feedback ---
+ *
+ * The only bytes Kawal makes that cannot be edited afterwards. The shape was
+ * read off a live GEBO record and decoded against the registry ABI; these
+ * assertions hold the builder to it, because being wrong here is a permanent
+ * record on a public registry with our name on it rather than a bad render.
+ */
+
+const measured = {
+  chainId: BSC_MAINNET,
+  agentId: "43970",
+  endpoint: "https://example.test/mcp",
+  checks: 40,
+  answered: 39,
+  since: Math.floor(Date.parse("2026-08-01T00:00:00Z") / 1000),
+  medianMs: 180,
+};
+const stamped = new Date("2026-08-27T00:00:00Z");
+const built = buildFeedback(measured, stamped);
+
+// The hash covers the payload bytes, not the data: URI that carries them. A
+// live GEBO record hashes the decoded JSON, and getting this backwards writes
+// a record no indexer can verify.
+assert.equal(built.hash, keccak256(toHex(built.payload)), "the hash is taken over the payload");
+assert.notEqual(built.hash, keccak256(toHex(built.uri)), "and not over the URI wrapper");
+assert.ok(built.uri.startsWith("data:application/json;base64,"), "the URI is a self-carrying payload");
+assert.equal(
+  Buffer.from(built.uri.slice("data:application/json;base64,".length), "base64").toString("utf8"),
+  built.payload,
+  "and decodes back to exactly the bytes that were hashed",
+);
+
+// The calldata must decode to what the printout claimed, through the same ABI.
+const decoded = decodeFunctionData({ abi: FEEDBACK_ABI, data: built.data });
+assert.equal(decoded.functionName, "giveFeedback");
+const [dAgent, dValue, dDecimals, dTag1, dTag2, dEndpoint, dUri, dHash] = decoded.args;
+assert.equal(dAgent, 43970n, "the agent id survives the round trip");
+assert.equal(dValue, 9750n, "39 of 40 is 97.50%, carried at two decimals");
+assert.equal(dDecimals, 2);
+assert.equal(dTag1, "uptime");
+assert.equal(dTag2, "26d", "the window is the measured span, not a fixed label");
+assert.equal(dEndpoint, measured.endpoint);
+assert.equal(dUri, built.uri);
+assert.equal(dHash, built.hash, "the hash in the calldata is the one over the payload");
+
+// The defects travel with the number. A reliability figure outlives its
+// caveats unless they are in the record itself.
+const parsed = JSON.parse(built.payload);
+assert.deepEqual(parsed.method.knownDefects, KNOWN_DEFECTS, "every record states its blind spots");
+assert.match(parsed.reasoning, /97\.50%/, "the reasoning quotes the figure it published");
+assert.equal(parsed.agentRegistry, `eip155:56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`);
+
+// A thin sample must not become a permanent claim.
+assert.throws(
+  () => buildFeedback({ ...measured, checks: MIN_OBSERVATIONS_TO_PUBLISH - 1 }, stamped),
+  /refusing to publish/,
+  "below the floor, nothing is built at all",
+);
+
+assert.equal(uptimePercent({ checks: 0, answered: 0 }), 0, "no probes is not a division");
+assert.equal(uptimePercent({ checks: 3, answered: 1 }), 33.33, "rounded to the published precision");
+assert.equal(windowDays(stamped.getTime() / 1000, stamped.getTime() / 1000), 1, "a window is never zero days");
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback");

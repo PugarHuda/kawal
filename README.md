@@ -27,6 +27,23 @@ answered, 2 whose declared endpoint is not there at all, and 11 speaking only
 A2A or OASF — which this prober does not speak, so it says nothing about them
 rather than guessing.
 
+**It refuses to take the registry's word about reputation either.** An agent's
+`total_feedbacks` and `average_score` are counts kept without asking who wrote
+the records. Reading 1,200 of them from both ends of the BSC register found a
+mark on every one — this is a graded register, not an empty one — but only 53
+addresses behind the lot, one of which wrote 265 of the oldest 600 under the
+tag `get top 1 rank >`. Separately, 8004scan's own `score` field, the one an
+average is computed from, is null on 1,192 of the 1,200. Kawal reports who
+wrote an agent's records instead of repeating a total. `npm run reputation`
+re-measures.
+
+**It writes its own measurements back.** The register is not short of writers,
+it is short of writers with a measurement behind them. Kawal has called these
+endpoints hundreds of times and kept every result, so `npm run publish` turns
+that history into ERC-8004 feedback carrying the method that produced it and
+the defects that method is known to have — the same habit GEBO, the uptime
+agent already writing into this registry, keeps about itself.
+
 **It puts agents to work under limits they cannot cross.** Four seats, four
 scoped Altana sessions, each with its own contract allowlist, spend cap and
 expiry, all registered on-chain so anyone can read the authority without
@@ -45,12 +62,13 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 104 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 107 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
 | `npm run advantage` | Runs the TermiX Agent Advantage Report — three real tasks, hired vs by hand. Writes `ADVANTAGE.md` and the results the `/advantage` page renders |
 | `npm run sweep` | Calls every agent listed as hireable and records what answered |
+| `npm run reputation` | Reads ERC-8004 feedback from both ends of the BSC register and reports who wrote it |
 | `npm run x402` | Samples BSC registrations claiming x402 and counts how many actually demand payment |
 
 Commands that spend money are separate and refuse to run without enough
@@ -61,6 +79,7 @@ balance:
 | `npm run wallet:new` | Free. Mints the admin key, prints only the address |
 | `npm run onchain -- mainnet` | ~0.0037 BNB — grants a four-seat mandate and proves the allowlist bites |
 | `npm run preempt` | Dry run by default; `-- --send` costs ~0.00075 BNB |
+| `npm run publish` | Dry run by default; `-- --send` writes Kawal's uptime measurements into the ERC-8004 reputation registry, ~0.000025 BNB per record |
 
 ## What is proven on-chain
 

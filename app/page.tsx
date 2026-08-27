@@ -76,10 +76,16 @@ export default async function Home() {
             label="declare an interface"
             note={`${withProtocol.toLocaleString()} agents expose MCP, A2A or OASF — the rest cannot be called at all`}
           />
+          {/* Called "records", not "ratings". A sample of 1,200 taken from
+              both ends of the BSC register found a mark on every one but only
+              53 addresses behind the lot — `npm run reputation` re-measures.
+              A ratio computed over that counts writes, not opinions, and
+              calling it a rating on our front page would repeat exactly the
+              kind of claim this site exists to check. */}
           <Figure
             value={perAgent.toFixed(3)}
-            label="ratings per agent"
-            note={`${bsc.total_feedbacks.toLocaleString()} feedbacks spread across the whole chain`}
+            label="feedback records per agent"
+            note={`${bsc.total_feedbacks.toLocaleString()} records chain-wide. A sample of 1,200 found just 53 addresses behind them — a count of writes, not of opinions`}
           />
         </section>
       )}

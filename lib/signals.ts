@@ -16,6 +16,7 @@
  */
 
 import type { ScanAgent } from "./scan.ts";
+import { isTrackRecord, CAPTURED_SHARE, type Reputation } from "./reputation.ts";
 
 export type Tier = "hireable" | "reachable" | "unreachable" | "registered";
 
@@ -159,17 +160,60 @@ const CALLABLE_PROTOCOLS = new Set(["MCP", "A2A", "OASF"]);
  */
 export type Payment = { demanded: boolean };
 
+/**
+ * What to say about a feedback count, given whether the records were read.
+ *
+ * Three states, and conflating any two of them is a lie of a different size:
+ * Kawal has not looked; Kawal looked and found something worth calling a
+ * record; Kawal looked and found the count does not survive contact. The last
+ * one names the reason rather than just failing, because "40 records, 96% from
+ * one address" is actionable and "no track record" is not.
+ */
+function trackRecordDetail(agent: ScanAgent, r?: Reputation | null): string {
+  const count = agent.total_feedbacks;
+  const plural = count === 1 ? "" : "s";
+
+  if (r === undefined || r === null) {
+    return count > 0
+      ? `${count} feedback${plural} on the registry — records not read here`
+      : "Never rated";
+  }
+  if (r.total === 0) return "Never rated";
+
+  if (r.valued === 0) {
+    return `${r.total} record${r.total === 1 ? "" : "s"}, none carrying a mark — nothing to judge on`;
+  }
+
+  const who =
+    r.raters === 1
+      ? "all from one address"
+      : r.topRaterShare >= CAPTURED_SHARE
+        ? `${Math.round(r.topRaterShare * 100)}% from one address`
+        : `from ${r.raters} addresses`;
+
+  const withdrawn = r.revoked > 0 ? `, ${r.revoked} withdrawn` : "";
+  return `${r.valued} of ${r.sampled} marked, ${who}${withdrawn}`;
+}
+
 export function assess(
   agent: ScanAgent,
   dupes?: Map<string, number>,
   observed?: Observed,
   payment?: Payment,
+  reputation?: Reputation | null,
 ): Assessment {
   const protocols = agent.supported_protocols ?? [];
   const interfaces = protocols.filter((p) => CALLABLE_PROTOCOLS.has(p.toUpperCase()));
   const callable = interfaces.length > 0;
   const payable = agent.x402_supported === true;
-  const rated = agent.total_feedbacks > 0;
+  // The registry counts feedback records; it does not ask who wrote them. A
+  // sample of 1,200 BSC records found 53 addresses behind all of them, one of
+  // which wrote 265 of the oldest 600. A count is not evidence of a track
+  // record. Where Kawal has read the records, the reading wins.
+  const rated =
+    reputation === undefined || reputation === null
+      ? agent.total_feedbacks > 0
+      : isTrackRecord(reputation);
   const healthy = agent.health_score !== null && agent.health_score >= 60;
   const duplicates = dupes?.get(fingerprint(agent)) ?? 1;
 
@@ -236,9 +280,7 @@ export function assess(
       key: "rated",
       label: "Has a track record",
       pass: rated,
-      detail: rated
-        ? `${agent.total_feedbacks} feedback${agent.total_feedbacks === 1 ? "" : "s"}, average ${agent.average_score.toFixed(1)}`
-        : "Never rated",
+      detail: trackRecordDetail(agent, reputation),
     },
     {
       key: "healthy",

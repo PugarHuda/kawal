@@ -196,15 +196,29 @@ export async function retrieveAllCategories(chainId = BSC_MAINNET) {
   return Promise.all(CATEGORIES.map((c) => retrieveCategory(c, { chainId })));
 }
 
-/** The unfiltered roster, ranked by evidence. Used by the browse view. */
+/**
+ * The unfiltered roster, ranked by evidence. Used by the browse view.
+ *
+ * A typed query goes through the hybrid vector endpoint rather than the
+ * keyword filter. The category probes have used it since they were written,
+ * but the search box a visitor actually types into was still doing substring
+ * matching on names — so "watch my lending position for liquidation" found
+ * nothing, while the vector index returns `bnb-lending-guardian` and
+ * `RiskOracle`, neither of which contains a word from the query.
+ *
+ * That gap mattered more than it looked: the rubric asks that someone with no
+ * Agent Studio experience can find an agent, and such a person describes a
+ * problem, not a product name. `searchAgents` keeps the keyword path as its
+ * own internal fallback, so a wobbling endpoint still returns a page.
+ */
 export async function browse(opts: { chainId?: number; search?: string; limit?: number } = {}) {
-  const { agents, total } = await listAgents({
-    chainId: opts.chainId ?? BSC_MAINNET,
-    search: opts.search,
-    limit: opts.limit ?? 60,
-    sortBy: "total_score",
-    sortOrder: "desc",
-  });
+  const chainId = opts.chainId ?? BSC_MAINNET;
+  const limit = opts.limit ?? 60;
+  const term = opts.search?.trim();
+
+  const { agents, total } = term
+    ? await searchAgents(term, { chainId, limit })
+    : await listAgents({ chainId, limit, sortBy: "total_score", sortOrder: "desc" });
   // The unfiltered tab needs the same collapse as a category page: without it
   // "All" is where every minted series reappears in full.
   return { listings: collapseDuplicates(toListings(agents)), total };

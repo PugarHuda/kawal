@@ -91,11 +91,29 @@ test("search finds agents by term", async ({ page }) => {
   expect(await page.locator("article").count()).toBeGreaterThan(0);
 });
 
-test("a term that matches nothing says so instead of breaking", async ({ page }) => {
+test("a term that matches nothing does not invent a hireable agent", async ({ page }) => {
+  // This asserted zero rows while the search box did substring matching on
+  // names. It now goes through the hybrid vector endpoint, which always
+  // returns its nearest neighbours — "zzzznotarealagentzzzz" reaches `zzj
+  // agent` on a trigram, and the registry really does contain one. The
+  // similarity_threshold parameter is documented and ignored by the server,
+  // so this cannot be tightened upstream.
+  //
+  // What actually matters was never the row count: it is that a weak match is
+  // not dressed up as a strong one. A loose hit may be listed; it must not
+  // arrive carrying the badge that means Kawal called it and it answered.
   await page.goto("/agents?q=zzzznotarealagentzzzz");
   await expect(page.locator("body")).not.toContainText("Application error");
-  const rows = await page.locator("article").count();
-  expect(rows).toBe(0);
+  await expect(page.getByText("Hireable")).toHaveCount(0);
+});
+
+test("a problem described in plain words finds an agent that does it", async ({ page }) => {
+  // The reason the search box was moved onto the vector endpoint. Someone with
+  // no Agent Studio experience describes a problem, not a product name, and
+  // none of these results shares a word with the query.
+  await page.goto("/agents?q=watch+my+lending+position+for+liquidation");
+  await expect(page.locator("body")).not.toContainText("Application error");
+  expect(await page.locator("article").count()).toBeGreaterThan(0);
 });
 
 test("an agent that does not exist answers 404, not a 200 with a 404 page", async ({ page }) => {
