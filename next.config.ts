@@ -1,7 +1,52 @@
 import type { NextConfig } from "next";
 
+/**
+ * Headers every response carries, regardless of route.
+ *
+ * Kawal renders text that strangers wrote: an agent's name and description
+ * come from an ERC-8004 registration anyone can mint for a few cents, and its
+ * endpoint URL is fetched by the server. React escapes what it interpolates,
+ * so this is defence in depth rather than the only line — but "the framework
+ * escapes it" is a bet, and these headers are what limits the damage if the
+ * bet is ever wrong.
+ *
+ * The Content-Security-Policy is not here: it needs a fresh nonce per request,
+ * which only runs at request time. See `proxy.ts`.
+ */
+const securityHeaders = [
+  // Browsers that sniff a response's type can be tricked into executing a
+  // registration's description as script. They should not sniff.
+  { key: "X-Content-Type-Options", value: "nosniff" },
+
+  // Referrers leak the page someone was on. An agent page's URL names the
+  // agent they were considering hiring, which is nobody else's business.
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+
+  // Nothing here needs a camera, a microphone or a location, so nothing here
+  // may ask for one.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  },
+
+  // Legacy clickjacking control for browsers predating frame-ancestors, which
+  // the CSP in proxy.ts also sets. Both, because the control room has a button
+  // that permanently destroys a session key and framing it is exactly how you
+  // would trick someone into pressing it.
+  { key: "X-Frame-Options", value: "DENY" },
+
+  // Two years, subdomains included. Only meaningful over HTTPS; browsers
+  // ignore it on the plain-HTTP origins the test suite uses.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains",
+  },
+];
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
 };
 
 export default nextConfig;

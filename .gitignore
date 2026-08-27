@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# kawal key material and live sessions
+.kawal-admin.key
+.kawal-sessions.json
+.kawal-sessions.json.lock
+.kawal-sessions.json.tmp
+.kawal-uptime.db
+
+# playwright mcp scratch
+.playwright-mcp/
+test-results/
+playwright-report/
+/blob-report/

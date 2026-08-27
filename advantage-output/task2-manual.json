@@ -1,0 +1,9 @@
+{
+  "source": "Venus vUSDT supplyRatePerBlock, read directly",
+  "market": "0xfD5840Cd36d94D7229439859C0112a4185BC0255",
+  "symbol": "vUSDT",
+  "supplyRatePerBlock": "350494036",
+  "assumedBlocksPerYear": 42048000,
+  "impliedSupplyApyPercent": "1.4847",
+  "covers": "one market on one protocol"
+}

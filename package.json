@@ -1,21 +1,37 @@
 {
-  "name": "amanah",
+  "name": "kawal",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check.ts",
+    "audit:coverage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/audit-coverage.ts",
+    "verify:venues": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-venues.ts",
+    "onchain": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/onchain.ts",
+    "wallet:new": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/new-wallet.ts",
+    "advantage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/advantage.ts",
+    "test:e2e": "playwright test",
+    "preempt": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/preempt.ts",
+    "sweep": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/sweep.ts",
+    "x402": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/x402.ts"
   },
   "dependencies": {
+    "@altananetwork/sdk": "^0.5.1",
     "next": "16.3.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "viem": "^2.55.16",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^26.3.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

@@ -1,0 +1,5 @@
+{
+  "source": "Aster public REST exchangeInfo, called directly",
+  "endpoint": "https://fapi.asterdex.com/fapi/v1/exchangeInfo",
+  "symbolCount": 567
+}

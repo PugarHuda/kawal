@@ -1,26 +1,102 @@
 @import "tailwindcss";
 
+/* Kawal — ledger palette. Cool paper, warm brass, one hue per seat. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --ground: #edeff3;
+  --surface: #f8f9fb;
+  --raised: #ffffff;
+  --ink: #131820;
+  --ink-2: #47515f;
+  /* Raised from #78828f. At the 10.5px the `.label` class uses, the old value
+     measured 3.38:1 against --ground and 3.70:1 against --surface, under the
+     4.5:1 WCAG AA minimum for normal text — and `.label` carries almost every
+     secondary annotation in this interface, so the whole product read below
+     the line. #616a78 is the lightest value that clears 4.5:1 on ground,
+     surface and raised alike (4.75 / 5.19 / 5.47), keeping the muted tone. */
+  --ink-3: #616a78;
+  --rule: #d3d9e1;
+  --rule-2: #bfc7d2;
+  /* Darkened from #8f6410. Brass is the accent on the "Hireable" badge, which
+     sits on --brass-soft: the pair measured 4.02:1 at the 10.5px the badge
+     uses, just under the 4.5:1 AA minimum. This was invisible until `.label`
+     stopped overriding `text-brass` — the badge had been rendering grey. */
+  --brass: #845b0e;
+  --brass-soft: #ede0c4;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --seat-rebalancing: #0e6a71;
+  --seat-grid: #3a4ca0;
+  --seat-yield: #2c6740;
+  --seat-health: #9c382f;
+  --seat-security: #6b4a8f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --ground: #0d1015;
+    --surface: #14181f;
+    --raised: #191e26;
+    --ink: #e5e9ef;
+    --ink-2: #a2abb9;
+    /* Same correction for dark: #6d7787 measured 3.70:1 at worst. axe only
+       audits the light theme, so this half was invisible to the tooling and
+       had to be computed directly. #8891a0 clears 5.26:1 at worst. */
+    --ink-3: #8891a0;
+    --rule: #242a34;
+    --rule-2: #333b47;
+    --brass: #d8a445;
+    --brass-soft: #2a2115;
+
+    --seat-rebalancing: #4fc3cb;
+    --seat-grid: #8ba0f2;
+    --seat-yield: #6cc287;
+    --seat-health: #e5847b;
+    --seat-security: #b193d8;
   }
 }
 
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-rule-2: var(--rule-2);
+  --color-brass: var(--brass);
+  --color-brass-soft: var(--brass-soft);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+/* Numbers that sit in columns must line up. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* In the components layer, not unlayered.
+   Tailwind v4 puts utilities in a cascade layer, and unlayered CSS beats any
+   layered rule regardless of source order — so an unlayered `.label { color }`
+   silently overrode every `text-ground` and `text-brass` sitting beside it.
+   The active category chip rendered muted grey on near-black, and the Hireable
+   badge lost its brass. Layering this lets the utility win where one is
+   present and keeps the muted default where none is. */
+@layer components {
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
 }

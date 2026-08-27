@@ -1,14 +1,32 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2020",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+    // Adopted after measuring each independently: every flag below reported
+    // zero errors against the codebase as it stood, so they cost nothing to
+    // turn on and close the door on a class of mistake for good.
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": true,
+    // Adopted after fixing all 56 sites it reported. It earned it: the same
+    // latent bug turned up in six places — `spend?.[0].limit` guards the array
+    // being absent, not its being empty, so `[]?.[0]` is undefined and reading
+    // `.limit` off that throws before any fallback applies. It also caught
+    // `median([])` returning NaN through two out-of-range reads.
+    "noUncheckedIndexedAccess": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
