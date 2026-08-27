@@ -988,6 +988,35 @@ assert.equal(summarise([fb({ value: "1E+4" })], 1, "t").valued, 1, "1E+4 is a ma
 assert.equal(summarise([fb({ value: null })], 1, "t").valued, 0, "a null value is not");
 assert.equal(summarise([fb({ value: "" })], 1, "t").valued, 0, "nor is an empty one");
 
+// `Number()` is far too willing, and this is a trust boundary: these rows come
+// from an API this project exists to distrust. A whitespace string, a stray
+// boolean and an empty array all convert to finite numbers, so an earlier
+// version counted each of them as a mark somebody had set — and `valued` is
+// what decides whether an agent is shown as having a track record. Malformed
+// data upstream would have promoted an agent here.
+assert.equal(summarise([fb({ value: " " })], 1, "t").valued, 0, "whitespace is not a mark");
+assert.equal(summarise([fb({ value: true })], 1, "t").valued, 0, "a boolean is not a mark");
+assert.equal(summarise([fb({ value: [] })], 1, "t").valued, 0, "an array is not a mark");
+assert.equal(summarise([fb({ value: {} })], 1, "t").valued, 0, "an object is not a mark");
+assert.equal(summarise([fb({ value: "abc" })], 1, "t").valued, 0, "unparseable is not a mark");
+assert.equal(summarise([fb({ value: "Infinity" })], 1, "t").valued, 0, "and neither is infinity");
+assert.equal(summarise([fb({ value: 0 })], 1, "t").valued, 1, "but zero is a mark somebody set");
+
+// A response carrying a total but no readable rows is a shape change upstream,
+// not a verdict about an agent. `summarise` must report that it read nothing
+// rather than letting `total` stand in for records it never saw.
+const empty = summarise([], 500, "t");
+assert.equal(empty.total, 500, "the registry's own count is carried verbatim");
+assert.equal(empty.sampled, 0, "but nothing was read");
+assert.equal(empty.valued, 0, "so nothing can be marked");
+assert.equal(isTrackRecord(empty), false, "and a total alone is never a track record");
+
+// Rows with no writer at all must not become a track record by default.
+const anonymous = summarise([fb({ user_address: null }), fb({ user_address: null })], 2, "t");
+assert.equal(anonymous.raters, 0, "no addresses, no writers");
+assert.equal(anonymous.topRaterShare, 0, "and no share to compute");
+assert.equal(isTrackRecord(anonymous), false, "marks nobody signed are not a record");
+
 // Records with no mark at all cannot support a judgement.
 const unmarked = summarise(
   [fb({ value: null }), fb({ value: null, user_address: "0xBBB" })],
@@ -1105,6 +1134,37 @@ assert.throws(
   /refusing to publish/,
   "below the floor, nothing is built at all",
 );
+
+// Nor must an impossible one. 30 answered of 10 checks encoded cleanly into a
+// record claiming 300% uptime — permanent, on a public registry, with our name
+// on it. It refuses rather than clamping: clamping would publish 100% about an
+// agent whose real figure is unknown, which is a confident lie where this is an
+// honest halt.
+assert.throws(
+  () => buildFeedback({ ...measured, checks: 10, answered: 30 }, stamped),
+  /not consistent/,
+  "more answers than checks is corrupt history, not a 300% agent",
+);
+assert.throws(
+  () => buildFeedback({ ...measured, answered: -1 }, stamped),
+  /not consistent/,
+  "and neither is a negative count",
+);
+
+// A token id that is not a number reached BigInt() and surfaced as a bare
+// SyntaxError naming no agent. The publisher writes about other people's
+// agents, so a refusal has to say which one.
+assert.throws(
+  () => buildFeedback({ ...measured, agentId: "43970x" }, stamped),
+  /not a token id/,
+  "a malformed agent id is refused by name",
+);
+
+// Zero uptime is a real measurement and must stay publishable: refusing to
+// write the bad news would make the good news worthless.
+const neverAnswered = buildFeedback({ ...measured, answered: 0 }, stamped);
+assert.equal(neverAnswered.percent, 0, "nothing answered is nought per cent");
+assert.match(neverAnswered.payload, /"value":"0"/, "and it is written as such");
 
 assert.equal(uptimePercent({ checks: 0, answered: 0 }), 0, "no probes is not a division");
 assert.equal(uptimePercent({ checks: 3, answered: 1 }), 33.33, "rounded to the published precision");

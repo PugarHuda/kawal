@@ -10,10 +10,11 @@
  *
  * Why write at all, on a site whose whole argument is that the registry cannot
  * be trusted: because `npm run reputation` found the register is not short of
- * writers, it is short of writers with a measurement behind them — 8 of 1,200
- * sampled records carried a score. Kawal has called these endpoints hundreds
- * of times and kept every result. Complaining about an empty register while
- * sitting on the observations is not a position worth holding.
+ * writers, it is short of writers with a measurement behind them — 1,200
+ * sampled records came from 53 addresses, one of which wrote 265 of the oldest
+ * 600. Kawal has called these endpoints hundreds of times and kept every
+ * result. Complaining about the register while sitting on the observations is
+ * not a position worth holding.
  *
  * Every record carries its method and the defects of that method, which is
  * what separates this from adding to the noise.
@@ -97,7 +98,24 @@ if (measurements.length === 0) {
 // --- build every record before sending any ---------------------------------
 
 const at = new Date();
-const records = measurements.map((m) => ({ m, record: buildFeedback(m, at) }));
+
+// Built one at a time and individually guarded. `buildFeedback` refuses an
+// inconsistent measurement rather than encoding it, and a single refusal must
+// cost that one record rather than the whole run — these are independent
+// writes about different agents, not a cycle.
+const records: Array<{ m: (typeof measurements)[number]; record: ReturnType<typeof buildFeedback> }> = [];
+for (const m of measurements) {
+  try {
+    records.push({ m, record: buildFeedback(m, at) });
+  } catch (e) {
+    console.error(`  skipping ${m.name} (${m.agentId}): ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+if (records.length === 0) {
+  console.log(`\nNothing survived the checks above. Nothing to write.\n`);
+  process.exit(0);
+}
 
 console.log(`${records.length} record(s) to write:\n`);
 for (const { m, record } of records) {

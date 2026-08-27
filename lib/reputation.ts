@@ -87,12 +87,25 @@ type FeedbackRow = {
   user_address?: string | null;
 };
 
-/** A record carries a mark when `value` parses to a finite number. */
+/**
+ * A record carries a mark when `value` is a number, or a string of one.
+ *
+ * The type test comes first and is not decoration. `Number()` is far too
+ * willing: it turns `" "` and `[]` into 0 and `true` into 1, all of them
+ * finite, so an earlier version counted a whitespace string and a stray
+ * boolean as marks somebody had set. That inflates `valued`, and `valued`
+ * decides whether an agent is shown as having a track record — a malformed
+ * row upstream would have promoted an agent here.
+ *
+ * Values arrive in scientific notation ("1E+4") as often as in plain digits,
+ * so the string case parses rather than pattern-matches.
+ */
 function hasValue(r: FeedbackRow): boolean {
-  if (r.value === null || r.value === undefined || r.value === "") return false;
-  // Values arrive in scientific notation ("1E+4") as often as in plain digits,
-  // so this parses rather than pattern-matches.
-  return Number.isFinite(Number(r.value));
+  const v = r.value;
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v !== "string") return false;
+  if (v.trim() === "") return false;
+  return Number.isFinite(Number(v));
 }
 
 /**
@@ -189,6 +202,15 @@ export async function getReputation(chainId: number, tokenId: string): Promise<R
  * Longer than a liveness probe and shorter than a price: feedback accrues at
  * roughly a dozen records an hour across the entire chain, so a quarter of an
  * hour cannot go meaningfully stale.
+ *
+ * The window is set by cost as much as by freshness. Measured against a live
+ * agent holding 59 records, this call takes ~1.3 s where the other three the
+ * page makes take 250-550 ms, so on a cold cache it is the one setting the
+ * critical path — about 750 ms of it, since all four run together. It is not
+ * optional: `assess` consumes the result to decide the track-record signal, so
+ * deferring it would mean rendering a verdict before the evidence for it
+ * arrived. Fifteen minutes of reuse is what keeps that a first-visitor cost
+ * rather than a per-visit one.
  */
 const TTL_MS = 900_000;
 

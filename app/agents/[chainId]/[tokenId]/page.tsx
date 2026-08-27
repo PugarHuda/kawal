@@ -134,7 +134,11 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
 
       {payment && <PaymentTerms check={payment} />}
 
-      {reputation && reputation.total > 0 && <TrackRecord r={reputation} />}
+      {/* `sampled`, not `total`. A 200 carrying a total and no readable items
+          — a shape change upstream, a truncated response — would otherwise
+          render "every record was written without a mark" about records Kawal
+          never read. Saying nothing is the honest output of reading nothing. */}
+      {reputation && reputation.sampled > 0 && <TrackRecord r={reputation} />}
 
       {quality?.endpoint_health && (
         <section className="border-b border-rule py-8">

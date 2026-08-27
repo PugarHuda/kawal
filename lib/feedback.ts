@@ -147,6 +147,24 @@ export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
     );
   }
 
+  // A count that cannot be true means the caller's history is corrupt, and the
+  // arithmetic below does not notice: 30 answered of 10 checks builds cleanly
+  // into a permanent record claiming 300% uptime. Refuse rather than clamp —
+  // clamping would publish 100% about an agent whose real figure is unknown,
+  // which is a confident lie where this is an honest halt.
+  if (m.answered < 0 || m.answered > m.checks) {
+    throw new Error(
+      `refusing to publish ${m.answered} answered of ${m.checks} checks: the history is not consistent`,
+    );
+  }
+
+  // BigInt() throws a bare SyntaxError on anything unparseable, which arrives
+  // at the operator as "Cannot convert x to a BigInt" with no hint of which
+  // agent caused it.
+  if (!/^\d+$/.test(m.agentId)) {
+    throw new Error(`refusing to publish about agent id ${JSON.stringify(m.agentId)}: not a token id`);
+  }
+
   const registry = AGENT_REGISTRY[m.chainId];
   if (!registry) throw new Error(`no agent registry known for chain ${m.chainId}`);
 

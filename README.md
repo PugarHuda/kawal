@@ -62,7 +62,7 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 107 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 114 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
