@@ -28,7 +28,7 @@ import { Stamp, Tally } from "@/components/listing";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Is my agent still answering? — Kawal",
+  title: "Is my agent still answering?",
   description:
     "Paste a wallet address and see what Kawal has actually observed about the agents registered to it on BNB Smart Chain.",
 };

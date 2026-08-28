@@ -47,7 +47,7 @@ export async function generateMetadata({ params }: PageProps<"/agents/[chainId]/
   if (!agent) notFound();
 
   return {
-    title: `${agent.name} — hire on Kawal`,
+    title: agent.name,
     description:
       agent.description?.trim().slice(0, 160) ||
       `ERC-8004 agent ${agent.agent_id} on BNB Smart Chain.`,

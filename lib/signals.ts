@@ -57,6 +57,8 @@ export type Signal = {
   label: string;
   pass: boolean;
   detail: string;
+  /** How many observations the verdict rests on, when it rests on any. */
+  evidence?: number;
 };
 
 export type Assessment = {

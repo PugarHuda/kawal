@@ -1,11 +1,6 @@
 import Link from "next/link";
-import { getAgent, getQuality, getScoreHistory } from "@/lib/scan";
-import { proveAgent, type EndpointProof } from "@/lib/probe";
-import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
-import { classify } from "@/lib/taxonomy";
-import { assess, type Assessment } from "@/lib/signals";
-import { categoryLabel, seatColor, TierStamp } from "@/components/listing";
-import type { ScanAgentDetail, AgentQuality, ScoreHistory } from "@/lib/scan";
+import { TierStamp } from "@/components/listing";
+import { loadColumn, parseRefs, type Column } from "@/lib/compare";
 
 /**
  * Form K-4: two or three agents, the same questions asked of each.
@@ -22,69 +17,8 @@ import type { ScanAgentDetail, AgentQuality, ScoreHistory } from "@/lib/scan";
  * fastest, the best rated, and still be the one whose domain does not verify.
  */
 
-const MAX_COLUMNS = 3;
-
-type Column = {
-  ref: string;
-  color: string;
-  agent: ScanAgentDetail;
-  quality: AgentQuality | null;
-  history: ScoreHistory | null;
-  proof: EndpointProof | null;
-  uptime: Uptime | null;
-  assessment: Assessment;
-  category: string;
-  confidence: number;
-};
-
-/** Parses "56:43129,56:45422" into chain/token pairs, dropping anything odd. */
-function parseRefs(raw: string | string[] | undefined): Array<{ chainId: number; tokenId: string }> {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (!value) return [];
-
-  const seen = new Set<string>();
-  const out: Array<{ chainId: number; tokenId: string }> = [];
-  for (const part of value.split(",")) {
-    const [chain, token] = part.trim().split(":");
-    const chainId = Number(chain);
-    if (!Number.isInteger(chainId) || chainId <= 0) continue;
-    if (!token || !/^\d+$/.test(token)) continue;
-    const key = `${chainId}:${token}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ chainId, tokenId: token });
-    if (out.length === MAX_COLUMNS) break;
-  }
-  return out;
-}
-
-async function loadColumn(chainId: number, tokenId: string): Promise<Column | null> {
-  const agent = await getAgent(chainId, tokenId).catch(() => null);
-  if (!agent) return null;
-
-  const [quality, proof, history] = await Promise.all([
-    getQuality(chainId, tokenId),
-    proveAgent(agent),
-    getScoreHistory(chainId, tokenId),
-  ]);
-
-  const classification = classify(agent.name, agent.description);
-  return {
-    ref: `${chainId}:${tokenId}`,
-    agent,
-    quality,
-    proof,
-    uptime: proof ? await uptimeFor(proof.endpoint) : null,
-    history,
-    assessment: assess(agent, undefined, await observedFor(proof?.endpoint)),
-    category: categoryLabel(classification.category),
-    confidence: classification.confidence,
-    color: seatColor(classification.category),
-  };
-}
-
 export const metadata = {
-  title: "Compare agents — Kawal",
+  title: "Compare agents",
   description: "Put two or three BNB Chain agents side by side before hiring one.",
 };
 

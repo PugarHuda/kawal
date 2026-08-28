@@ -68,6 +68,12 @@ function num(v: string | string[] | undefined, fallback: number, max: number) {
   return Math.min(n, max);
 }
 
+export const metadata = {
+  title: "Mandate",
+  description:
+    "Four seats, four session keys on Altana, none able to reach the others. Spend caps, allowlists, expiry and revocation for every agent you hire.",
+};
+
 export default async function MandatePage({ searchParams }: PageProps<"/mandate">) {
   const params = await searchParams;
   const capital = num(params.capital, 10_000, MAX_CAPITAL);

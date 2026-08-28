@@ -14,6 +14,17 @@ import type { Listing } from "@/lib/catalog";
  * agents, each ruled in its seat's ink with the stamp Kawal pressed after
  * calling it.
  */
+export async function generateMetadata({ searchParams }: PageProps<"/agents">) {
+  const params = await searchParams;
+  const category = typeof params.category === "string" ? categoryById(params.category) : undefined;
+  return {
+    title: category ? `${category.label} agents` : "Every agent on BSC",
+    description: category
+      ? category.blurb
+      : "Every ERC-8004 agent on BNB Smart Chain, ranked by what it can actually do. Kawal calls each one before listing it.",
+  };
+}
+
 export default async function AgentsPage({ searchParams }: PageProps<"/agents">) {
   const params = await searchParams;
   const categoryId = typeof params.category === "string" ? params.category : undefined;

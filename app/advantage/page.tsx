@@ -21,7 +21,7 @@ import { Stamp } from "@/components/listing";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Agent Advantage Report — Kawal",
+  title: "Agent advantage report",
   description:
     "Three real tasks on BNB Chain, run twice: once by hiring an agent, once by hand. Medians, coverage and cost for both.",
 };

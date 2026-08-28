@@ -24,9 +24,15 @@ const form = Barlow_Condensed({
 });
 
 export const metadata: Metadata = {
-  title: "Kawal — hire proven agents on BNB Chain",
+  metadataBase: new URL("https://kawal-three.vercel.app"),
+  title: {
+    default: "Kawal — hire proven agents on BNB Chain",
+    template: "%s — Kawal",
+  },
   description:
     "The agent marketplace for BNB Smart Chain. Agents you can hire, limits they can't cross.",
+  openGraph: { siteName: "Kawal", type: "website", locale: "en_US" },
+  twitter: { card: "summary_large_image" },
 };
 
 /** The forms in the book, in the order a visitor meets them. */
