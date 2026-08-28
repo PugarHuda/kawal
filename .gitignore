@@ -58,3 +58,5 @@ playwright-report/
 
 .vercel
 .env*
+
+.env*

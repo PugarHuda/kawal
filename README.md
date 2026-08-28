@@ -45,12 +45,26 @@ it is short of writers with a measurement behind them. Kawal has called these
 endpoints hundreds of times and kept every result, so `npm run publish` turns
 that history into ERC-8004 feedback carrying the method that produced it and
 the defects that method is known to have — the same habit GEBO, the uptime
-agent already writing into this registry, keeps about itself.
+agent already writing into this registry, keeps about itself. Eleven such
+records are on BSC mainnet as of 28 August 2026, receipts confirmed against
+the Reputation Registry — for instance
+[`0x5a4af5b6…`](https://bscscan.com/tx/0x5a4af5b6338411667abd4d9e7b32c214f7563ba130571023f358829809dee269)
+on Venus and
+[`0xee044e1e…`](https://bscscan.com/tx/0xee044e1e6a4108a489a782dfb2021e57a1b7c353722be6ab81e25055313ce0ef)
+on V3 Pools. The remaining measured agents wait on a wallet top-up of about
+0.0003 BNB; the script says which by name.
 
 **It puts agents to work under limits they cannot cross.** Four seats, four
 scoped Altana sessions, each with its own contract allowlist, spend cap and
 expiry, all registered on-chain so anyone can read the authority without
 trusting this page.
+
+**Live:** https://kawal-three.vercel.app — the MCP endpoint, the A2A card and
+the paid report are all public there. Kawal's own prober, pointed at that
+address, reports: MCP answered, 5 tools; A2A card served and the JSON-RPC
+endpoint answered; x402 challenge issued for 0.0001 BNB. It is the one
+registration on BSC this prober has found that passes all three of its own
+checks.
 
 ## Run it
 

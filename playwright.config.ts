@@ -89,6 +89,11 @@ export default defineConfig({
         // value: the point is to prove the gate opens for the right secret and
         // stays shut for everything else.
         KAWAL_OPERATOR_TOKEN: "playwright-operator-token",
+        // `.env.local` carries the deployed site's Turso credentials once the
+        // integration is installed, and `next start` loads that file. Empty
+        // here, so the suite exercises the local file stores and never writes
+        // test rows into the database the deployed site reads.
+        TURSO_DATABASE_URL: "",
       },
     },
     {
@@ -98,7 +103,7 @@ export default defineConfig({
       url: `http://127.0.0.1:${OFFLINE_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { SCAN_API_ORIGIN: "http://127.0.0.1:1" },
+      env: { SCAN_API_ORIGIN: "http://127.0.0.1:1", TURSO_DATABASE_URL: "" },
     },
   ],
 });
