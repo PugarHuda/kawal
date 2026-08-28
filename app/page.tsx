@@ -84,20 +84,22 @@ export default async function Home() {
             <span className="cap">Diperiksa oleh · inspected by Kawal itself</span>
             {observed ? (
               <>
-                <div className="relative mt-3">
-                  <p className="typed text-[3rem] font-bold leading-none sm:text-[3.8rem]">
+                <div className="mt-3">
+                  <p className="typed relative inline-block text-[3rem] font-bold leading-none sm:text-[3.8rem]">
                     {observed.checks.toLocaleString()}
-                    <span className="block text-[0.95rem] font-normal text-carbon-2">
-                      calls placed to {observed.endpoints} declared endpoints since{" "}
-                      {new Date(observed.since * 1000).toISOString().slice(0, 10)}
+                    {/* Pressed over the count's last digit and out into the
+                        margin: it crosses the figure it certifies and nothing
+                        the reader still needs to read. */}
+                    <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-1.6rem)] sm:translate-x-[calc(100%-2.2rem)]">
+                      <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
+                        Telah diperiksa
+                      </Stamp>
                     </span>
                   </p>
-                  {/* Pressed over the count it earned, not beside it. */}
-                  <span className="absolute right-0 top-[1.7rem] z-10 sm:top-[2.1rem]">
-                    <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
-                      Telah diperiksa
-                    </Stamp>
-                  </span>
+                  <p className="typed mt-2 text-[0.95rem] text-carbon-2">
+                    calls placed to {observed.endpoints} declared endpoints since{" "}
+                    {new Date(observed.since * 1000).toISOString().slice(0, 10)}
+                  </p>
                 </div>
                 <p className="typed mt-6 max-w-[34ch] text-[0.85rem] text-carbon-2">
                   <strong className="font-bold text-carbon">{observed.answered}</strong> of those endpoints

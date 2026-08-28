@@ -61,7 +61,7 @@ export default function AdvantagePage() {
             <span className="serial text-[0.85rem]">No. —</span>
           </div>
           <div className="px-5 py-6">
-            <h1 className="heading text-[2.4rem]">No measurements yet.</h1>
+            <h1 className="typed text-[2rem] font-bold leading-[1.1] sm:text-[2.6rem]">No measurements yet.</h1>
             <p className="typed mt-3 max-w-[60ch] text-carbon-2">
               The harness has not been run in this deployment. It calls live agents over HTTP and costs
               nothing: <code className="font-bold">npm run advantage</code>.

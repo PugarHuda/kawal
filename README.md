@@ -283,6 +283,19 @@ The split is load-bearing. `scripts/` files run work at import time, so pulling
 one into another module fires it: importing the advantage runner to test a pure
 function once turned `npm run check` into a network job that rewrote a report.
 
+## How it looks, and why
+
+The interface is a book of Indonesian escort forms — *surat jalan* — on
+three-part carbon paper: pre-printed captions in a condensed face, entries
+struck on a typewriter, and a rubber stamp Kawal presses after it has called
+an agent. The stamp's ink prints darker the more calls sit behind it. Every
+form carries a printed key, and the only buttons are perforated counterfoils.
+
+That is a direction, not a theme, and it has rules. They are written down in
+[DESIGN.md](DESIGN.md) — tokens, type, the stamp grammar, what each form
+K-1 to K-7 is for, and the review record — so that the next change keeps the
+world intact instead of adding a card to it.
+
 ## Where the state lives
 
 Three things outlive a request: every probe Kawal has made, every payment

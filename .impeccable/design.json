@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-28T00:00:00Z",
+  "title": "Design System: Kawal",
+  "extensions": {
+    "colorMeta": {
+      "stamp-violet": { "role": "primary", "displayName": "Stamp Violet", "canonical": "#4a2a7d", "tonalRamp": ["oklch(20% 0.09 300)", "oklch(28% 0.11 300)", "oklch(36% 0.12 300)", "oklch(44% 0.12 300)", "oklch(56% 0.11 300)", "oklch(70% 0.08 300)", "oklch(84% 0.05 300)", "oklch(95% 0.02 300)"] },
+      "stamp-red": { "role": "primary", "displayName": "Stamp Red", "canonical": "#b5271f", "tonalRamp": ["oklch(22% 0.09 28)", "oklch(32% 0.13 28)", "oklch(42% 0.16 28)", "oklch(50% 0.18 28)", "oklch(60% 0.17 28)", "oklch(72% 0.12 28)", "oklch(85% 0.06 28)", "oklch(95% 0.02 28)"] },
+      "stamp-blue": { "role": "primary", "displayName": "Stamp Blue", "canonical": "#1f4e9c", "tonalRamp": ["oklch(20% 0.08 262)", "oklch(30% 0.11 262)", "oklch(40% 0.13 262)", "oklch(48% 0.13 262)", "oklch(60% 0.11 262)", "oklch(72% 0.08 262)", "oklch(85% 0.05 262)", "oklch(95% 0.02 262)"] },
+      "stamp-grey": { "role": "primary", "displayName": "Stamp Grey", "canonical": "#5a5850", "tonalRamp": ["oklch(18% 0.01 90)", "oklch(28% 0.01 90)", "oklch(38% 0.01 90)", "oklch(46% 0.01 90)", "oklch(58% 0.01 90)", "oklch(70% 0.01 90)", "oklch(84% 0.01 90)", "oklch(95% 0.005 90)"] },
+      "stamp-green": { "role": "primary", "displayName": "Stamp Green", "canonical": "#2f6b3a", "tonalRamp": ["oklch(20% 0.06 150)", "oklch(30% 0.08 150)", "oklch(40% 0.10 150)", "oklch(48% 0.10 150)", "oklch(60% 0.09 150)", "oklch(72% 0.07 150)", "oklch(85% 0.04 150)", "oklch(95% 0.02 150)"] },
+      "paper": { "role": "neutral", "displayName": "Desk Paper", "canonical": "#f1eadb", "tonalRamp": ["oklch(18% 0.02 85)", "oklch(30% 0.03 85)", "oklch(42% 0.03 85)", "oklch(55% 0.03 85)", "oklch(68% 0.03 85)", "oklch(80% 0.03 85)", "oklch(90% 0.02 85)", "oklch(95% 0.02 85)"] },
+      "paper-white": { "role": "neutral", "displayName": "Top Copy", "canonical": "#fbf8f0", "tonalRamp": ["oklch(18% 0.01 85)", "oklch(30% 0.01 85)", "oklch(42% 0.01 85)", "oklch(55% 0.01 85)", "oklch(68% 0.01 85)", "oklch(80% 0.01 85)", "oklch(90% 0.01 85)", "oklch(98% 0.01 85)"] },
+      "paper-yellow": { "role": "neutral", "displayName": "Second Copy", "canonical": "#f2dc8e", "tonalRamp": ["oklch(20% 0.05 90)", "oklch(32% 0.07 90)", "oklch(44% 0.09 90)", "oklch(56% 0.10 90)", "oklch(68% 0.11 90)", "oklch(80% 0.11 90)", "oklch(89% 0.10 90)", "oklch(96% 0.05 90)"] },
+      "paper-pink": { "role": "neutral", "displayName": "Third Copy", "canonical": "#efbcc4", "tonalRamp": ["oklch(20% 0.05 10)", "oklch(32% 0.07 10)", "oklch(44% 0.09 10)", "oklch(56% 0.10 10)", "oklch(68% 0.09 10)", "oklch(80% 0.07 10)", "oklch(85% 0.06 10)", "oklch(96% 0.02 10)"] },
+      "carbon": { "role": "neutral", "displayName": "Carbon", "canonical": "#1c1913", "tonalRamp": ["oklch(15% 0.01 85)", "oklch(24% 0.01 85)", "oklch(34% 0.01 85)", "oklch(44% 0.01 85)", "oklch(56% 0.01 85)", "oklch(70% 0.01 85)", "oklch(84% 0.01 85)", "oklch(95% 0.01 85)"] },
+      "carbon-2": { "role": "neutral", "displayName": "Second Carbon", "canonical": "#4a453b", "tonalRamp": ["oklch(15% 0.01 85)", "oklch(24% 0.01 85)", "oklch(34% 0.01 85)", "oklch(44% 0.01 85)", "oklch(56% 0.01 85)", "oklch(70% 0.01 85)", "oklch(84% 0.01 85)", "oklch(95% 0.01 85)"] },
+      "carbon-3": { "role": "neutral", "displayName": "Third Carbon", "canonical": "#66604f", "tonalRamp": ["oklch(15% 0.01 85)", "oklch(24% 0.01 85)", "oklch(34% 0.01 85)", "oklch(44% 0.01 85)", "oklch(56% 0.01 85)", "oklch(70% 0.01 85)", "oklch(84% 0.01 85)", "oklch(95% 0.01 85)"] },
+      "rule": { "role": "neutral", "displayName": "Printed Rule", "canonical": "#2a2620", "tonalRamp": ["oklch(15% 0.01 85)", "oklch(24% 0.01 85)", "oklch(34% 0.01 85)", "oklch(44% 0.01 85)", "oklch(56% 0.01 85)", "oklch(70% 0.01 85)", "oklch(84% 0.01 85)", "oklch(95% 0.01 85)"] },
+      "seat-rebalancing": { "role": "secondary", "displayName": "Rebalancing Ink", "canonical": "#0e6a71", "tonalRamp": ["oklch(20% 0.05 200)", "oklch(30% 0.07 200)", "oklch(40% 0.08 200)", "oklch(48% 0.08 200)", "oklch(60% 0.08 200)", "oklch(72% 0.06 200)", "oklch(85% 0.04 200)", "oklch(95% 0.02 200)"] },
+      "seat-grid": { "role": "secondary", "displayName": "Grid Ink", "canonical": "#2f4a9e", "tonalRamp": ["oklch(20% 0.08 268)", "oklch(30% 0.11 268)", "oklch(40% 0.13 268)", "oklch(48% 0.13 268)", "oklch(60% 0.11 268)", "oklch(72% 0.08 268)", "oklch(85% 0.05 268)", "oklch(95% 0.02 268)"] },
+      "seat-yield": { "role": "secondary", "displayName": "Yield Ink", "canonical": "#2f6b3a", "tonalRamp": ["oklch(20% 0.06 150)", "oklch(30% 0.08 150)", "oklch(40% 0.10 150)", "oklch(48% 0.10 150)", "oklch(60% 0.09 150)", "oklch(72% 0.07 150)", "oklch(85% 0.04 150)", "oklch(95% 0.02 150)"] },
+      "seat-health": { "role": "secondary", "displayName": "Health Ink", "canonical": "#b5271f", "tonalRamp": ["oklch(22% 0.09 28)", "oklch(32% 0.13 28)", "oklch(42% 0.16 28)", "oklch(50% 0.18 28)", "oklch(60% 0.17 28)", "oklch(72% 0.12 28)", "oklch(85% 0.06 28)", "oklch(95% 0.02 28)"] },
+      "seat-security": { "role": "secondary", "displayName": "Security Ink", "canonical": "#4a2a7d", "tonalRamp": ["oklch(20% 0.09 300)", "oklch(28% 0.11 300)", "oklch(36% 0.12 300)", "oklch(44% 0.12 300)", "oklch(56% 0.11 300)", "oklch(70% 0.08 300)", "oklch(84% 0.05 300)", "oklch(95% 0.02 300)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Typed H1", "purpose": "Every form's H1, typed in Courier Prime 700; nothing above it." },
+      "headline": { "displayName": "Pre-printed heading", "purpose": "Section headings and seat names in Barlow Condensed 700." },
+      "title": { "displayName": "Row title", "purpose": "Agent names on manifest rows." },
+      "body": { "displayName": "Typed entry", "purpose": "Values, descriptions, signal lines; tabular numerals." },
+      "label": { "displayName": "Field caption", "purpose": "The pre-printed caption inside a cell (.cap)." },
+      "stamp": { "displayName": "Stamp face", "purpose": "Stamp lettering; counterfoils and tabs use lighter weights of the same face." },
+      "note": { "displayName": "Stamp note", "purpose": "The line under a stamp stating its blind spot." }
+    },
+    "shadows": [
+      { "name": "cell-rule", "value": "0 0 0 1px var(--rule)", "purpose": "The only box-shadow in the system: it draws a cell's printed rule. No elevation shadows exist." }
+    ],
+    "motion": [
+      { "name": "stamp-press", "value": "380ms cubic-bezier(0.18, 0.9, 0.24, 1) both; from rotate(-8deg) scale(1.22) opacity 0 to rotate(-8deg) scale(1) opacity var(--ink)", "purpose": "A stamp landing on the paper. Removed under prefers-reduced-motion." },
+      { "name": "counterfoil-seat", "value": "transform 120ms ease-out, background-color 120ms ease-out; hover translateX(2px), active +translateY(1px)", "purpose": "The stub seating into the sheet on hover and press. Removed under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ],
+    "filters": [
+      { "name": "stamp-ink", "value": "feTurbulence fractalNoise 0.9 / 2 octaves seed 7 -> feDisplacementMap scale 1.3; feTurbulence 0.22 / 3 octaves seed 3 -> feColorMatrix alpha 1.1 + 0.25 as pressure loss", "purpose": "Roughens md and lg stamp edges and drops the print where pressure was light. Defined once in app/layout.tsx." },
+      { "name": "stamp-ink-fine", "value": "feTurbulence fractalNoise 1.2 / 1 octave seed 5 -> feDisplacementMap scale 0.8", "purpose": "Edge roughening only, for sm stamps so the text stays legible." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Counterfoil",
+      "kind": "button",
+      "refersTo": "counterfoil",
+      "description": "The tear-off stub; the only button in the system. The dashed left edge is the perforation.",
+      "html": "<a class=\"ds-counterfoil\" href=\"#\">Browse agents</a>",
+      "css": ".ds-counterfoil { display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.7rem 1rem 0.7rem 1.1rem; background: var(--paper-white, #fbf8f0); border: 1.5px solid var(--rule, #2a2620); border-left-style: dashed; color: var(--carbon, #1c1913); font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 700; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; border-radius: 0; transition: transform 120ms ease-out, background-color 120ms ease-out; } .ds-counterfoil:hover { background: var(--paper-yellow, #f2dc8e); transform: translateX(2px); } .ds-counterfoil:active { transform: translateX(2px) translateY(1px); } .ds-counterfoil:focus-visible { outline: 2px dashed var(--stamp-violet, #4a2a7d); outline-offset: 3px; }"
+    },
+    {
+      "name": "Counterfoil, quiet",
+      "kind": "button",
+      "refersTo": "counterfoil-quiet",
+      "description": "The secondary stub: same tear, lighter weight, smaller.",
+      "html": "<a class=\"ds-counterfoil-quiet\" href=\"#\">Back to the manifest</a>",
+      "css": ".ds-counterfoil-quiet { display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.75rem 0.45rem 0.85rem; background: var(--paper-white, #fbf8f0); border: 1.5px solid var(--rule, #2a2620); border-left-style: dashed; color: var(--carbon, #1c1913); font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; border-radius: 0; transition: transform 120ms ease-out, background-color 120ms ease-out; } .ds-counterfoil-quiet:hover { background: var(--paper-yellow, #f2dc8e); transform: translateX(2px); } .ds-counterfoil-quiet:focus-visible { outline: 2px dashed var(--stamp-violet, #4a2a7d); outline-offset: 3px; }"
+    },
+    {
+      "name": "Stamp",
+      "kind": "chip",
+      "refersTo": "stamp",
+      "description": "A rubber stamp in one ink at the page's one angle; opacity is the evidence behind it.",
+      "html": "<span class=\"ds-stamp\" style=\"--ink: 0.85\">Telah diperiksa</span>",
+      "css": ".ds-stamp { --ink: 1; display: inline-block; padding: 0.22em 0.55em 0.18em; border: 3px double currentColor; border-radius: 3px; color: var(--stamp-violet, #4a2a7d); font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 800; font-size: 1.05rem; line-height: 1.1; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; transform: rotate(-8deg); transform-origin: 50% 60%; mix-blend-mode: multiply; opacity: var(--ink); }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A typed entry in a ruled box.",
+      "html": "<input class=\"ds-field\" type=\"text\" placeholder=\"Token id or name\" />",
+      "css": ".ds-field { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.95rem; background: var(--paper-white, #fbf8f0); border: 1.5px solid var(--rule, #2a2620); border-radius: 0; padding: 0.45rem 0.6rem; color: var(--carbon, #1c1913); min-height: 2.5rem; caret-color: var(--stamp-violet, #4a2a7d); } .ds-field::placeholder { color: var(--carbon-3, #66604f); } .ds-field:focus-visible { outline: 2px dashed var(--stamp-violet, #4a2a7d); outline-offset: 3px; }"
+    },
+    {
+      "name": "Cell",
+      "kind": "card",
+      "refersTo": "cell",
+      "description": "One ruled cell: a pre-printed caption over a typed value.",
+      "html": "<div class=\"ds-cell\"><span class=\"ds-cap\">Terdaftar · registered on BSC</span><div class=\"ds-typed\">288,290</div></div>",
+      "css": ".ds-cell { background: var(--paper-white, #fbf8f0); padding: 0.55rem 0.8rem 0.7rem; box-shadow: 0 0 0 1px var(--rule, #2a2620); border-radius: 0; color: var(--carbon, #1c1913); } .ds-cap { display: block; margin-bottom: 0.35rem; font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 600; font-size: 0.72rem; line-height: 1.2; letter-spacing: 0.09em; text-transform: uppercase; color: var(--carbon-3, #66604f); } .ds-typed { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Tab",
+      "kind": "nav",
+      "refersTo": "nav-tab",
+      "description": "A form tab in the book's header: the serial code in red beside the name.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"ds-tab\" href=\"#\"><span class=\"ds-serial\">K-2</span>Agents</a><a class=\"ds-tab\" href=\"#\"><span class=\"ds-serial\">K-5</span>Mandate</a></nav>",
+      "css": ".ds-tabs { display: flex; background: var(--paper-white, #fbf8f0); border-bottom: 1.5px solid var(--rule, #2a2620); } .ds-tab { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-left: 1px solid var(--rule-soft, #a99f86); font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 600; font-size: 0.9rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--carbon-2, #4a453b); text-decoration: none; } .ds-tab:hover { background: var(--paper-yellow, #f2dc8e); color: var(--carbon, #1c1913); } .ds-serial { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.7rem; letter-spacing: 0.06em; color: var(--stamp-red, #b5271f); }"
+    },
+    {
+      "name": "Tally",
+      "kind": "custom",
+      "refersTo": "tally",
+      "description": "The probe history as a perforated strip: punched when answered, blank when not, newest outlined.",
+      "html": "<span class=\"ds-tally\" role=\"img\" aria-label=\"7 of 9 calls answered\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i class=\"on new\"></i></span>",
+      "css": ".ds-tally { display: flex; flex-wrap: wrap; gap: 3px; } .ds-tally > i { display: block; width: 11px; height: 11px; border: 1px solid var(--rule, #2a2620); background: var(--paper-white, #fbf8f0); } .ds-tally > i.on { background: var(--carbon, #1c1913); } .ds-tally > i.new { outline: 2px solid var(--stamp-violet, #4a2a7d); outline-offset: 1px; }"
+    },
+    {
+      "name": "Legend",
+      "kind": "custom",
+      "refersTo": "legend",
+      "description": "The key printed on every form, listing only the marks that page uses.",
+      "html": "<div class=\"ds-legend\"><span class=\"ds-legend-cap\">Keterangan · key</span><span><span class=\"ds-legend-stamp\" style=\"color:#4a2a7d\">Telah diperiksa</span><span class=\"ds-legend-means\">Kawal called it and it answered</span></span><span><span class=\"ds-legend-stamp\" style=\"color:#b5271f\">Ditolak</span><span class=\"ds-legend-means\">called, nobody answered</span></span></div>",
+      "css": ".ds-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; padding: 0.55rem 0.8rem; border: 1px solid var(--rule-soft, #a99f86); background: var(--paper-white, #fbf8f0); } .ds-legend > span { display: inline-flex; align-items: center; gap: 0.5rem; } .ds-legend-cap { font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--carbon-3, #66604f); } .ds-legend-stamp { display: inline-block; padding: 0.2em 0.45em 0.15em; border: 2px double currentColor; border-radius: 3px; font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 800; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; mix-blend-mode: multiply; } .ds-legend-means { font-family: 'Courier Prime', 'Courier New', monospace; font-size: 0.8rem; color: var(--carbon-2, #4a453b); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Surat Jalan (the escort manifest)",
+    "overview": "Every agent is a consignment under escort; the page is the inspection form, and a tier is a stamp Kawal pressed after it called. The lineage is Indonesian escort manifests and customs inspection forms: carbon-copy slips, serial numbers, rubber stamps. The scene is a desk under office light with the form flat on it, so the site is light-only and has no dark rendition. Every colour is an ink or a paper stock; there is no UI grey.\n\nThe form grammar is load-bearing, not decoration. The direction's own risk line: \"Paper skeuomorphism reads as novelty if the form grammar is decoration rather than data; every ruled cell must hold a real value and every stamp must be a real outcome, or the world collapses into a theme.\" That rule decided most of the build: a stamp prints darker with more evidence, a stamp's blind spot is printed under it, the probe history is a tally strip rather than a chart, and every form carries a printed legend.",
+    "keyCharacteristics": [
+      "Three-part carbonless paper (white, yellow, pink) on a toothed desk-paper ground.",
+      "Two voices only: condensed pre-printing (Barlow Condensed) and typewriter entries (Courier Prime).",
+      "Ruled 1px cells with pre-printed captions; headings live inside cells, never as eyebrows above them.",
+      "Rubber stamps at -8deg, one ink per outcome, ink density tracking evidence count, edges roughened by an SVG filter.",
+      "Perforated counterfoils are the only buttons.",
+      "A punched tally strip for probe history; a printed legend on every form.",
+      "Flat: no shadows, no radius (except the stamp's 3px), no dark mode."
+    ],
+    "rules": [
+      { "name": "The One Ink Per Outcome Rule", "body": "Each stamp ink means exactly one verdict and is never mixed or reused for another meaning: violet = inspected and answered in protocol, blue = reached another way, red = called and silent, grey = nothing to call, green = paid.", "section": "colors" },
+      { "name": "The Pink Copy Rule", "body": "Anything set in Carbon 3 or a seat ink on a pink sheet steps one shade darker. The override lives outside @layer components on purpose: Tailwind emits text-carbon-3 in its utilities layer, which outranks anything inside the components layer, and the first layered version of the rule lost.", "section": "colors" },
+      { "name": "The Ink Density Rule", "body": "A stamp's opacity is its evidence: 0.62 + min(evidence, 90) / 90 * 0.38. Ten probes press at about two thirds, ninety at full. A stamp given no evidence prints at full.", "section": "colors" },
+      { "name": "The Typed H1 Rule", "body": "Every H1 is typed (Courier Prime 700), and nothing sits above it: no eyebrow, no kicker in the condensed face. The form's own caption strip is the sheet's header cell inside the sheet's rule, not an eyebrow.", "section": "typography" },
+      { "name": "The Two Voices Rule", "body": "If it was printed before the form reached the desk, it is Barlow Condensed; if it was entered on the desk, it is Courier Prime. No third face, no system display face.", "section": "typography" },
+      { "name": "The Flat Paper Rule", "body": "Nothing floats. No drop shadows, no glows, no blur, no glass. If an element needs to read as separate, give it a rule or a different paper stock.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put a real value in every ruled cell and a real outcome behind every stamp; a cell without data or a stamp without a call is the world collapsing into a theme.",
+      "Do pass evidence to any stamp whose verdict rests on probes, so its ink prints at the density it earned.",
+      "Do print the blind spot under a large stamp as a .stamp-note in the typed face.",
+      "Do give every new form a Form K-n caption strip, a serial in Stamp Red, and a Legend listing only the marks that page uses.",
+      "Do type every H1 in Courier Prime 700 at 2rem / 2.6rem (the cover sheet is the one larger exception).",
+      "Do set every button and primary link as a .counterfoil (quiet for secondary actions), and every input as a .field.",
+      "Do set --seat on any element ruled in a seat's ink so the pink-copy override follows it.",
+      "Do write pink-copy contrast overrides unlayered (outside @layer components), since Tailwind utilities outrank the components layer.",
+      "Do keep -8deg as the page's only angle and the stamp press as its only entrance motion, both removed under reduced motion."
+    ],
+    "donts": [
+      "Don't build a dark dashboard, a neon or charcoal-and-glow surface, or add a dark mode; the scene is a desk under office light and color-scheme is light only.",
+      "Don't build the hero-plus-cards marketplace or the \"category standard\" (neutral ground, cards, sortable table, coloured badges, one accent); it is the owner's first-named anti-reference.",
+      "Don't let the paper soften into a cream editorial mood; a sheet exists to hold data in ruled cells, not to set a tone.",
+      "Don't put an eyebrow or kicker in the condensed face above an H1; captions belong inside cells and sheet header strips.",
+      "Don't use shadows, glows, blur, glass, or radius beyond the stamp's 3px.",
+      "Don't introduce a UI grey, a third typeface, a badge, a pill, or a card; a status is a stamp, a group is a sheet or a cell, an action is a counterfoil.",
+      "Don't reuse a stamp ink for a second meaning or mix inks on one stamp.",
+      "Don't draw probe history as a chart; it is a tally strip.",
+      "Don't mark a listing as checked by omission; a row with no probe line means unchecked, never \"checked and fine\".",
+      "Don't let the cover-sheet stamp cross more than the count's last digit, at any width."
+    ]
+  }
+}

@@ -164,12 +164,6 @@ a {
   .sheet--pink {
     background: var(--paper-pink);
   }
-  /* --carbon-3 measures 3.8:1 on pink; the second ink clears 4.5:1 there. */
-  .sheet--pink .text-carbon-3,
-  .sheet--pink .stamp-note,
-  .sheet--pink .cap {
-    color: var(--carbon-2);
-  }
   .sheet--carbon::after {
     content: "";
     position: absolute;
@@ -210,12 +204,6 @@ a {
   .cell > .cap {
     display: block;
     margin-bottom: 0.35rem;
-  }
-
-  /* A fill-in line: the value is typed on a printed rule. */
-  .fill {
-    border-bottom: 1px solid var(--rule);
-    padding-bottom: 0.15rem;
   }
 
   /* ------------------------------------------------------------ stamps ---
@@ -392,19 +380,6 @@ a {
   .manifest-row:hover {
     background: rgba(242, 220, 142, 0.35);
   }
-
-  /* The acetate reading ruler: a translucent blue band laid across the sheet
-     at the form's angle. Decorative only where a real value sits under it. */
-  .ruler {
-    position: absolute;
-    pointer-events: none;
-    background: var(--paper-blue);
-    opacity: 0.55;
-    mix-blend-mode: multiply;
-    transform: rotate(-8deg);
-    border-top: 1px solid var(--stamp-blue);
-    border-bottom: 1px solid var(--stamp-blue);
-  }
 }
 
 @keyframes stamp-press {
@@ -432,12 +407,33 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* Legacy alias kept for the four seat inks read through `seatColor`. */
-.label {
-  font-family: var(--font-form), "Arial Narrow", sans-serif;
-  font-weight: 600;
-  font-size: 0.72rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--carbon-3);
+/* --carbon-3 measures 3.8:1 on the pink copy; the second carbon clears 5:1.
+   Unlayered on purpose: Tailwind emits `text-carbon-3` in the utilities
+   layer, which outranks anything in @layer components, and the first version
+   of this rule sat there and lost. */
+.sheet--pink .text-carbon-3,
+.sheet--pink .stamp-note,
+.sheet--pink .cap {
+  color: var(--carbon-2);
+}
+
+/* The same seat inks print one step darker on the pink copy. Teal, green
+   and red measure 3.8:1 on #efbcc4; these clear 5:1. Redefined as the
+   tokens themselves so every rule, serial and caption ruled in a seat's ink
+   follows without knowing which sheet it sits on. */
+.sheet--pink {
+  --seat-rebalancing: #0a5057;
+  --seat-grid: #263d85;
+  --seat-yield: #25562e;
+  --seat-health: #8f1e18;
+  --seat-security: #3d2268;
+}
+
+/* The cover-sheet stamp shrinks one step on a phone so it can cross the
+   count's last digit without leaving the cell. */
+@media (max-width: 639px) {
+  .stamp-responsive .stamp--lg {
+    font-size: 1.15rem;
+    border-width: 3px;
+  }
 }
