@@ -35,6 +35,8 @@ import {
  * Also useful in anger: 8004scan has gone down for a day during this build.
  */
 const ORIGIN = process.env.SCAN_API_ORIGIN ?? "https://8004scan.io";
+/** How long any one registry call may take before it is treated as an outage. */
+export const REGISTRY_TIMEOUT_MS = 15_000;
 const BASE = `${ORIGIN}/api/v1/public`;
 
 export {
@@ -96,7 +98,15 @@ async function get<T>(path: string, params: Record<string, string | number | und
   // ponytail: Next's fetch cache, not a database. The `next` option is ignored
   // outside Next, so the CLI scripts still read live. Move to Postgres + a
   // cron refresh when we add liveness probes and KPIs.
-  const res = await fetch(url, { headers, next: { revalidate: 300 } });
+  // Bounded. During an 8004scan outage the connection was accepted and then
+  // held open: the deployed health check took 125 seconds to report that the
+  // registry was down, and every page reading the roster hung with it. A
+  // registry that has not answered in fifteen seconds is not going to.
+  const res = await fetch(url, {
+    headers,
+    next: { revalidate: 300 },
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+  });
   if (!res.ok) throw new ScanError(res.status, path);
 
   const body = (await res.json()) as Envelope<T>;
@@ -189,7 +199,7 @@ export async function getQuality(
   try {
     const res = await fetch(
       `${ORIGIN}/api/v1/agents/${chainId}/${tokenId}/quality`,
-      { headers: { accept: "application/json" }, next: { revalidate: 300 } },
+      { headers: { accept: "application/json" }, next: { revalidate: 300 }, signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) },
     );
     if (!res.ok) return null;
     const parsed = AgentQualitySchema.safeParse(await res.json());
@@ -218,7 +228,7 @@ export async function getScoreHistory(
   try {
     const res = await fetch(
       `${ORIGIN}/api/v1/agents/score-history/${chainId}/${tokenId}`,
-      { headers: { accept: "application/json" }, next: { revalidate: 3600 } },
+      { headers: { accept: "application/json" }, next: { revalidate: 3600 }, signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) },
     );
     if (!res.ok) return null;
     const parsed = ScoreHistorySchema.safeParse(await res.json());

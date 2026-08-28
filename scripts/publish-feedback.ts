@@ -245,12 +245,21 @@ const { createWalletClient, http } = await import("viem");
 const { bsc } = await import("viem/chains");
 const wallet = createWalletClient({ account, chain: bsc, transport: http() });
 
+// The nonce is managed here rather than left to the client. The public BSC
+// endpoints are load-balanced, and a node that has not yet seen the previous
+// transaction hands back the nonce it already used — the first live run lost
+// one record of ten to "nonce is lower than the current nonce" even though
+// every send waited for its receipt. Counted up from the pending count once,
+// advanced only after a receipt, and re-read from the chain after a failure.
+let nonce = await rpc.getTransactionCount({ address: account.address, blockTag: "pending" });
+
 console.log();
 for (const { m, record, gas } of affordable) {
   try {
-    const hash = await wallet.sendTransaction({ to: record.to, data: record.data, value: 0n, gas });
+    const hash = await wallet.sendTransaction({ to: record.to, data: record.data, value: 0n, gas, nonce });
     console.log(`  ${m.name} -> ${explorerTx(CHAIN, hash) ?? hash}`);
     await rpc.waitForTransactionReceipt({ hash });
+    nonce += 1;
     // Written after each receipt rather than at the end, so a run that dies
     // halfway still knows what it sent.
     published[m.agentId] = { txHash: hash, at: new Date().toISOString(), checks: m.checks };
@@ -258,7 +267,10 @@ for (const { m, record, gas } of affordable) {
   } catch (e) {
     // One rejected record must not abandon the rest: they are independent
     // writes about different agents, not a cycle that breaks halfway.
-    console.error(`  ${m.name} FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`  ${m.name} FAILED: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+    // Whatever went wrong, the count kept here may now be off by one in
+    // either direction. The chain's pending count is the truth.
+    nonce = await rpc.getTransactionCount({ address: account.address, blockTag: "pending" });
   }
 }
 

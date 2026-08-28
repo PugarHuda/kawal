@@ -182,6 +182,9 @@ export async function getReputation(chainId: number, tokenId: string): Promise<R
     const res = await fetch(url, {
       headers: { accept: "application/json" },
       next: { revalidate: 900 },
+      // Bounded like every other registry call: a hung connection here would
+      // hold the agent page open for as long as the socket lived.
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return null;
 
