@@ -22,10 +22,13 @@ Kawal does two things about that.
 
 **It refuses to take the registry's word.** 8004scan never calls an agent, so
 "declares MCP" is a claim. Kawal dials the endpoint itself and keeps the
-result. A sweep of the 19 agents the registry marks hireable found 6 that
-answered, 2 whose declared endpoint is not there at all, and 11 speaking only
-A2A or OASF — which this prober does not speak, so it says nothing about them
-rather than guessing.
+result. It speaks both protocols the roster actually uses: MCP, by handshake
+and tool list, and A2A, by reading the agent card and asking the JSON-RPC
+endpoint the one question the specification defines as having no effect.
+That second one matters more than it sounds — 46 of the 114 agents Kawal
+lists speak A2A and nothing else, and they are the ERC-8183 sellers, which is
+to say the part of BSC where hiring actually happens. Until the prober learned
+their language they were invisible.
 
 **It refuses to take the registry's word about reputation either.** An agent's
 `total_feedbacks` and `average_score` are counts kept without asking who wrote
@@ -62,7 +65,7 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 131 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 142 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
@@ -121,10 +124,26 @@ curl -s -X POST http://localhost:3000/api/mcp \
 
 | Tool | What it answers |
 |---|---|
-| `verify_agent` | Dials the declared endpoint now and returns the tier, the handshake, and every probe Kawal has made of it before |
+| `verify_agent` | Dials the declared endpoint now — MCP handshake or A2A card plus liveness — and returns the tier, what answered, and every probe Kawal has made of it before |
 | `check_payment` | Sends the opening x402 request and reports whether the server actually demands payment |
 | `read_reputation` | Who wrote this agent's feedback, how many records carry a mark, what share came from the busiest address |
 | `find_agents` | Search by describing the problem; duplicate registrations collapsed |
+| `deep_report` | Everything above in one answer plus how the endpoint fails when it fails. Costs money; unpaid, it returns the terms |
+
+The same skills are served over A2A. `/.well-known/agent-card.json` is a
+spec-shaped card naming `/api/a2a`, which answers `message/send` with a data
+part naming a skill (or plain text — a token id in it means verify, anything
+else is a search). Kawal's own prober, pointed at Kawal, gets the same answer
+it gives everyone else; the offline check parses the card with the same reader
+and the suite asks Kawal the same harmless `tasks/get` it asks every A2A
+seller. A card over a silent server would be exactly the "declares an
+interface" claim this project exists to catch.
+
+Every route that fetches on a caller's behalf sits under a ceiling: sixty in a
+burst then one a second for `/api/mcp`, `/api/a2a` and `/api/report`, tighter
+for `/owner`, which fans out to every agent an address holds. Without it Kawal
+is an amplifier anyone can point at the roster. In memory, per instance — a
+shared store would be a dependency guarding a deployment that does not exist.
 
 The point is the shape. This is a marketplace for agents in an ecosystem where
 the buyers are increasingly agents, and 8004scan publishes MCP tools of its
@@ -234,6 +253,10 @@ All gitignored, all holding either key material or observations.
 | `.kawal-sessions.json` | Granted seats and what became of them. Holds session private keys |
 | `.kawal-uptime.db` | SQLite. Every probe Kawal has made, for the reliability panel |
 | `.kawal-payments.db` | SQLite. Transaction hashes already spent on a report, so none is used twice |
+
+The probe history carries a `protocol` column, added in place when an older
+file is opened: rows from before the prober spoke A2A default to `mcp`, which
+is what they were. Renaming would have orphaned every observation kept so far.
 
 ## Configuration
 

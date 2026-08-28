@@ -75,8 +75,8 @@ const rows = await mapLimit(targets, CONCURRENCY, async (t): Promise<Row> => {
     return {
       ...base,
       endpoint: proof.endpoint,
-      answered: proof.isMcp,
-      latencyMs: proof.isMcp ? proof.latencyMs : null,
+      answered: proof.answered,
+      latencyMs: proof.answered ? proof.latencyMs : null,
       tools: proof.toolCount,
       error: proof.error,
       history: seen ? `${seen.answered}/${seen.checks}` : "-",

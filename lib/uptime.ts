@@ -77,6 +77,17 @@ function open(): DatabaseSync | null {
       );
       CREATE INDEX IF NOT EXISTS probe_endpoint_time ON probe (endpoint, checked_at);
     `);
+
+    // `is_mcp` predates the prober speaking anything but MCP. It now means
+    // "answered in its declared protocol", and the protocol is its own column
+    // so an A2A answer is not filed as an MCP one. Added in place rather than
+    // by renaming: a rename would orphan every row of history already kept,
+    // and the history is the whole point of this file. Rows from before the
+    // column exists default to 'mcp', which is what they were.
+    const columns = handle.prepare("PRAGMA table_info(probe)").all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "protocol")) {
+      handle.exec("ALTER TABLE probe ADD COLUMN protocol TEXT NOT NULL DEFAULT 'mcp'");
+    }
     db = handle;
     return db;
   } catch {
@@ -92,13 +103,16 @@ export function recordProbe(proof: EndpointProof) {
 
   try {
     handle
-      .prepare("INSERT INTO probe (endpoint, checked_at, is_mcp, latency_ms, error) VALUES (?, ?, ?, ?, ?)")
+      .prepare(
+        "INSERT INTO probe (endpoint, checked_at, is_mcp, latency_ms, error, protocol) VALUES (?, ?, ?, ?, ?, ?)",
+      )
       .run(
         proof.endpoint,
         Math.floor(new Date(proof.checkedAt).getTime() / 1000),
-        proof.isMcp ? 1 : 0,
+        proof.answered ? 1 : 0,
         Math.round(proof.latencyMs),
         proof.error,
+        proof.protocol,
       );
 
     handle

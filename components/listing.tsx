@@ -92,14 +92,20 @@ export function ListingRow({ listing, proof }: { listing: Listing; proof?: Endpo
           {proof && (
             <span
               className="label flex items-center gap-1.5"
-              title={proof.isMcp ? `${proof.toolCount ?? 0} tools` : (proof.error ?? "")}
+              title={
+                proof.answered
+                  ? `${proof.toolCount ?? 0} ${proof.protocol === "a2a" ? "skills" : "tools"}`
+                  : (proof.error ?? "")
+              }
             >
               <span
                 aria-hidden
                 className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ background: proof.isMcp ? "var(--seat-yield)" : "var(--seat-health)" }}
+                style={{ background: proof.answered ? "var(--seat-yield)" : "var(--seat-health)" }}
               />
-              {proof.isMcp ? `answered in ${proof.latencyMs} ms` : "did not answer"}
+              {proof.answered
+                ? `answered ${proof.protocol.toUpperCase()} in ${proof.latencyMs} ms`
+                : "did not answer"}
             </span>
           )}
           <span className="label tnum">

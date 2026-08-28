@@ -137,7 +137,7 @@ async function Results({ address }: { address: string }) {
     }
   });
 
-  const broken = rows.filter((r) => r.proof && !r.proof.isMcp && !r.proof.descriptor);
+  const broken = rows.filter((r) => r.proof && !r.proof.answered && !r.proof.descriptor);
 
   return (
     <section className="mt-10 border-t border-rule pt-8">
@@ -164,7 +164,7 @@ async function Results({ address }: { address: string }) {
       <div className="mt-8 grid gap-px bg-rule">
         {rows.map(({ agent, proof, uptime }) => {
           const d = proof?.error ? diagnose(proof.error) : null;
-          const answering = proof?.isMcp === true;
+          const answering = proof?.answered === true;
           const descriptor = proof?.descriptor != null;
 
           return (

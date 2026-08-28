@@ -29,7 +29,7 @@
  *    without a wallet and without touching the chain.
  */
 
-import { encodeFunctionData, keccak256, parseAbi, toHex, type Address, type Hex } from "viem";
+import { encodeFunctionData, getAddress, keccak256, parseAbi, toHex, type Address, type Hex } from "viem";
 import { BSC_MAINNET, BSC_TESTNET } from "./chains.ts";
 
 /**
@@ -39,15 +39,21 @@ import { BSC_MAINNET, BSC_TESTNET } from "./chains.ts";
  * lookup — but it is still keyed, so a third chain cannot silently inherit an
  * address nobody checked.
  */
+//
+// Checksummed by viem from the lowercase form rather than typed in mixed case.
+// The first version of this file carried a hand-typed checksum that was wrong
+// in one letter; the dry run never noticed because it only builds calldata,
+// and `--send` would have thrown "address is invalid" on the first record.
+// Found by estimating gas for real. `getAddress` cannot be wrong in that way.
 const REGISTRY: Record<number, Address> = {
-  [BSC_MAINNET]: "0x8004baA17c55a88189aE136b182E5FdA19dE9B63",
-  [BSC_TESTNET]: "0x8004baA17c55a88189aE136b182E5FdA19dE9B63",
+  [BSC_MAINNET]: getAddress("0x8004baa17c55a88189ae136b182e5fda19de9b63"),
+  [BSC_TESTNET]: getAddress("0x8004baa17c55a88189ae136b182e5fda19de9b63"),
 };
 
 /** The agent registry an ERC-8004 id is scoped to. Named in every payload. */
 const AGENT_REGISTRY: Record<number, Address> = {
-  [BSC_MAINNET]: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-  [BSC_TESTNET]: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  [BSC_MAINNET]: getAddress("0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"),
+  [BSC_TESTNET]: getAddress("0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"),
 };
 
 export function registryFor(chainId: number): Address {

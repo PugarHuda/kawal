@@ -24,8 +24,11 @@ import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
 import { handleRpc, TOOLS, PROTOCOL_VERSION } from "../lib/server.mcp.ts";
 import { diagnose, failureLabel } from "../lib/failure.ts";
 import { challenge, PRICE_WEI, NETWORK } from "../lib/x402.terms.ts";
-import { buildFeedback, uptimePercent, windowDays, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
-import { decodeFunctionData, keccak256, toHex } from "viem";
+import { readAgentCard, a2aAnswered } from "../lib/a2a.ts";
+import { agentCard, handleA2a } from "../lib/server.a2a.ts";
+import { take, groupOf, resetForTests } from "../lib/ratelimit.ts";
+import { buildFeedback, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
+import { decodeFunctionData, keccak256, toHex, isAddress, getAddress } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
 import { memo, clearMemo, memoStats } from "../lib/memo.ts";
@@ -731,8 +734,11 @@ const { recordProbe, uptimeFor, observedTotals } = await import("../lib/uptime.t
 
 const proof = (over: Record<string, unknown> = {}) => ({
   endpoint: "https://example.test/mcp",
+  protocol: "mcp" as const,
   reachable: true,
+  answered: true,
   isMcp: true,
+  a2a: null,
   serverName: "t",
   protocolVersion: "1",
   toolCount: 1,
@@ -747,7 +753,7 @@ const proof = (over: Record<string, unknown> = {}) => ({
 assert.equal(uptimeFor("https://nothing.test/mcp"), null, "an unobserved endpoint has no record");
 
 for (const ms of [300, 100, 200]) recordProbe(proof({ latencyMs: ms }));
-recordProbe(proof({ isMcp: false, latencyMs: 9000, error: "HTTP 502" }));
+recordProbe(proof({ answered: false, isMcp: false, latencyMs: 9000, error: "HTTP 502" }));
 
 const up = uptimeFor("https://example.test/mcp")!;
 assert.equal(up.checks, 4, "every observation counts");
@@ -758,7 +764,7 @@ assert.equal(up.medianMs, 200, "median is taken over answering checks only");
 assert.equal(up.worstMs, 300, "the slowest answering check is the tail worth seeing");
 
 const dead = "https://down.test/mcp";
-recordProbe(proof({ endpoint: dead, isMcp: false, latencyMs: 5000, error: "HTTP 502" }));
+recordProbe(proof({ endpoint: dead, answered: false, isMcp: false, latencyMs: 5000, error: "HTTP 502" }));
 const downtime = uptimeFor(dead)!;
 assert.equal(downtime.answered, 0, "an endpoint that never answered reports zero");
 assert.equal(downtime.medianMs, null, "no answering checks means no median to quote");
@@ -1131,6 +1137,15 @@ assert.deepEqual(parsed.method.knownDefects, KNOWN_DEFECTS, "every record states
 assert.match(parsed.reasoning, /97\.50%/, "the reasoning quotes the figure it published");
 assert.equal(parsed.agentRegistry, `eip155:56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`);
 
+// The registry address must be a valid EIP-55 checksum, because viem checks
+// it at send time and nothing earlier does. A hand-typed version of this
+// constant was wrong in several letters; every dry run passed, and the first
+// real send would have thrown on record one.
+const registry = registryFor(BSC_MAINNET);
+assert.ok(isAddress(registry, { strict: true }), "the registry address carries a valid checksum");
+assert.equal(registry, getAddress("0x8004baa17c55a88189ae136b182e5fda19de9b63"), "and is the ERC-8004 Reputation Registry on BSC");
+assert.equal(built.to, registry, "which is where the record is sent");
+
 // A thin sample must not become a permanent claim.
 assert.throws(
   () => buildFeedback({ ...measured, checks: MIN_OBSERVATIONS_TO_PUBLISH - 1 }, stamped),
@@ -1357,4 +1372,146 @@ const paidTool = TOOLS.find((t) => t.name === "deep_report");
 assert.ok(paidTool, "the paid tool is listed with the free ones");
 assert.match(paidTool!.description, /costs money/, "and says so in its description");
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging");
+/* ------------------------------------------------------------ a2a ---
+ *
+ * The prober spoke MCP and nothing else, which left 46 of 114 listed agents
+ * unverifiable. These fixtures are the shapes read off live BSC registrations
+ * before the reader was written, not the specification's examples.
+ */
+
+// A card as BORT serves it, trimmed.
+const bortCard = {
+  name: "BORT Agent",
+  description: "Autonomous on-chain agents on BNB Smart Chain.",
+  url: "https://api.bortagent.xyz/api/a2a",
+  provider: { organization: "BORT", url: "https://bortagent.xyz" },
+  version: "1.0.0",
+  capabilities: { streaming: false, x402: true },
+  protocolVersion: "0.3.0",
+  preferredTransport: "JSONRPC",
+  skills: [
+    { id: "trade", name: "On-chain trading", description: "Buy and sell tokens.", tags: ["trading"] },
+    { id: "market-data", name: "Live market data", description: "Prices for 0.01 BNB per call." },
+  ],
+};
+const bort = readAgentCard(bortCard)!;
+assert.ok(bort, "a real card parses");
+assert.equal(bort.url, "https://api.bortagent.xyz/api/a2a", "the JSON-RPC url is read off the card");
+assert.equal(bort.skills.length, 2);
+assert.equal(bort.declaresX402, true, "the capabilities block is read");
+assert.equal(bort.provider, "BORT");
+assert.equal(bort.skills[1]!.tags.length, 0, "missing tags is an empty list, not a crash");
+
+// The nip.io seller: no url field at all, skills with every field present.
+const sellerCard = {
+  capabilities: { streaming: false },
+  name: "bnbLpRangeRebalancer-agent",
+  protocolVersion: "0.3.0",
+  skills: [{ id: "negotiate", name: "Negotiate an ERC-8183 job", description: "x", tags: ["erc8183"] }],
+};
+const seller = readAgentCard(sellerCard)!;
+assert.equal(seller.url, null, "no url means the declared endpoint is the server");
+assert.equal(seller.provider, null);
+
+// What brainonbnb serves on GET /a2a: a worked example, not a card. Its
+// skills are strings and it has no name. It is a live A2A server all the
+// same, which is why the prober asks the URL directly when the card fails.
+assert.equal(readAgentCard({ endpoint: "A2A JSON-RPC", skills: ["list", "negotiate"] }), null, "a description is not a card");
+assert.equal(readAgentCard({ name: "x" }), null, "no skills array, no card");
+assert.equal(readAgentCard({ name: "", skills: [] }), null, "an empty name is no name");
+assert.equal(readAgentCard("card"), null);
+assert.equal(readAgentCard({ name: "x", skills: [{ id: "a" }, "junk", { nope: 1 }] })!.skills.length, 1, "malformed skills are dropped, not fatal");
+assert.equal(readAgentCard({ name: "x", skills: [], url: "ftp://nope" })!.url, null, "a non-http url is not a server to dial");
+
+// What counts as answering. A card is a description; the JSON-RPC side is
+// the heartbeat. A static card in front of a dead server must not pass.
+const a2a = (over: Record<string, unknown>) => ({
+  endpoint: "https://x.test/.well-known/agent-card.json",
+  card: bort, rpcUrl: bort.url, rpc: "answered" as const, rpcStatus: 200, latencyMs: 1, error: null,
+  ...over,
+});
+assert.equal(a2aAnswered(a2a({})), true, "card + JSON-RPC envelope answers");
+assert.equal(a2aAnswered(a2a({ rpc: "gated", rpcStatus: 401 })), true, "card + 401 is a live server wanting credentials");
+assert.equal(a2aAnswered(a2a({ rpc: "silent", rpcStatus: 0 })), false, "card over a silent server is not an answer");
+assert.equal(a2aAnswered(a2a({ rpc: "not-json-rpc" })), false, "card over something that is not JSON-RPC is not an answer");
+assert.equal(a2aAnswered(a2a({ card: null, rpc: "answered" })), true, "no card, but JSON-RPC answered: the bare-endpoint shape");
+assert.equal(a2aAnswered(a2a({ card: null, rpc: "gated", rpcStatus: 401 })), false, "no card and a 401 proves nothing about what is there");
+
+/* --------------------------------------------------- a2a server ---
+ *
+ * Kawal's own card and JSON-RPC surface, read with the same code Kawal
+ * points at everybody else. A card Kawal could not verify would be the claim
+ * it refuses to make about anyone.
+ */
+
+const ours = readAgentCard(agentCard("https://kawal.test"))!;
+assert.ok(ours, "Kawal's card parses with Kawal's reader");
+assert.equal(ours.url, "https://kawal.test/api/a2a", "and names the endpoint on the origin it was served from");
+assert.equal(ours.protocolVersion, "0.3.0");
+assert.equal(ours.skills.length, TOOLS.length, "every MCP tool is an A2A skill \u2014 same code, second door");
+assert.ok(ours.skills.some((s) => s.id === "verify_agent"));
+
+const a2aRpc = (method: string, params?: unknown, id: unknown = 1) =>
+  handleA2a({ jsonrpc: "2.0", id, method, params });
+const a2aBody = (r: { body: unknown }) => (r.body ?? {}) as RpcBody;
+
+assert.equal((await handleA2a({ jsonrpc: "2.0", method: "message/send" })).status, 202, "a notification gets no body");
+assert.equal((await handleA2a("nope")).status, 400);
+assert.equal(a2aBody(await a2aRpc("tasks/get", { id: "kawal-liveness-probe" })).error?.code, -32001, "the harmless question gets the answer the spec names");
+assert.equal(a2aBody(await a2aRpc("message/stream", {})).error?.code, -32004, "streaming is refused with UnsupportedOperation, as the card says");
+assert.equal(a2aBody(await a2aRpc("agent/getAuthenticatedExtendedCard")).error?.code, -32007);
+assert.equal(a2aBody(await a2aRpc("tasks/pushNotificationConfig/set", {})).error?.code, -32004);
+assert.equal(a2aBody(await a2aRpc("nonsense/method")).error?.code, -32601);
+
+const noParts = await a2aRpc("message/send", { message: { role: "user" } });
+assert.equal(a2aBody(noParts).error?.code, -32602, "a message with no parts is invalid params");
+
+const unknownSkill = await a2aRpc("message/send", {
+  message: { role: "user", messageId: "m", parts: [{ kind: "data", data: { skill: "drop_tables" } }] },
+});
+assert.equal(a2aBody(unknownSkill).error?.code, -32602, "an unknown skill is invalid params, not a crash");
+
+// Validation runs before any network call, so this stays offline.
+const badToken = await a2aRpc("message/send", {
+  message: { role: "user", messageId: "m", parts: [{ kind: "data", data: { skill: "verify_agent", tokenId: "../etc" } }] },
+});
+assert.equal(a2aBody(badToken).error?.code, -32602, "a refused argument is the caller's, and says so");
+assert.match(a2aBody(badToken).error?.message ?? "", /decimal token id/);
+
+const emptyText = await a2aRpc("message/send", {
+  message: { role: "user", messageId: "m", parts: [{ kind: "text", text: "   " }] },
+});
+assert.equal(a2aBody(emptyText).error?.code, -32602, "blank text carries no request");
+
+/* ------------------------------------------------------ rate limit ---
+ *
+ * The endpoints that fetch on a caller's behalf are an amplifier without a
+ * ceiling. Time is a parameter so this checks refill without waiting.
+ */
+
+resetForTests();
+const limit = { capacity: 3, perSecond: 1 };
+const t0 = 1_000_000;
+assert.equal(take("a", limit, t0).ok, true);
+assert.equal(take("a", limit, t0).ok, true);
+assert.equal(take("a", limit, t0).ok, true, "the burst is the capacity");
+const denied = take("a", limit, t0);
+assert.equal(denied.ok, false, "and one more is refused");
+assert.ok(!denied.ok && denied.retryAfterSeconds >= 1, "with a real wait, never zero");
+assert.equal(take("b", limit, t0).ok, true, "another caller has their own bucket");
+assert.equal(take("a", limit, t0 + 1_000).ok, true, "a second later one token is back");
+assert.equal(take("a", limit, t0 + 1_000).ok, false, "and only one");
+assert.equal(take("a", limit, t0 + 60_000).ok, true, "refill is capped at capacity, not unbounded");
+assert.equal(take("a", limit, t0 + 60_000).ok, true);
+assert.equal(take("a", limit, t0 + 60_000).ok, true);
+assert.equal(take("a", limit, t0 + 60_000).ok, false, "three, not sixty");
+
+assert.equal(groupOf("/api/mcp"), "api");
+assert.equal(groupOf("/api/a2a"), "api");
+assert.equal(groupOf("/api/report"), "api");
+assert.equal(groupOf("/owner"), "owner");
+assert.equal(groupOf("/agents/56/1"), null, "pages that fetch only memoised data are not limited");
+assert.equal(groupOf("/api/health"), null, "and neither is the health check a monitor polls");
+resetForTests();
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit");

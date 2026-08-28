@@ -35,7 +35,7 @@ test("comparison puts the same questions to every agent", async ({ page }) => {
   await expect(headerCells).toHaveCount(4);
 
   // Every column has to carry a real latency, not a placeholder.
-  await expect(page.getByText(/yes, \d+ ms/).first()).toBeVisible();
+  await expect(page.getByText(/yes, (MCP|A2A) in \d+ ms/).first()).toBeVisible();
 });
 
 test("comparison surfaces a price the agent states about itself", async ({ page }) => {
@@ -86,7 +86,10 @@ test("the listing says which hireable agents actually answered", async ({ page }
 
   // Kawal calls the hireable endpoints itself before anyone chooses. A row
   // with no badge means unchecked — never "checked and fine".
-  const answered = page.getByText(/answered in \d+ ms/);
+  // The badge now names the protocol that answered, because a listing that
+  // said "answered" about an A2A agent and an MCP agent alike was hiding the
+  // one fact a caller needs before choosing a client.
+  const answered = page.getByText(/answered (MCP|A2A) in \d+ ms/);
   expect(await answered.count()).toBeGreaterThan(0);
 });
 

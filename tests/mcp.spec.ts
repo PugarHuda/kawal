@@ -66,7 +66,8 @@ test("a real agent comes back with evidence, not with registry claims", async ({
   // The part that is Kawal's rather than the registry's: a live handshake and
   // the history behind it.
   expect(verified.probe).toBeTruthy();
-  expect(typeof verified.probe.answeredAsMcp).toBe("boolean");
+  expect(typeof verified.probe.answered).toBe("boolean");
+  expect(["mcp", "a2a"]).toContain(verified.probe.protocol);
   expect(Array.isArray(verified.signals)).toBe(true);
 });
 

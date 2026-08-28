@@ -14,6 +14,7 @@ import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { checkX402Cached, networkName, type X402Check } from "@/lib/x402";
 import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/reputation";
 import { diagnose, failureLabel } from "@/lib/failure";
+import { rpcOutcomeLabel } from "@/lib/a2a";
 import { classify } from "@/lib/taxonomy";
 import { assess, tierLabel } from "@/lib/signals";
 import { categoryLabel, seatColor } from "@/components/listing";
@@ -389,8 +390,9 @@ function PaymentTerms({ check }: { check: X402Check }) {
 }
 
 function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | null }) {
-  const good = proof.isMcp;
+  const good = proof.answered;
   const desc = proof.descriptor;
+  const a2a = proof.protocol === "a2a";
 
   /*
    * Three outcomes, not two. An endpoint that fails the handshake is usually
@@ -404,13 +406,17 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
    * how the agent is reached, not a verdict against it.
    */
   const headline = good
-    ? "Answers MCP"
+    ? a2a
+      ? "Answers A2A"
+      : "Answers MCP"
     : desc?.kind === "service-descriptor"
       ? "Runs locally, not hosted"
       : desc?.kind === "source-repository"
         ? "Published as source"
         : proof.reachable
-          ? "Responds, but not MCP"
+          ? a2a
+            ? "Responds, but not as an A2A agent"
+            : "Responds, but not MCP"
           : "No answer";
 
   const colour = good
@@ -442,7 +448,22 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
         {proof.serverName && <Row label="Server">{proof.serverName}</Row>}
         {proof.protocolVersion && <Row label="Protocol">{proof.protocolVersion}</Row>}
         {proof.toolCount !== null && (
-          <Row label="Tools offered">{String(proof.toolCount)}</Row>
+          <Row label={a2a ? "Skills offered" : "Tools offered"}>{String(proof.toolCount)}</Row>
+        )}
+        {/* An A2A probe is two calls: the card, and a harmless JSON-RPC
+            question to the URL the card names. A card can be a static file
+            in front of a dead server, so the second answer is the one that
+            counts and it is shown on its own line. */}
+        {proof.a2a && proof.a2a.rpcUrl && proof.a2a.rpcUrl !== proof.endpoint && (
+          <Row label="Spoken to at">{proof.a2a.rpcUrl}</Row>
+        )}
+        {proof.a2a && (
+          <Row label="JSON-RPC">
+            {rpcOutcomeLabel(proof.a2a.rpc)}
+            {proof.a2a.rpcStatus > 0 && (
+              <span className="tnum text-ink-3"> (HTTP {proof.a2a.rpcStatus})</span>
+            )}
+          </Row>
         )}
         {desc?.transport && <Row label="Transport">{desc.transport}</Row>}
         {/* Quoted, never run. Kawal executes nothing it finds in a
@@ -517,7 +538,9 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
         </p>
       )}
 
-      {proof.tools.length > 0 && <ToolTable tools={proof.tools} total={proof.toolCount ?? 0} />}
+      {proof.tools.length > 0 && (
+        <ToolTable tools={proof.tools} total={proof.toolCount ?? 0} unit={a2a ? "skill" : "tool"} />
+      )}
 
       {/* The limit of Kawal's own claim, stated where the claim is made.
           `hireable` means the endpoint completed an MCP handshake and listed
@@ -527,12 +550,11 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
           about everyone else's unverified claims, and this is its own — so it
           says so rather than deepening the probe by running strangers' tools
           uninvited, which could cost them money or have side effects. */}
-      {proof.isMcp && (
+      {proof.answered && (
         <p className="mt-4 max-w-2xl text-sm text-ink-3">
-          Kawal completed the handshake and read the tool list. It did not run
-          any of them — executing a stranger&rsquo;s tool uninvited can cost them
-          money or move something. So this is evidence the agent answers, not
-          that it works.
+          {a2a
+            ? "Kawal read the agent card and asked its JSON-RPC endpoint the one A2A question with no effect. It sent no message — that would start work on a stranger’s server. So this is evidence the agent answers, not that it works."
+            : "Kawal completed the handshake and read the tool list. It did not run any of them — executing a stranger’s tool uninvited can cost them money or move something. So this is evidence the agent answers, not that it works."}
         </p>
       )}
 
@@ -649,13 +671,13 @@ function Sparkline({ values }: { values: number[] }) {
  * Labelled "declares" throughout: the agent is making the claim, Kawal is
  * only refusing to hide it. Nothing here has been paid or verified.
  */
-function ToolTable({ tools, total }: { tools: ProbedTool[]; total: number }) {
+function ToolTable({ tools, total, unit = "tool" }: { tools: ProbedTool[]; total: number; unit?: string }) {
   const priced = tools.filter((t) => t.declaredPrice);
 
   return (
     <div className="mt-6">
       <h3 className="label">
-        What you can ask it · {total} tool{total === 1 ? "" : "s"}
+        What you can ask it · {total} {unit}{total === 1 ? "" : "s"}
         {priced.length > 0 && ` · ${priced.length} declares a price`}
       </h3>
 

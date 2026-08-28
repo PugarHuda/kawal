@@ -83,3 +83,26 @@ test("the comparison page degrades to its instructions", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Compare agents" })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Application error");
 });
+
+test("the endpoints that fetch on a caller's behalf have a ceiling", async ({ request }) => {
+  // `initialize` needs no registry, so every one of these is a real answer
+  // right up until the bucket runs dry.
+  const statuses: number[] = [];
+  for (let i = 0; i < 70; i++) {
+    const res = await request.post("/api/mcp", {
+      headers: { "content-type": "application/json" },
+      data: { jsonrpc: "2.0", id: i, method: "initialize", params: {} },
+    });
+    statuses.push(res.status());
+    if (res.status() === 429) {
+      expect(Number(res.headers()["retry-after"])).toBeGreaterThan(0);
+      expect((await res.json()).error).toMatch(/rate limited/);
+      break;
+    }
+  }
+  // The burst is served, then refused. Sixty is the capacity; seventy tries
+  // must hit the wall, and the first tries must not.
+  expect(statuses[0]).toBe(200);
+  expect(statuses.at(-1)).toBe(429);
+  expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(50);
+});

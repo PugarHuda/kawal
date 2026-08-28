@@ -47,6 +47,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  async rewrites() {
+    return [
+      // The App Router does not route dot-prefixed folders, and the well-known
+      // path is where every A2A client looks first. Without this Kawal would
+      // have a card and no address for it — present but undiscoverable, which
+      // for an agent is the same as absent.
+      { source: "/.well-known/agent-card.json", destination: "/api/agent-card" },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -127,7 +127,9 @@ export const TOOLS: Tool[] = [
         declared: agent.supported_protocols ?? [],
         probe: proof && {
           endpoint: proof.endpoint,
-          answeredAsMcp: proof.isMcp,
+          protocol: proof.protocol,
+          answered: proof.answered,
+          a2a: proof.a2a,
           latencyMs: Math.round(proof.latencyMs),
           toolCount: proof.toolCount,
           error: proof.error,
@@ -323,7 +325,9 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
     seat: classify(agent.name, agent.description).category,
     probe: proof && {
       endpoint: proof.endpoint,
-      answeredAsMcp: proof.isMcp,
+      protocol: proof.protocol,
+      answered: proof.answered,
+      a2a: proof.a2a,
       serverName: proof.serverName,
       protocolVersion: proof.protocolVersion,
       toolCount: proof.toolCount,
@@ -361,7 +365,7 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
     signals: assessment.signals.map((s) => ({ key: s.key, pass: s.pass, detail: s.detail })),
     caveats: [
       "Measured from a single vantage point: an endpoint that blocks this prober is indistinguishable from one that is down.",
-      "The handshake and the tool list were read; no tool was executed, so this is evidence the agent answers rather than that it works.",
+      "The handshake (MCP) or the agent card plus a harmless JSON-RPC question (A2A) were read; no tool or skill was executed, so this is evidence the agent answers rather than that it works.",
     ],
   };
 }

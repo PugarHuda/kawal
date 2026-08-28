@@ -19,6 +19,8 @@ const PAGES = [
   // Carries feedback records, so the reputation panel actually renders here —
   // 43129 has none, which kept that section out of the sweep entirely.
   ["agent with feedback", "/agents/56/31041"],
+  // Speaks A2A only. The probe section renders rows no MCP agent has.
+  ["a2a agent", "/agents/56/153672"],
   ["compare", "/compare?ids=56:43129,56:45381,56:258641"],
   ["mandate", "/mandate"],
   // The seller-side page: its own layout, its own probe fan-out.

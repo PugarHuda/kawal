@@ -13,6 +13,7 @@
  */
 
 import { McpClient } from "./mcp.ts";
+import { probeA2a as fetchA2a, a2aAnswered, rpcOutcomeLabel, type RpcOutcome } from "./a2a.ts";
 import { guardedFetch, readCapped, MAX_RESPONSE_BYTES } from "./ssrf.ts";
 import { memo } from "./memo.ts";
 import { recordProbe } from "./uptime.ts";
@@ -52,10 +53,23 @@ export type ServiceDescriptor = {
 
 export type EndpointProof = {
   endpoint: string;
+  /** Which protocol this endpoint was probed as. The registry declared it. */
+  protocol: "mcp" | "a2a";
   /** Something answered at this URL. */
   reachable: boolean;
-  /** It answered as an MCP server — the only bar that matters for hiring. */
+  /**
+   * It answered in the protocol it declared.
+   *
+   * This is the bar for hiring and the thing the uptime history counts. It
+   * used to be `isMcp` alone, which made every A2A agent — 46 of the 114
+   * listed — permanently unverifiable, not because they were silent but
+   * because Kawal never learned their language.
+   */
+  answered: boolean;
+  /** It answered as an MCP server specifically. */
   isMcp: boolean;
+  /** What the A2A JSON-RPC side did, when this was an A2A probe. */
+  a2a: { rpcUrl: string | null; rpc: RpcOutcome; rpcStatus: number; note: string } | null;
   serverName: string | null;
   protocolVersion: string | null;
   toolCount: number | null;
@@ -246,8 +260,11 @@ async function probeMcpUncached(
   const checkedAt = new Date().toISOString();
   const base: EndpointProof = {
     endpoint,
+    protocol: "mcp",
     reachable: false,
+    answered: false,
     isMcp: false,
+    a2a: null,
     serverName: null,
     protocolVersion: null,
     toolCount: null,
@@ -289,6 +306,7 @@ async function probeMcpUncached(
   const proof: EndpointProof = {
     ...base,
     reachable: true,
+    answered: true,
     isMcp: true,
     serverName: info?.serverInfo?.name ?? null,
     protocolVersion: info?.protocolVersion ?? null,
@@ -320,12 +338,61 @@ export type DeclaredService = {
   tools?: string[];
 };
 
-/** Pulls the MCP endpoint out of an agent's declared services, if it has one. */
-function mcpEndpointOf(
+/** Pulls a declared endpoint out of an agent's services, by protocol key. */
+function endpointOf(
   services: Record<string, DeclaredService> | null | undefined,
+  key: "mcp" | "a2a",
 ): string | null {
-  const mcp = services?.mcp;
-  return typeof mcp?.endpoint === "string" ? mcp.endpoint : null;
+  const svc = services?.[key];
+  return typeof svc?.endpoint === "string" ? svc.endpoint : null;
+}
+
+/**
+ * Probes an A2A endpoint and renders the result in the same shape as an MCP
+ * proof, so every page and every check downstream reads one thing.
+ *
+ * Skills become the tool list: same fields, same price extraction, same
+ * table. The difference a reader needs — that these are A2A skills reached
+ * over JSON-RPC rather than MCP tools — is carried in `protocol` and `a2a`,
+ * not hidden by the shared shape.
+ */
+export function probeA2aEndpoint(
+  endpoint: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<EndpointProof> {
+  return memo(`probe:${endpoint}`, PROOF_TTL_MS, async () => {
+    const checkedAt = new Date().toISOString();
+    const p = await fetchA2a(endpoint, opts);
+    const answered = a2aAnswered(p);
+
+    const proof: EndpointProof = {
+      endpoint,
+      protocol: "a2a",
+      reachable: p.card !== null || p.rpc === "answered" || p.rpc === "gated" || p.rpc === "not-json-rpc",
+      answered,
+      isMcp: false,
+      a2a: {
+        rpcUrl: p.rpcUrl,
+        rpc: p.rpc,
+        rpcStatus: p.rpcStatus,
+        note: rpcOutcomeLabel(p.rpc),
+      },
+      serverName: p.card?.name ?? null,
+      protocolVersion: p.card?.protocolVersion ?? null,
+      toolCount: p.card ? p.card.skills.length : null,
+      tools: (p.card?.skills ?? [])
+        .slice(0, MAX_TOOLS_SHOWN)
+        .map((s) => readTool({ name: s.name, description: s.description ?? undefined }))
+        .filter((t): t is ProbedTool => t !== null),
+      descriptor: null,
+      latencyMs: p.latencyMs,
+      error: p.error,
+      checkedAt,
+    };
+
+    recordProbe(proof);
+    return proof;
+  });
 }
 
 /**
@@ -340,6 +407,12 @@ export function proveAgent(
   agent: { services: Record<string, DeclaredService> | null },
   opts: { timeoutMs?: number } = {},
 ): Promise<EndpointProof | null> {
-  const endpoint = mcpEndpointOf(agent.services);
-  return endpoint ? probeMcp(endpoint, opts) : Promise.resolve(null);
+  // MCP first when both are declared: its handshake returns more (a server
+  // name, a protocol revision, a tool list with descriptions) and the four
+  // agents on BSC that declare both serve the same software behind each.
+  const mcp = endpointOf(agent.services, "mcp");
+  if (mcp) return probeMcp(mcp, opts);
+  const a2a = endpointOf(agent.services, "a2a");
+  if (a2a) return probeA2aEndpoint(a2a, opts);
+  return Promise.resolve(null);
 }

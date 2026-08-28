@@ -170,9 +170,11 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
             <Row label="Answers right now" columns={columns}>
               {(c) =>
                 !c.proof ? (
-                  <span className="text-ink-3">no MCP endpoint declared</span>
-                ) : c.proof.isMcp ? (
-                  <span style={{ color: "var(--seat-yield)" }}>yes, {c.proof.latencyMs} ms</span>
+                  <span className="text-ink-3">no MCP or A2A endpoint declared</span>
+                ) : c.proof.answered ? (
+                  <span style={{ color: "var(--seat-yield)" }}>
+                    yes, {c.proof.protocol.toUpperCase()} in {c.proof.latencyMs} ms
+                  </span>
                 ) : (
                   <span style={{ color: "var(--seat-health)" }}>
                     no — {c.proof.error?.slice(0, 60) ?? "did not answer"}
