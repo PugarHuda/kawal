@@ -249,7 +249,8 @@ the one that estimates rather than reverts.
 
 Every reputation record Kawal wrote carried "probes are made when the site is
 used rather than on a schedule" among its stated defects, and it was true. A
-Vercel Cron now calls `/api/cron/sweep` every six hours: at most forty agents
+Vercel Cron now calls `/api/cron/sweep` once a day — the Hobby plan's ceiling;
+the route itself is safe at any cadence — at most forty agents
 a run drawn from the five seats and the sixty strongest on the open roster,
 rotating so successive runs cover it, behind the secret Vercel sends with the
 request. No secret configured means no sweep rather than an open one — an

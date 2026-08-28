@@ -15,7 +15,7 @@ import { BSC_MAINNET } from "@/lib/chains";
  * "probes are made when the site is used rather than on a schedule, so the
  * sample is not evenly spaced in time." That was true. A history that only
  * grows when a visitor happens to open a page measures the visitors as much
- * as the agents. This route is what Vercel Cron calls, every six hours, and
+ * as the agents. This route is what Vercel Cron calls, daily on the Hobby plan, and
  * it removes the defect rather than restating it.
  *
  * Bounded like the listing probe is: at most `PER_RUN` agents, at most
