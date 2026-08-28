@@ -60,3 +60,7 @@ playwright-report/
 .env*
 
 .env*
+
+# agent-skill files dropped by the Vercel Turso integration; vendor docs, not product
+.agents/
+skills-lock.json
