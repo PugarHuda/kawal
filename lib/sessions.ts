@@ -17,8 +17,8 @@ import {
   adminKey,
   hasAdminKey,
   readLedger,
-  writeLedger,
-  withLedgerLock,
+  loadLedger,
+  mutateLedger,
   isLive,
   MissingAdminKeyError,
   type LedgerSeat,
@@ -27,7 +27,7 @@ import {
 // The on-disk shape and its readers live in lib/vault.ts, which the CLI
 // scripts share. Re-exported here so the UI has one import for "the control
 // room's state" rather than reaching past this module for half of it.
-export { readLedger, isLive, hasAdminKey, MissingAdminKeyError, type LedgerSeat };
+export { readLedger, loadLedger, isLive, hasAdminKey, MissingAdminKeyError, type LedgerSeat };
 
 /**
  * What the mandated wallet is actually holding, next to what the seats are
@@ -65,7 +65,7 @@ export async function walletHoldings(
 export async function revokeSeat(publicKey: string): Promise<LedgerSeat | null> {
   // Read outside the lock: the chain call below takes seconds, and holding a
   // lock across it would stall every other writer for the whole transaction.
-  const seat = readLedger().find((s) => s.publicKey === publicKey);
+  const seat = (await loadLedger()).find((s) => s.publicKey === publicKey);
   if (!seat) return null;
   if (seat.revokedAt) return seat;
 
@@ -97,7 +97,7 @@ export async function revokeSeat(publicKey: string): Promise<LedgerSeat | null> 
   // Re-read inside the lock and apply the outcome to that copy. Writing back
   // the snapshot taken before the chain call would silently undo anything the
   // preempt script changed while the transaction was in flight.
-  return withLedgerLock((seats) => {
+  return mutateLedger((seats) => {
     const fresh = seats.find((s) => s.publicKey === publicKey);
     if (!fresh) return null;
 
@@ -109,7 +109,6 @@ export async function revokeSeat(publicKey: string): Promise<LedgerSeat | null> 
       fresh.revokeError = revokeError;
     }
 
-    writeLedger(seats);
     return fresh;
   });
 }

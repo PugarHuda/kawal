@@ -1,17 +1,16 @@
 import "server-only";
-import { DatabaseSync } from "node:sqlite";
-import { isAbsolute, join } from "node:path";
 import { formatEther, type Address, type Hex } from "viem";
 import { publicClientFor } from "./rpc.ts";
 import { BSC_MAINNET } from "./chains.ts";
+import { openStore, type Store } from "./db.ts";
 import { payTo, PRICE_WEI } from "./x402.terms.ts";
 
 /**
  * Taking the payment the challenge asked for.
  *
  * The terms live in `x402.terms.ts`, which is pure and checkable offline. This
- * half touches a database and the chain, so it is server-only and tested
- * against a running instance instead.
+ * half touches a store and the chain, so it is server-only and tested against
+ * a running instance instead.
  *
  * Settlement is deliberately the dullest possible mechanism. No facilitator,
  * no signature scheme, no allowance: the caller sends a plain BNB transfer and
@@ -21,6 +20,11 @@ import { payTo, PRICE_WEI } from "./x402.terms.ts";
  * unbacked payment claim this whole feature exists to be the opposite of.
  * Reading a receipt on the chain the payment happened on is something anyone
  * can reproduce.
+ *
+ * The spent-hash ledger goes through `lib/db.ts`, so on a host without a
+ * disk it is the shared database rather than a file that resets on every
+ * cold start. That matters more here than for the probe history: a ledger
+ * that resets is a ledger that accepts the same receipt twice.
  */
 
 /**
@@ -31,36 +35,33 @@ import { payTo, PRICE_WEI } from "./x402.terms.ts";
  */
 const MIN_CONFIRMATIONS = 3n;
 
-function dbPath() {
-  const configured = process.env.KAWAL_PAYMENTS_DB ?? ".kawal-payments.db";
-  // Anchored for the same reason the probe history is: a relative path follows
-  // the process, and a server started from elsewhere would open a second,
-  // empty ledger — which here means accepting a receipt that was already spent.
-  return isAbsolute(configured) ? configured : join(process.cwd(), configured);
+function file() {
+  return process.env.KAWAL_PAYMENTS_DB ?? ".kawal-payments.db";
 }
 
-let db: DatabaseSync | null = null;
-let broken = false;
+let ready: Promise<Store | null> | null = null;
 
-function open(): DatabaseSync | null {
-  if (db) return db;
-  if (broken) return null;
-  try {
-    const handle = new DatabaseSync(dbPath());
-    handle.exec(`
-      CREATE TABLE IF NOT EXISTS spent (
-        tx_hash    TEXT PRIMARY KEY,
-        payer      TEXT NOT NULL,
-        amount_wei TEXT NOT NULL,
-        spent_at   INTEGER NOT NULL
-      );
-    `);
-    db = handle;
-    return db;
-  } catch {
-    broken = true;
-    return null;
+async function open(): Promise<Store | null> {
+  if (!ready) {
+    ready = (async () => {
+      const store = await openStore(file());
+      if (!store) return null;
+      try {
+        await store.exec(`
+          CREATE TABLE IF NOT EXISTS spent (
+            tx_hash    TEXT PRIMARY KEY,
+            payer      TEXT NOT NULL,
+            amount_wei TEXT NOT NULL,
+            spent_at   INTEGER NOT NULL
+          )
+        `);
+        return store;
+      } catch {
+        return null;
+      }
+    })();
   }
+  return ready;
 }
 
 export type Settlement =
@@ -83,12 +84,12 @@ export async function settle(txHash: string): Promise<Settlement> {
 
   const hash = txHash.toLowerCase() as Hex;
 
-  const handle = open();
-  if (!handle) return { paid: false, reason: "the payment ledger is unreadable; refusing to accept" };
+  const store = await open();
+  if (!store) return { paid: false, reason: "the payment ledger is unreadable; refusing to accept" };
 
   // Checked before the chain read: a spent receipt must be refused even if the
   // node is slow or unavailable.
-  const already = handle.prepare("SELECT tx_hash FROM spent WHERE tx_hash = ?").get(hash);
+  const already = await store.get("SELECT tx_hash FROM spent WHERE tx_hash = ?", [hash]);
   if (already) return { paid: false, reason: "that transaction has already been used" };
 
   const rpc = publicClientFor(BSC_MAINNET);
@@ -120,12 +121,15 @@ export async function settle(txHash: string): Promise<Settlement> {
   }
 
   try {
-    handle
-      .prepare("INSERT INTO spent (tx_hash, payer, amount_wei, spent_at) VALUES (?, ?, ?, ?)")
-      .run(hash, tx.from.toLowerCase(), tx.value.toString(), Math.floor(Date.now() / 1000));
+    // The primary key is the guard: two requests racing on one receipt both
+    // pass the SELECT above, and only one of these inserts succeeds.
+    const { changes } = await store.run(
+      "INSERT OR IGNORE INTO spent (tx_hash, payer, amount_wei, spent_at) VALUES (?, ?, ?, ?)",
+      [hash, tx.from.toLowerCase(), tx.value.toString(), Math.floor(Date.now() / 1000)],
+    );
+    if (changes !== 1) return { paid: false, reason: "that transaction has already been used" };
   } catch {
-    // A primary-key collision means another request banked it first. Losing
-    // that race must not hand out a second report for one payment.
+    // Losing the race must not hand out a second report for one payment.
     return { paid: false, reason: "that transaction has already been used" };
   }
 

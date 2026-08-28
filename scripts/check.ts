@@ -730,7 +730,11 @@ const scratchDb = `${tmpdir()}/kawal-check-uptime.db`;
 for (const suffix of ["", "-journal", "-wal", "-shm"]) rmSync(`${scratchDb}${suffix}`, { force: true });
 process.env.KAWAL_UPTIME_DB = scratchDb;
 
-const { recordProbe, uptimeFor, observedTotals } = await import("../lib/uptime.ts");
+const { recordProbe, uptimeFor, observedTotals, resetUptimeForTests } = await import("../lib/uptime.ts");
+// The store layer caches opened stores by path and the uptime module caches
+// its own handle; both must forget anything opened before the redirect.
+(await import("../lib/db.ts")).resetStoresForTests();
+resetUptimeForTests();
 
 const proof = (over: Record<string, unknown> = {}) => ({
   endpoint: "https://example.test/mcp",
@@ -750,12 +754,12 @@ const proof = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-assert.equal(uptimeFor("https://nothing.test/mcp"), null, "an unobserved endpoint has no record");
+assert.equal(await uptimeFor("https://nothing.test/mcp"), null, "an unobserved endpoint has no record");
 
-for (const ms of [300, 100, 200]) recordProbe(proof({ latencyMs: ms }));
-recordProbe(proof({ answered: false, isMcp: false, latencyMs: 9000, error: "HTTP 502" }));
+for (const ms of [300, 100, 200]) await recordProbe(proof({ latencyMs: ms }));
+await recordProbe(proof({ answered: false, isMcp: false, latencyMs: 9000, error: "HTTP 502" }));
 
-const up = uptimeFor("https://example.test/mcp")!;
+const up = (await uptimeFor("https://example.test/mcp"))!;
 assert.equal(up.checks, 4, "every observation counts");
 assert.equal(up.answered, 3, "only the answering ones count as answered");
 // The median must ignore the failure: a timeout's latency is the timeout, not
@@ -764,15 +768,15 @@ assert.equal(up.medianMs, 200, "median is taken over answering checks only");
 assert.equal(up.worstMs, 300, "the slowest answering check is the tail worth seeing");
 
 const dead = "https://down.test/mcp";
-recordProbe(proof({ endpoint: dead, answered: false, isMcp: false, latencyMs: 5000, error: "HTTP 502" }));
-const downtime = uptimeFor(dead)!;
+await recordProbe(proof({ endpoint: dead, answered: false, isMcp: false, latencyMs: 5000, error: "HTTP 502" }));
+const downtime = (await uptimeFor(dead))!;
 assert.equal(downtime.answered, 0, "an endpoint that never answered reports zero");
 assert.equal(downtime.medianMs, null, "no answering checks means no median to quote");
 
 // The home page band counts endpoints, not rows. `SUM(is_mcp)` would read 3
 // here — the three answering probes of one agent — and report more agents
 // answering than Kawal has ever called.
-const totals = observedTotals()!;
+const totals = (await observedTotals())!;
 assert.equal(totals.checks, 5, "every probe kept, across all endpoints");
 assert.equal(totals.endpoints, 2, "two distinct endpoints were dialled");
 assert.equal(totals.answered, 1, "one of them ever answered; rows are not endpoints");
@@ -1097,6 +1101,7 @@ const measured = {
   chainId: BSC_MAINNET,
   agentId: "43970",
   endpoint: "https://example.test/mcp",
+  protocol: "mcp" as const,
   checks: 40,
   answered: 39,
   since: Math.floor(Date.parse("2026-08-01T00:00:00Z") / 1000),

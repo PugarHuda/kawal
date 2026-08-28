@@ -148,7 +148,7 @@ export function probeMcp(
     // the page would publish a 0% availability record for software that is
     // running fine on somebody's machine. Not measuring it is the honest
     // answer; measuring the wrong thing accurately is still wrong.
-    if (!proof.descriptor) recordProbe(proof);
+    if (!proof.descriptor) await recordProbe(proof);
     return proof;
   });
 }
@@ -390,7 +390,7 @@ export function probeA2aEndpoint(
       checkedAt,
     };
 
-    recordProbe(proof);
+    await recordProbe(proof);
     return proof;
   });
 }

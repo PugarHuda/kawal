@@ -83,7 +83,8 @@ balance:
 | `npm run wallet:new` | Free. Mints the admin key, prints only the address |
 | `npm run onchain -- mainnet` | ~0.0037 BNB — grants a four-seat mandate and proves the allowlist bites |
 | `npm run preempt` | Dry run by default; `-- --send` costs ~0.00075 BNB |
-| `npm run publish` | Dry run by default; `-- --send` writes Kawal's uptime measurements into the ERC-8004 reputation registry, ~0.000025 BNB per record |
+| `npm run publish` | Dry run by default; `-- --send` writes Kawal's uptime measurements into the ERC-8004 reputation registry. Gas is estimated per record against the real contract (~0.0000124 BNB each at 0.05 gwei), the balance decides how many go, most-observed first, and what was sent is recorded in `.kawal-published.json` so a re-run does not write the same agent twice in a day |
+| `npm run ledger:push` | Copies the seat ledger to the deployed site's database, session keys stripped. Needs `TURSO_DATABASE_URL` |
 
 ## What is proven on-chain
 
@@ -243,6 +244,31 @@ The split is load-bearing. `scripts/` files run work at import time, so pulling
 one into another module fires it: importing the advantage runner to test a pure
 function once turned `npm run check` into a network job that rewrote a report.
 
+## Where the state lives
+
+Three things outlive a request: every probe Kawal has made, every payment
+receipt it has accepted, and the ledger of seats it granted. On a machine with
+a disk they are SQLite files. On a host without one — every serverless
+platform — a file resets on each cold start, and a probe history that resets
+is not a history, while a payment ledger that resets accepts the same receipt
+twice.
+
+So `lib/db.ts` keeps the SQLite dialect and makes the file optional. With
+`TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` set, every store talks to one
+libSQL database over HTTP; without them, each opens its own file as before.
+The SQL is identical and nothing above that module knows which it got. The
+seat ledger takes the same road for the web app only: the CLI scripts keep
+using the file, because they run where the key is, and `npm run ledger:push`
+copies the file up with the session private keys stripped — the deployed site
+reads seats and revokes them with the admin key, it never drives one.
+
+Deploying, then, is `vercel integration add turso` (the Marketplace step
+needs its terms accepted once in a browser), `vercel env pull`, `npm run
+ledger:push`, and `vercel deploy`. The wallet key stays off the platform:
+`KAWAL_PAY_TO` is enough for the paid endpoint to quote an address, and a
+deployment without the key renders the control room view-only rather than
+offering a button it cannot honour.
+
 ## Files it writes
 
 All gitignored, all holding either key material or observations.
@@ -253,6 +279,7 @@ All gitignored, all holding either key material or observations.
 | `.kawal-sessions.json` | Granted seats and what became of them. Holds session private keys |
 | `.kawal-uptime.db` | SQLite. Every probe Kawal has made, for the reliability panel |
 | `.kawal-payments.db` | SQLite. Transaction hashes already spent on a report, so none is used twice |
+| `.kawal-published.json` | Which agents this machine has written a reputation record for, and when |
 
 The probe history carries a `protocol` column, added in place when an older
 file is opened: rows from before the prober spoke A2A default to `mcp`, which
@@ -266,6 +293,8 @@ is what they were. Renaming would have orphaned every observation kept so far.
 | `KAWAL_ADMIN_KEY` | The wallet key, for deployments that keep it out of the filesystem |
 | `SCAN_API_KEY` | 8004scan Pro tier, lifting the rate limit |
 | `SCAN_API_ORIGIN` | Points the registry client elsewhere. The test suite aims it at a host that refuses connections to prove the outage path is real |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Moves every store from local SQLite files to one libSQL database. Set by the Vercel Turso integration |
+| `KAWAL_PAY_TO` | Where `/api/report` takes payment, for deployments that keep the wallet key off the platform |
 
 Holding the token is permission; holding the key is capability. An instance
 with the token and no key renders view-only rather than offering a button it

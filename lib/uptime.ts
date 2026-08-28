@@ -12,10 +12,10 @@
  * calls; keeping them costs one insert and turns "answered in 182 ms" into
  * "answered 30 of 30 checks since Tuesday".
  *
- * Storage is `node:sqlite`, a Node builtin since 22. Chosen over a JSON file
- * because this is append-heavy time series read by aggregate: a file would
- * mean rewriting the whole history on every probe and computing medians in
- * JavaScript. Chosen over a real database because a marketplace that needs
+ * Storage goes through `lib/db.ts`: a SQLite file on a machine with a disk,
+ * the shared libSQL database on a platform without one. Same SQL either way.
+ * Chosen over a JSON file because this is append-heavy time series read by
+ * aggregate, and over a real database because a marketplace that needs
  * Postgres running to render a page is a worse marketplace.
  *
  * Writes are the side effect of a read, which is unusual and deliberate: the
@@ -23,101 +23,89 @@
  * records at most one row per endpoint per minute.
  */
 
-import { DatabaseSync } from "node:sqlite";
-import { isAbsolute, join } from "node:path";
+import { openStore, type Store } from "./db.ts";
 import type { EndpointProof } from "./probe.ts";
 
 /**
- * Where the history lives, resolved when the database is first opened rather
- * than when this module loads.
+ * The file, when it is a file.
  *
- * The difference is not cosmetic. Static imports hoist: `scripts/check.ts`
- * pulls in `probe.ts`, which pulls in this module, so a constant evaluated at
- * load time was already pointing at the real database before the check could
- * redirect it. The self-check was writing its synthetic rows into production
- * history and then failing on its own leftovers.
+ * Read when the store is first opened rather than when this module loads.
+ * Static imports hoist: `scripts/check.ts` pulls in `probe.ts`, which pulls
+ * in this module, so a constant evaluated at load time was already pointing
+ * at the real database before the check could redirect it — and the
+ * self-check was writing its synthetic rows into production history.
  */
-function dbPath() {
-  const configured = process.env.KAWAL_UPTIME_DB ?? ".kawal-uptime.db";
-  // Anchored for the same reason the ledger is: a relative path follows the
-  // process CWD, so a server started from elsewhere would silently open a
-  // second, empty history instead of the real one. Turbopack warns about the
-  // computed path — correctly, and see lib/vault.ts for why the warning is
-  // left standing rather than suppressed.
-  return isAbsolute(configured) ? configured : join(process.cwd(), configured);
+function file() {
+  return process.env.KAWAL_UPTIME_DB ?? ".kawal-uptime.db";
 }
 
 /** Rows older than this are dropped: a month is as far back as anyone reads. */
 const RETAIN_DAYS = 30;
 
-let db: DatabaseSync | null = null;
-let broken = false;
+let ready: Promise<Store | null> | null = null;
 
-/**
- * Opens the database, creating it on first use.
- *
- * Returns null rather than throwing if the file cannot be opened — a
- * read-only filesystem or a locked file must cost the uptime panel, not the
- * page. The failure is latched so a broken environment is not retried on
- * every render.
- */
-function open(): DatabaseSync | null {
-  if (db) return db;
-  if (broken) return null;
+async function open(): Promise<Store | null> {
+  if (!ready) {
+    ready = (async () => {
+      const store = await openStore(file());
+      if (!store) return null;
+      try {
+        await store.exec(`
+          CREATE TABLE IF NOT EXISTS probe (
+            endpoint   TEXT    NOT NULL,
+            checked_at INTEGER NOT NULL,
+            is_mcp     INTEGER NOT NULL,
+            latency_ms INTEGER NOT NULL,
+            error      TEXT
+          );
+          CREATE INDEX IF NOT EXISTS probe_endpoint_time ON probe (endpoint, checked_at)
+        `);
 
-  try {
-    const handle = new DatabaseSync(dbPath());
-    handle.exec(`
-      CREATE TABLE IF NOT EXISTS probe (
-        endpoint   TEXT    NOT NULL,
-        checked_at INTEGER NOT NULL,
-        is_mcp     INTEGER NOT NULL,
-        latency_ms INTEGER NOT NULL,
-        error      TEXT
-      );
-      CREATE INDEX IF NOT EXISTS probe_endpoint_time ON probe (endpoint, checked_at);
-    `);
-
-    // `is_mcp` predates the prober speaking anything but MCP. It now means
-    // "answered in its declared protocol", and the protocol is its own column
-    // so an A2A answer is not filed as an MCP one. Added in place rather than
-    // by renaming: a rename would orphan every row of history already kept,
-    // and the history is the whole point of this file. Rows from before the
-    // column exists default to 'mcp', which is what they were.
-    const columns = handle.prepare("PRAGMA table_info(probe)").all() as Array<{ name: string }>;
-    if (!columns.some((c) => c.name === "protocol")) {
-      handle.exec("ALTER TABLE probe ADD COLUMN protocol TEXT NOT NULL DEFAULT 'mcp'");
-    }
-    db = handle;
-    return db;
-  } catch {
-    broken = true;
-    return null;
+        // `is_mcp` predates the prober speaking anything but MCP. It now means
+        // "answered in its declared protocol", and the protocol is its own
+        // column so an A2A answer is not filed as an MCP one. Added in place
+        // rather than by renaming: a rename would orphan every row of history
+        // already kept, and the history is the whole point of this file. Rows
+        // from before the column exists default to 'mcp', which is what they
+        // were.
+        const columns = await store.all<{ name: string }>("PRAGMA table_info(probe)");
+        if (!columns.some((c) => c.name === "protocol")) {
+          await store.exec("ALTER TABLE probe ADD COLUMN protocol TEXT NOT NULL DEFAULT 'mcp'");
+        }
+        return store;
+      } catch {
+        return null;
+      }
+    })();
   }
+  return ready;
+}
+
+/** Only for the offline suite, which redirects the file between sections. */
+export function resetUptimeForTests() {
+  ready = null;
 }
 
 /** Writes one observation. Silent on failure: monitoring must not break the page. */
-export function recordProbe(proof: EndpointProof) {
-  const handle = open();
-  if (!handle) return;
+export async function recordProbe(proof: EndpointProof): Promise<void> {
+  const store = await open();
+  if (!store) return;
 
   try {
-    handle
-      .prepare(
-        "INSERT INTO probe (endpoint, checked_at, is_mcp, latency_ms, error, protocol) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .run(
+    await store.run(
+      "INSERT INTO probe (endpoint, checked_at, is_mcp, latency_ms, error, protocol) VALUES (?, ?, ?, ?, ?, ?)",
+      [
         proof.endpoint,
         Math.floor(new Date(proof.checkedAt).getTime() / 1000),
         proof.answered ? 1 : 0,
         Math.round(proof.latencyMs),
         proof.error,
         proof.protocol,
-      );
-
-    handle
-      .prepare("DELETE FROM probe WHERE checked_at < ?")
-      .run(Math.floor(Date.now() / 1000) - RETAIN_DAYS * 86_400);
+      ],
+    );
+    await store.run("DELETE FROM probe WHERE checked_at < ?", [
+      Math.floor(Date.now() / 1000) - RETAIN_DAYS * 86_400,
+    ]);
   } catch {
     // A failed insert costs one data point, never a render.
   }
@@ -142,50 +130,53 @@ export type Uptime = {
  * the first row, and a panel claiming "0 of 0 checks" would say less than
  * showing nothing.
  */
-export function uptimeFor(endpoint: string): Uptime | null {
-  const handle = open();
-  if (!handle) return null;
+export async function uptimeFor(endpoint: string): Promise<Uptime | null> {
+  const store = await open();
+  if (!store) return null;
 
   try {
-    const row = handle
-      .prepare(
-        `SELECT COUNT(*)                                   AS checks,
-                SUM(is_mcp)                                AS answered,
-                MIN(checked_at)                            AS since,
-                MAX(checked_at)                            AS last_checked_at
-           FROM probe
-          WHERE endpoint = ?`,
-      )
-      .get(endpoint) as
-      | { checks: number; answered: number | null; since: number | null; last_checked_at: number | null }
-      | undefined;
+    const row = await store.get<{
+      checks: number;
+      answered: number | null;
+      since: number | null;
+      last_checked_at: number | null;
+    }>(
+      `SELECT COUNT(*)      AS checks,
+              SUM(is_mcp)   AS answered,
+              MIN(checked_at) AS since,
+              MAX(checked_at) AS last_checked_at
+         FROM probe
+        WHERE endpoint = ?`,
+      [endpoint],
+    );
 
-    if (!row || row.checks === 0) return null;
+    if (!row || Number(row.checks) === 0) return null;
 
     // Median over answering checks only: a timeout's latency is the timeout,
     // not the agent's speed, and mixing the two flatters nothing and misleads
     // everyone.
-    const latencies = handle
-      .prepare("SELECT latency_ms FROM probe WHERE endpoint = ? AND is_mcp = 1 ORDER BY latency_ms")
-      .all(endpoint) as Array<{ latency_ms: number }>;
+    const latencies = (
+      await store.all<{ latency_ms: number }>(
+        "SELECT latency_ms FROM probe WHERE endpoint = ? AND is_mcp = 1 ORDER BY latency_ms",
+        [endpoint],
+      )
+    ).map((r) => Number(r.latency_ms));
 
     const mid = latencies.length >> 1;
     const medianMs =
       latencies.length === 0
         ? null
         : latencies.length % 2
-          ? (latencies[mid]?.latency_ms ?? null)
-          : Math.round(
-              ((latencies[mid - 1]?.latency_ms ?? 0) + (latencies[mid]?.latency_ms ?? 0)) / 2,
-            );
+          ? (latencies[mid] ?? null)
+          : Math.round(((latencies[mid - 1] ?? 0) + (latencies[mid] ?? 0)) / 2);
 
     return {
-      checks: row.checks,
-      answered: row.answered ?? 0,
-      since: row.since ?? 0,
-      lastCheckedAt: row.last_checked_at ?? 0,
+      checks: Number(row.checks),
+      answered: Number(row.answered ?? 0),
+      since: Number(row.since ?? 0),
+      lastCheckedAt: Number(row.last_checked_at ?? 0),
       medianMs,
-      worstMs: latencies[latencies.length - 1]?.latency_ms ?? null,
+      worstMs: latencies[latencies.length - 1] ?? null,
     };
   } catch {
     return null;
@@ -199,19 +190,18 @@ export function uptimeFor(endpoint: string): Uptime | null {
  * answered, while the panel wants latencies and dates. Keeping them apart
  * means the tier cannot accidentally start depending on a median.
  */
-export function observedFor(endpoint: string | null | undefined) {
+export async function observedFor(endpoint: string | null | undefined) {
   if (!endpoint) return undefined;
-  const seen = uptimeFor(endpoint);
+  const seen = await uptimeFor(endpoint);
   return seen ? { checks: seen.checks, answered: seen.answered } : undefined;
 }
-
 
 export type Observed = {
   /** Every probe Kawal has kept, across all agents. */
   checks: number;
   /** Distinct endpoints called at least once. */
   endpoints: number;
-  /** Of those, how many have ever answered as MCP. */
+  /** Of those, how many have ever answered in their declared protocol. */
   answered: number;
   /** Unix seconds of the oldest retained observation. */
   since: number;
@@ -227,26 +217,26 @@ export type Observed = {
  * Null when the history is empty or unreadable, for the same reason
  * `uptimeFor` is: a band reading "0 of 0" says less than no band.
  */
-export function observedTotals(): Observed | null {
-  const handle = open();
-  if (!handle) return null;
+export async function observedTotals(): Promise<Observed | null> {
+  const store = await open();
+  if (!store) return null;
 
   try {
-    const row = handle
-      .prepare(
-        `SELECT COUNT(*)                                        AS checks,
-                COUNT(DISTINCT endpoint)                        AS endpoints,
-                COUNT(DISTINCT CASE WHEN is_mcp = 1
-                                    THEN endpoint END)          AS answered,
-                MIN(checked_at)                                 AS since
-           FROM probe`,
-      )
-      .get() as
-      | { checks: number; endpoints: number; answered: number; since: number | null }
-      | undefined;
-
-    if (!row || row.checks === 0) return null;
-    return { checks: row.checks, endpoints: row.endpoints, answered: row.answered, since: row.since ?? 0 };
+    const row = await store.get<{ checks: number; endpoints: number; answered: number; since: number | null }>(
+      `SELECT COUNT(*)                               AS checks,
+              COUNT(DISTINCT endpoint)               AS endpoints,
+              COUNT(DISTINCT CASE WHEN is_mcp = 1
+                                  THEN endpoint END) AS answered,
+              MIN(checked_at)                        AS since
+         FROM probe`,
+    );
+    if (!row || Number(row.checks) === 0) return null;
+    return {
+      checks: Number(row.checks),
+      endpoints: Number(row.endpoints),
+      answered: Number(row.answered),
+      since: Number(row.since ?? 0),
+    };
   } catch {
     return null;
   }

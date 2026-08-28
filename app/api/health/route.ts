@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStats } from "@/lib/scan";
-import { readLedger, isLive, hasAdminKey } from "@/lib/sessions";
+import { loadLedger, isLive, hasAdminKey } from "@/lib/sessions";
 import { uptimeFor } from "@/lib/uptime";
 
 /**
@@ -49,8 +49,8 @@ export async function GET() {
       return `${bsc.total_agents.toLocaleString()} agents indexed on BSC`;
     }),
 
-    timed("ledger", () => {
-      const seats = readLedger();
+    timed("ledger", async () => {
+      const seats = await loadLedger();
       // An empty ledger is healthy — it means no mandate has been granted on
       // this instance, which is the normal state for a fresh deployment.
       const live = seats.filter((s) => isLive(s)).length;
@@ -59,12 +59,12 @@ export async function GET() {
         : `${live} live of ${seats.length} recorded`;
     }),
 
-    timed("probe-history", () => {
+    timed("probe-history", async () => {
       // Reads through the same path the agent page uses. A locked or
       // unwritable database returns null there and silently drops the
       // reliability panel, which is exactly the kind of quiet degradation an
       // operator should hear about here instead.
-      uptimeFor("https://health-check.invalid/never-probed");
+      await uptimeFor("https://health-check.invalid/never-probed");
       return "database readable";
     }),
   ]);

@@ -47,9 +47,14 @@ next-env.d.ts
 .kawal-sessions.json.tmp
 .kawal-uptime.db
 .kawal-payments.db
+.kawal-ledger.db
+.kawal-published.json
 
 # playwright mcp scratch
 .playwright-mcp/
 test-results/
 playwright-report/
 /blob-report/
+
+.vercel
+.env*

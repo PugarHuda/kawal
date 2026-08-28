@@ -11,7 +11,7 @@ import {
 } from "@/lib/mandate";
 import { BSC_MAINNET } from "@/lib/chains";
 import { seatColor } from "@/components/listing";
-import { readLedger, isLive, walletHoldings, hasAdminKey, type LedgerSeat } from "@/lib/sessions";
+import { loadLedger, isLive, walletHoldings, hasAdminKey, type LedgerSeat } from "@/lib/sessions";
 import { explorerTx } from "@/lib/altana";
 import { revokeAction, unlockAction, lockAction } from "./actions";
 import { isOperator, operatorConfigured } from "@/lib/operator";
@@ -118,7 +118,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
 
   // Sessions that were actually granted on-chain, if this machine has run
   // `npm run onchain`. Everything below the form is a plan; this is not.
-  const ledger = readLedger();
+  const ledger = await loadLedger();
 
   // Revoking destroys a KeyStore registration for good, so the button only
   // exists for a caller who proved they are the operator. The action checks

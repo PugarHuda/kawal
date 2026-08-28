@@ -74,9 +74,9 @@ async function loadColumn(chainId: number, tokenId: string): Promise<Column | nu
     agent,
     quality,
     proof,
-    uptime: proof ? uptimeFor(proof.endpoint) : null,
+    uptime: proof ? await uptimeFor(proof.endpoint) : null,
     history,
-    assessment: assess(agent, undefined, observedFor(proof?.endpoint)),
+    assessment: assess(agent, undefined, await observedFor(proof?.endpoint)),
     category: categoryLabel(classification.category),
     confidence: classification.confidence,
     // The seat colour a buyer is filling, so the category stays visible in

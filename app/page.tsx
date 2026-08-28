@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const stats = await getStats().catch(() => null);
-  const observed = observedTotals();
+  const observed = await observedTotals();
   const bsc = stats ? bscStats(stats) : undefined;
 
   const roster = bsc?.total_agents ?? 0;

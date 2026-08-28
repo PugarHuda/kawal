@@ -57,7 +57,7 @@ export async function probeListings(listings: Listing[]): Promise<Map<string, Li
       const detail = await getAgent(listing.agent.chain_id, listing.agent.token_id);
       const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
       if (proof) {
-        const observed = observedFor(proof.endpoint);
+        const observed = await observedFor(proof.endpoint);
         proofs.set(listing.agent.agent_id, {
           proof,
           // The database records whether a call answered as MCP, which is the

@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync, openSync, closeSyn
 import { isAbsolute, join } from "node:path";
 import type { Hex } from "viem";
 import type { GrantedSeat } from "./altana.ts";
+import { isRemote, openStore, type Store } from "./db.ts";
 
 // The `server-only` package would say this more loudly, but it throws when
 // imported outside a React server context and the CLI scripts import this
@@ -200,6 +201,111 @@ export function withLedgerLock<T>(mutate: (seats: LedgerSeat[]) => T): T {
 /** A seat is live only if it was never revoked and has not run out. */
 export function isLive(seat: LedgerSeat, now = Math.floor(Date.now() / 1000)) {
   return !seat.revokedAt && seat.expiry > now;
+}
+
+/* --------------------------------------------------- remote ledger ---
+ *
+ * The file above is the ledger on a machine with a disk, and every CLI script
+ * uses it directly: they run where the key is. The web app runs wherever it
+ * is deployed, and on a host without a disk the file is empty on every cold
+ * start — so the control room would show no seats for a mandate that is live
+ * on-chain, which is the one thing a control room must never do.
+ *
+ * With `TURSO_DATABASE_URL` set, the web app reads and writes the ledger as
+ * one row in the shared database instead. The CLI path is untouched: `npm run
+ * ledger:push` copies the file up, with the session private keys stripped,
+ * because the deployed site only ever reads seats and revokes them with the
+ * admin key — it never drives a seat, so it never needs a seat's key.
+ *
+ * Concurrency is optimistic rather than locked. A file lock has no meaning
+ * across a network, so the row carries a version and a write only lands if
+ * the version it read is still current. Two writers racing get one success
+ * and one retry, which is the same outcome the file lock produces locally.
+ */
+
+const LEDGER_STORE = ".kawal-ledger.db";
+
+let ledgerStore: Promise<Store | null> | null = null;
+
+async function remoteLedger(): Promise<Store | null> {
+  if (!ledgerStore) {
+    ledgerStore = (async () => {
+      const s = await openStore(LEDGER_STORE);
+      if (!s) return null;
+      try {
+        await s.exec(
+          "CREATE TABLE IF NOT EXISTS ledger (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, json TEXT NOT NULL)",
+        );
+        await s.run("INSERT OR IGNORE INTO ledger (id, version, json) VALUES (1, 0, '[]')");
+        return s;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return ledgerStore;
+}
+
+function parseSeats(json: string | undefined): LedgerSeat[] {
+  try {
+    const parsed = JSON.parse(json ?? "[]");
+    return Array.isArray(parsed) ? (parsed as LedgerSeat[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The ledger as the web app should read it: remote when deployed, the file otherwise. */
+export async function loadLedger(): Promise<LedgerSeat[]> {
+  if (!isRemote()) return readLedger();
+  const s = await remoteLedger();
+  if (!s) return [];
+  const row = await s.get<{ json: string }>("SELECT json FROM ledger WHERE id = 1");
+  return parseSeats(row?.json);
+}
+
+/**
+ * A read-modify-write with nobody else in the middle, wherever the ledger is.
+ *
+ * `mutate` changes the array it is handed and returns whatever the caller
+ * wants back; the write happens here. Local, that is the file lock. Remote,
+ * it is a versioned update that retries on conflict.
+ */
+export async function mutateLedger<T>(mutate: (seats: LedgerSeat[]) => T): Promise<T> {
+  if (!isRemote()) {
+    return withLedgerLock((seats) => {
+      const result = mutate(seats);
+      writeLedger(seats);
+      return result;
+    });
+  }
+
+  const s = await remoteLedger();
+  if (!s) throw new Error("the ledger store is unreachable; refusing to change a seat it cannot record");
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const row = await s.get<{ version: number; json: string }>("SELECT version, json FROM ledger WHERE id = 1");
+    const version = Number(row?.version ?? 0);
+    const seats = parseSeats(row?.json);
+    const result = mutate(seats);
+    const { changes } = await s.run(
+      "UPDATE ledger SET version = ?, json = ? WHERE id = 1 AND version = ?",
+      [version + 1, JSON.stringify(seats), version],
+    );
+    if (changes === 1) return result;
+  }
+  throw new Error("the ledger changed under every attempt; try again");
+}
+
+/**
+ * Replaces the remote ledger wholesale. Only `ledger:push` calls this, and it
+ * refuses to run against a file: the file is the source, not the copy.
+ */
+export async function replaceRemoteLedger(seats: LedgerSeat[]): Promise<void> {
+  if (!isRemote()) throw new Error("no remote ledger is configured; set TURSO_DATABASE_URL");
+  const s = await remoteLedger();
+  if (!s) throw new Error("the ledger store is unreachable");
+  await s.run("UPDATE ledger SET version = version + 1, json = ? WHERE id = 1", [JSON.stringify(seats)]);
 }
 
 export class MissingAdminKeyError extends Error {}

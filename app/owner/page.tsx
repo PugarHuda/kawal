@@ -130,7 +130,7 @@ async function Results({ address }: { address: string }) {
       return {
         agent: a,
         proof,
-        uptime: proof?.endpoint ? uptimeFor(proof.endpoint) : null,
+        uptime: proof?.endpoint ? await uptimeFor(proof.endpoint) : null,
       };
     } catch {
       return { agent: a, proof: null, uptime: null };

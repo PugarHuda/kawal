@@ -71,7 +71,7 @@ const rows = await mapLimit(targets, CONCURRENCY, async (t): Promise<Row> => {
       };
     }
 
-    const seen = uptimeFor(proof.endpoint);
+    const seen = await uptimeFor(proof.endpoint);
     return {
       ...base,
       endpoint: proof.endpoint,

@@ -76,7 +76,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
   // endpoint called repeatedly and never reached is not hireable, whatever
   // the registration says — but an agent that published a stdio route or a
   // repository answered us, so it is not the silent case either.
-  const observed = observedFor(proof?.endpoint);
+  const observed = await observedFor(proof?.endpoint);
   const assessment = assess(
     agent,
     undefined,
@@ -132,7 +132,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         </dl>
       </section>
 
-      {proof && <LiveProbe proof={proof} uptime={uptimeFor(proof.endpoint)} />}
+      {proof && <LiveProbe proof={proof} uptime={await uptimeFor(proof.endpoint)} />}
 
       {payment && <PaymentTerms check={payment} />}
 

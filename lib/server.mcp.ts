@@ -104,7 +104,7 @@ export const TOOLS: Tool[] = [
       const agent = await getAgent(chainId, tokenId);
 
       const proof = await proveAgent(agent);
-      const observed = observedFor(proof?.endpoint);
+      const observed = await observedFor(proof?.endpoint);
       const reputation = await getReputationCached(chainId, tokenId);
       const payment =
         agent.x402_supported === true && proof?.endpoint
@@ -136,7 +136,7 @@ export const TOOLS: Tool[] = [
           checkedAt: proof.checkedAt,
         },
         // The part no one else holds. A single reading is weather.
-        history: proof?.endpoint ? uptimeFor(proof.endpoint) : null,
+        history: proof?.endpoint ? await uptimeFor(proof.endpoint) : null,
         signals: assessment.signals.map((s) => ({ key: s.key, pass: s.pass, detail: s.detail })),
       };
     },
@@ -296,7 +296,7 @@ export const TOOLS: Tool[] = [
 export async function deepReport(chainId: number, tokenId: string): Promise<Json> {
   const agent = await getAgent(chainId, tokenId);
   const proof = await proveAgent(agent);
-  const observed = observedFor(proof?.endpoint);
+  const observed = await observedFor(proof?.endpoint);
   const reputation = await getReputationCached(chainId, tokenId);
   const payment =
     agent.x402_supported === true && proof?.endpoint ? await checkX402Cached(proof.endpoint) : null;
@@ -345,7 +345,7 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
       summary: failure.summary,
       mayRecover: failure.transient,
     },
-    history: proof?.endpoint ? uptimeFor(proof.endpoint) : null,
+    history: proof?.endpoint ? await uptimeFor(proof.endpoint) : null,
     payment: payment && {
       claimsX402: agent.x402_supported === true,
       demandedPayment: payment.demanded,

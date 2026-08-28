@@ -97,7 +97,7 @@ export const MIN_OBSERVATIONS_TO_PUBLISH = 10;
 export const KNOWN_DEFECTS = [
   "Single vantage point: an agent that geo-blocks or ASN-blocks the prober appears unreachable.",
   "Cannot distinguish 'the agent is down' from 'unreachable from here'.",
-  "A probe counts as answered only on a completed MCP initialize handshake; HTTP 200 alone is not counted.",
+  "A probe counts as answered only on a completed MCP initialize handshake, or for A2A an agent card plus a JSON-RPC envelope from the endpoint it names; HTTP 200 alone is not counted.",
   "Probes are made when the site is used rather than on a schedule, so the sample is not evenly spaced in time.",
 ];
 
@@ -106,6 +106,8 @@ export type Measurement = {
   /** ERC-8004 token id, as a decimal string. */
   agentId: string;
   endpoint: string;
+  /** Which protocol the endpoint was probed as. Named in the record. */
+  protocol: "mcp" | "a2a";
   checks: number;
   answered: number;
   /** Unix seconds of the oldest observation in the window. */
@@ -178,10 +180,13 @@ export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
   const days = windowDays(m.since, Math.floor(at.getTime() / 1000));
   const value = BigInt(Math.round(percent * 10 ** VALUE_DECIMALS));
 
+  const counted =
+    m.protocol === "a2a"
+      ? "the agent card is served and the JSON-RPC endpoint it names answers with a JSON-RPC envelope"
+      : "the endpoint completes an MCP initialize handshake";
   const reasoning =
     `Measured by Kawal from ${m.checks} probe(s) over ${days} day(s): ${percent.toFixed(VALUE_DECIMALS)}%. ` +
-    `A probe counts as answered only when the endpoint completes an MCP initialize handshake; ` +
-    `an HTTP 200 alone is not counted.`;
+    `A probe counts as answered only when ${counted}; an HTTP 200 alone is not counted.`;
 
   // Key order is fixed rather than incidental: the hash is taken over these
   // exact bytes, so a reordering would produce a record nobody can reproduce.
@@ -197,6 +202,7 @@ export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
     reasoning,
     method: {
       measuredBy: "Kawal",
+      protocol: m.protocol,
       probes: m.checks,
       answered: m.answered,
       windowDays: days,
