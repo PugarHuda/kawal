@@ -64,3 +64,4 @@ playwright-report/
 # agent-skill files dropped by the Vercel Turso integration; vendor docs, not product
 .agents/
 skills-lock.json
+.claude/skills/turso-cloud/
