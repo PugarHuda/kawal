@@ -17,7 +17,16 @@ import { diagnose, failureLabel } from "@/lib/failure";
 import { rpcOutcomeLabel } from "@/lib/a2a";
 import { classify } from "@/lib/taxonomy";
 import { assess, tierLabel } from "@/lib/signals";
-import { categoryLabel, seatColor } from "@/components/listing";
+import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/components/listing";
+
+/*
+ * Form K-3: the inspection sheet for one agent.
+ *
+ * Every section is a block of the same form. The registry's entries are
+ * typed into cells and labelled as the registry's; Kawal's own findings are
+ * stamped, with the count behind each stamp printed in it and its blind spot
+ * printed under it.
+ */
 
 /**
  * Resolves the agent before anything streams.
@@ -67,9 +76,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
   // shows many agents and must not make a second round of requests to other
   // people's servers to decorate rows nobody has chosen yet.
   const payment =
-    agent.x402_supported === true && proof?.endpoint
-      ? await checkX402Cached(proof.endpoint)
-      : null;
+    agent.x402_supported === true && proof?.endpoint ? await checkX402Cached(proof.endpoint) : null;
 
   const classification = classify(agent.name, agent.description);
   // The registry's claim, reconciled with what Kawal has actually seen. An
@@ -85,307 +92,169 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
     reputation,
   );
   const registered = new Date(agent.created_at);
+  const uptime = proof ? await uptimeFor(proof.endpoint) : null;
+  const seat = seatColor(classification.category);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-12">
-      <Link href="/agents" className="label hover:text-ink">
-        ← All agents
-      </Link>
+    <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
+      <p>
+        <Link href="/agents" className="counterfoil counterfoil--quiet">
+          ← All agents
+        </Link>
+      </p>
 
-      <header className="mt-8 flex items-start gap-4 border-b border-rule pb-8">
-        <span
-          aria-hidden
-          className="mt-2 h-9 w-[3px] flex-none rounded-sm"
-          style={{ background: seatColor(classification.category) }}
-        />
-        <div className="min-w-0">
-          <p className="label">
-            {categoryLabel(classification.category)} ·{" "}
-            {Math.round(classification.confidence * 100)}% confidence
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{agent.name}</h1>
-          <p className="mt-3 max-w-2xl text-ink-2">
-            {agent.description?.trim() || "No description registered."}
-          </p>
+      <article className="sheet sheet--carbon mt-4">
+        {/* Serial strip */}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Form K-3 · lembar pemeriksaan · inspection sheet</span>
+          <span className="serial text-[0.85rem]">No. {agent.chain_id}:{agent.token_id}</span>
+          <span className="cap">Diperiksa · {new Date().toISOString().slice(0, 10)}</span>
         </div>
-      </header>
 
-      <section className="border-b border-rule py-8">
-        <h2 className="label">Can you hire it</h2>
-        <p className="mt-3 text-2xl font-semibold tracking-tight">
-          {tierLabel(assessment.tier)}
-        </p>
-        <dl className="mt-6 grid gap-px bg-rule sm:grid-cols-2">
-          {assessment.signals.map((s) => (
-            <div key={s.key} className="bg-surface px-4 py-3">
-              <dt className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: s.pass ? "var(--seat-yield)" : "var(--rule-2)" }}
-                />
-                <span className="label">{s.label}</span>
-              </dt>
-              <dd className="mt-1 text-sm text-ink-2">{s.detail}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      {proof && <LiveProbe proof={proof} uptime={await uptimeFor(proof.endpoint)} />}
-
-      {payment && <PaymentTerms check={payment} />}
-
-      {/* `sampled`, not `total`. A 200 carrying a total and no readable items
-          — a shape change upstream, a truncated response — would otherwise
-          render "every record was written without a mark" about records Kawal
-          never read. Saying nothing is the honest output of reading nothing. */}
-      {reputation && reputation.sampled > 0 && <TrackRecord r={reputation} />}
-
-      {quality?.endpoint_health && (
-        <section className="border-b border-rule py-8">
-          <h2 className="label">Is it answering right now</h2>
-          <p className="mt-3 text-2xl font-semibold tracking-tight capitalize">
-            {quality.endpoint_health.overall_status}
-            {quality.endpoint_health.checked_at && (
-              <span className="ml-3 text-sm font-normal text-ink-3">
-                checked {new Date(quality.endpoint_health.checked_at).toISOString().replace("T", " ").slice(0, 16)}
-              </span>
-            )}
-          </p>
-
-          <div className="mt-6 grid gap-px bg-rule sm:grid-cols-2">
-            {quality.endpoint_health.services
-              .filter((s) => s.status !== "skipped")
-              .map((s) => (
-                <ServiceCard key={s.key} service={s} />
-              ))}
+        {/* ------------------------------------------------- the entry --- */}
+        <header className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-5 border-b-[1.5px] border-rule px-5 py-6 sm:grid-cols-[6px_minmax(0,1fr)_auto]">
+          <span aria-hidden className="self-stretch" style={{ background: seat }} />
+          <div className="min-w-0">
+            <span className="cap">
+              {categoryLabel(classification.category)} · {Math.round(classification.confidence * 100)}% confidence
+            </span>
+            <h1 className="heading mt-2 text-[2.4rem] sm:text-[3.2rem]">{agent.name}</h1>
+            <p className="typed mt-3 max-w-[64ch] text-carbon-2">
+              {agent.description?.trim() || "No description registered."}
+            </p>
           </div>
-        </section>
-      )}
+          <div className="col-start-2 mt-4 sm:col-start-3 sm:mt-1 sm:pl-4">
+            <Stamp ink={tierInk(assessment.tier)} evidence={uptime?.checks ?? null} size="lg">
+              {assessment.tier === "hireable"
+                ? "Telah diperiksa"
+                : assessment.tier === "reachable"
+                  ? "Diterima"
+                  : assessment.tier === "unreachable"
+                    ? "Ditolak"
+                    : "Belum diperiksa"}
+            </Stamp>
+          </div>
+        </header>
 
-      {quality && quality.risk_flags.length > 0 && (
-        <section className="border-b border-rule py-8">
-          <h2 className="label">What to weigh against it</h2>
-          <ul className="mt-4 space-y-3">
-            {quality.risk_flags.map((f) => (
-              <RiskRow key={f.id} flag={f} />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {history && <Trajectory history={history} />}
-
-      {quality && quality.score.dimensions.length > 0 && (
-        <section className="border-b border-rule py-8">
-          <h2 className="label">
-            How 8004scan scores it · {quality.score.total_score.toFixed(2)} total
-            {quality.score.version && ` · v${quality.score.version}`}
-          </h2>
-          <dl className="mt-5 space-y-2.5">
-            {quality.score.dimensions.map((d) => (
-              <div key={d.key} className="flex items-baseline gap-3">
-                <dt className="label w-28 flex-none">{d.label}</dt>
-                <dd className="flex flex-1 items-center gap-3">
-                  <span className="h-1.5 flex-1 overflow-hidden rounded-sm bg-rule">
-                    <span
-                      className="block h-full rounded-sm"
-                      style={{
-                        width: `${Math.max(0, Math.min(100, d.score))}%`,
-                        background: "var(--brass)",
-                      }}
-                    />
-                  </span>
-                  <span className="tnum w-32 flex-none text-right font-mono text-xs text-ink-3">
-                    {d.score.toFixed(1)} × {d.weight}
-                  </span>
-                </dd>
+        {/* --------------------------------------------- can you hire it --- */}
+        <section className="border-b-[1.5px] border-rule px-5 py-6">
+          <h2 className="cap">Can you hire it</h2>
+          <p className="heading mt-2 text-[1.9rem]">{tierLabel(assessment.tier)}</p>
+          <dl className="cells mt-4 sm:grid-cols-2 lg:grid-cols-3">
+            {assessment.signals.map((s) => (
+              <div key={s.key} className="cell">
+                <dt className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-[9px] w-[9px] border border-rule"
+                    style={{ background: s.pass ? "var(--carbon)" : "transparent" }}
+                  />
+                  <span className="cap !mb-0">{s.label}</span>
+                </dt>
+                <dd className="typed mt-1.5 text-[0.88rem] text-carbon-2">{s.detail}</dd>
               </div>
             ))}
           </dl>
         </section>
-      )}
 
-      <section className="py-8">
-        <h2 className="label">Registration</h2>
-        <dl className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">
-          <Row label="Identity">{agent.agent_id}</Row>
-          <Row label="Owner">{agent.owner_ens ?? agent.owner_address}</Row>
-          <Row label="Agent wallet">{agent.agent_wallet ?? "not published"}</Row>
-          <Row label="Registered">{registered.toISOString().slice(0, 10)}</Row>
-          <Row label="Protocols">
-            {agent.supported_protocols.join(", ").toUpperCase() || "none declared"}
-          </Row>
-          <Row label="Reputation">
-            score {agent.total_score.toFixed(2)} · {agent.total_feedbacks} feedbacks ·{" "}
-            {agent.star_count} stars
-          </Row>
-        </dl>
+        {proof && <LiveProbe proof={proof} uptime={uptime} />}
 
-        {classification.matched.length > 0 && (
-          <p className="label mt-8">
-            Classified from: {classification.matched.join(", ")}
-          </p>
+        {payment && <PaymentTerms check={payment} />}
+
+        {/* `sampled`, not `total`. A 200 carrying a total and no readable items
+            — a shape change upstream, a truncated response — would otherwise
+            render "every record was written without a mark" about records
+            Kawal never read. Saying nothing is the honest output of reading
+            nothing. */}
+        {reputation && reputation.sampled > 0 && <TrackRecord r={reputation} />}
+
+        {quality?.endpoint_health && (
+          <section className="border-b-[1.5px] border-rule px-5 py-6">
+            <h2 className="cap">Is it answering right now · 8004scan&rsquo;s reading</h2>
+            <p className="heading mt-2 text-[1.9rem] capitalize">
+              {quality.endpoint_health.overall_status}
+              {quality.endpoint_health.checked_at && (
+                <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">
+                  checked {new Date(quality.endpoint_health.checked_at).toISOString().replace("T", " ").slice(0, 16)}
+                </span>
+              )}
+            </p>
+            <div className="cells mt-4 sm:grid-cols-2">
+              {quality.endpoint_health.services
+                .filter((s) => s.status !== "skipped")
+                .map((s) => (
+                  <ServiceCell key={s.key} service={s} />
+                ))}
+            </div>
+          </section>
         )}
-      </section>
+
+        {quality && quality.risk_flags.length > 0 && (
+          <section className="border-b-[1.5px] border-rule px-5 py-6">
+            <h2 className="cap">What to weigh against it</h2>
+            <ul className="mt-3 divide-y divide-rule-soft">
+              {quality.risk_flags.map((f) => (
+                <RiskRow key={f.id} flag={f} />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {history && <Trajectory history={history} />}
+
+        {quality && quality.score.dimensions.length > 0 && (
+          <section className="border-b-[1.5px] border-rule px-5 py-6">
+            <h2 className="cap">
+              How 8004scan scores it · {quality.score.total_score.toFixed(2)} total
+              {quality.score.version && ` · v${quality.score.version}`}
+            </h2>
+            <dl className="mt-3 space-y-2">
+              {quality.score.dimensions.map((d) => (
+                <div key={d.key} className="grid grid-cols-[7rem_minmax(0,1fr)_7rem] items-center gap-3">
+                  <dt className="cap !mb-0">{d.label}</dt>
+                  <dd className="h-[10px] border border-rule bg-paper-white">
+                    <span
+                      className="block h-full bg-carbon"
+                      style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }}
+                    />
+                  </dd>
+                  <dd className="typed text-right text-[0.8rem] text-carbon-3">
+                    {d.score.toFixed(1)} × {d.weight}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+
+        <section className="px-5 py-6">
+          <h2 className="cap">Registration · the registry&rsquo;s entries</h2>
+          <dl className="cells mt-3 sm:grid-cols-2">
+            <Row label="Identity">{agent.agent_id}</Row>
+            <Row label="Owner">{agent.owner_ens ?? agent.owner_address}</Row>
+            <Row label="Agent wallet">{agent.agent_wallet ?? "not published"}</Row>
+            <Row label="Registered">{registered.toISOString().slice(0, 10)}</Row>
+            <Row label="Protocols">{agent.supported_protocols.join(", ").toUpperCase() || "none declared"}</Row>
+            <Row label="Reputation">
+              score {agent.total_score.toFixed(2)} · {agent.total_feedbacks} feedbacks · {agent.star_count} stars
+            </Row>
+          </dl>
+          {classification.matched.length > 0 && (
+            <p className="cap mt-4">Classified from: {classification.matched.join(", ")}</p>
+          )}
+        </section>
+      </article>
+
+      <div className="mt-6">
+        <Legend
+          items={[
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Telah diperiksa</Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Ditolak</Stamp>, means: "called at least three times, never answered" },
+            { mark: <span aria-hidden className="tally"><i className="on" /><i /><i className="new" /></span>, means: "tally strip: punched = answered, blank = silent, outlined = newest" },
+          ]}
+        />
+      </div>
     </div>
-  );
-}
-
-/**
- * What the registration says about payment, next to what the server said.
- *
- * `x402_supported` is a flag a registration sets about itself, and the whole
- * of BSC treats it as fact — including, until now, this page. A sweep of 200
- * registrations found 75 claiming it and none of the reachable ones asking to
- * be paid; `npm run x402` re-runs that count.
- *
- * The claim is not called a lie. An agent may take payment by a route this
- * request cannot see, and the wording has to leave room for that while
- * refusing to repeat an unverified claim as a checkmark.
- */
-/**
- * Who wrote this agent's track record.
- *
- * `total_feedbacks` and `average_score` are counts the registry keeps without
- * asking who wrote the records. Reading 1,200 of them across BSC found a mark
- * on every one — a graded register, not an empty one — but only 53 addresses
- * behind the lot, one of which wrote 265 of the oldest 600 under the tag
- * `get top 1 rank >`. An average over that turns one party's opinion into a
- * consensus.
- *
- * Concentration is reported, not judged. An uptime prober writing hundreds of
- * honest records looks identical here to an owner talking about themselves,
- * and the address is shown so the reader can go and tell them apart.
- */
-function TrackRecord({ r }: { r: Reputation }) {
-  const unmarked = r.valued === 0;
-  const captured = r.raters === 1 || r.topRaterShare >= CAPTURED_SHARE;
-  const headline = unmarked
-    ? "Records carrying no mark"
-    : captured
-      ? "Feedback from almost one source"
-      : "Marked by several addresses";
-
-  return (
-    <section className="border-b border-rule py-8">
-      <h2 className="label">We read the feedback</h2>
-      <p className="mt-3 flex flex-wrap items-baseline gap-3">
-        <span
-          className="text-2xl font-semibold tracking-tight"
-          style={{ color: unmarked || captured ? "var(--brass)" : "var(--seat-yield)" }}
-        >
-          {headline}
-        </span>
-      </p>
-
-      <p className="mt-3 max-w-2xl text-sm text-ink-2">
-        {unmarked
-          ? "Every record on this agent was written without a mark. There is nothing here to judge on, whatever number the registry prints beside it."
-          : captured
-            ? "One address wrote most of what is here. That is not proof of anything — a scheduled uptime prober looks exactly like this — but it is one party's opinion rather than a market's, and it is worth knowing which before granting a spend cap."
-            : "Several separate addresses marked this agent. That is as close to a track record as ERC-8004 currently gets on BSC."}
-      </p>
-
-      <dl className="mt-6 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-        <Row label="Records held">
-          <span className="tnum">{r.total.toLocaleString()}</span>
-        </Row>
-        <Row label="Carrying a mark">
-          <span className="tnum">
-            {r.valued} of {r.sampled} read
-          </span>
-        </Row>
-        {/* 8004scan's own normalised field, which is what an `average_score`
-            is computed from. Null on 1,192 of 1,200 sampled chain-wide, so the
-            gap between this row and the one above is the gap between the marks
-            that exist and the marks the ecosystem averages. */}
-        <Row label="In the registry's score field">
-          <span className="tnum">
-            {r.scored} of {r.sampled}
-          </span>
-        </Row>
-        <Row label="Carrying a comment">
-          <span className="tnum">{r.commented}</span>
-        </Row>
-        <Row label="Distinct writers">
-          <span className="tnum">{r.raters}</span>
-        </Row>
-        {r.revoked > 0 && (
-          <Row label="Withdrawn">
-            <span className="tnum">{r.revoked}</span>
-          </Row>
-        )}
-        {r.topRater && (
-          <Row label="Busiest writer">
-            <a
-              href={`https://bscscan.com/address/${r.topRater}`}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="break-all underline hover:text-ink"
-            >
-              {r.topRater.slice(0, 10)}…{r.topRater.slice(-6)}
-            </a>
-            <span className="ml-2 tnum text-ink-3">{Math.round(r.topRaterShare * 100)}%</span>
-          </Row>
-        )}
-      </dl>
-    </section>
-  );
-}
-
-function PaymentTerms({ check }: { check: X402Check }) {
-  const charged = check.demanded;
-  return (
-    <section className="border-b border-rule py-8">
-      <h2 className="label">We asked it to charge us</h2>
-      <p className="mt-3 flex flex-wrap items-baseline gap-3">
-        <span
-          className="text-2xl font-semibold tracking-tight"
-          style={{ color: charged ? "var(--seat-yield)" : "var(--brass)" }}
-        >
-          {charged ? "Quotes a price" : "Claims x402, asked for nothing"}
-        </span>
-      </p>
-
-      <p className="mt-3 max-w-2xl text-sm text-ink-2">
-        {charged
-          ? "Kawal sent the request an x402 client sends first — no payment header — and the server answered 402 with terms. Kawal read them and paid nothing."
-          : "This registration sets the x402 flag. Kawal sent the opening request of the protocol and the server answered without demanding payment, so the flag is unverified here. It may still charge by a route this request cannot see."}
-      </p>
-
-      {check.quote && (
-        <p className="mt-4 border-l-2 pl-3 text-sm" style={{ borderColor: "var(--brass)" }}>
-          {/* The server's own sentence. Kawal does not recompute a price from
-              atomic units it has no decimals for. */}
-          &ldquo;{check.quote}&rdquo;
-        </p>
-      )}
-
-      <dl className="mt-5 grid gap-x-8 gap-y-2 sm:grid-cols-2">
-        {check.serviceName && <Row label="Service">{check.serviceName}</Row>}
-        {check.x402Version !== null && <Row label="x402 version">{String(check.x402Version)}</Row>}
-        <Row label="Answered">HTTP {String(check.status)}</Row>
-        {check.accepts.map((a, i) => (
-          <Fragment key={`${a.network}-${a.asset}-${i}`}>
-            <Row label="Network">{networkName(a.network)}</Row>
-            <Row label="Asset">{a.asset}</Row>
-            <Row label="Amount">{a.amount} atomic units</Row>
-            <Row label="Pays to">{a.payTo}</Row>
-            {a.maxTimeoutSeconds !== null && (
-              <Row label="Settle within">{a.maxTimeoutSeconds} s</Row>
-            )}
-          </Fragment>
-        ))}
-        {!charged && check.error && <Row label="Result">{check.error}</Row>}
-      </dl>
-
-      <p className="label mt-4">
-        Asked at {check.checkedAt.replace("T", " ").slice(0, 19)} UTC · Kawal never
-        settles a payment on a visitor&rsquo;s behalf
-      </p>
-    </section>
   );
 }
 
@@ -401,9 +270,6 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
    * repository. Filing those under "No answer" was Kawal saying an agent could
    * not be hired when it plainly can, which is the same failure as trusting
    * the registry, pointed the other way.
-   *
-   * So they get brass rather than the failure colour: this is a fact about
-   * how the agent is reached, not a verdict against it.
    */
   const headline = good
     ? a2a
@@ -419,31 +285,34 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
             : "Responds, but not MCP"
           : "No answer";
 
-  const colour = good
-    ? "var(--seat-yield)"
-    : desc
-      ? "var(--brass)"
-      : "var(--seat-health)";
+  const ink = good ? "stamp-violet" : desc ? "stamp-blue" : proof.reachable ? "stamp-blue" : "stamp-red";
+  const stampText = good ? "Telah diperiksa" : desc ? "Diterima" : proof.reachable ? "Diterima" : "Ditolak";
+  const failure = !desc && proof.error ? diagnose(proof.error) : null;
 
   return (
-    <section className="border-b border-rule py-8">
-      <h2 className="label">We just called it</h2>
-      <p className="mt-3 flex flex-wrap items-baseline gap-3">
-        <span className="text-2xl font-semibold tracking-tight" style={{ color: colour }}>
-          {headline}
-        </span>
-        <span className="tnum label">{proof.latencyMs} ms</span>
-      </p>
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="cap">We just called it</h2>
+          <p className="heading mt-2 text-[1.9rem]">
+            {headline}
+            <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">{proof.latencyMs} ms</span>
+          </p>
+        </div>
+        <Stamp ink={ink} evidence={uptime?.checks ?? null}>
+          {stampText}
+        </Stamp>
+      </div>
 
       {desc && (
-        <p className="mt-3 max-w-2xl text-sm text-ink-2">
+        <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
           {desc.kind === "service-descriptor"
             ? `This URL is not a server. It publishes an ERC-8004 service descriptor: the agent is real and its tools are listed below, but it is spoken to over ${desc.transport ?? "another transport"} after you install it — not over the network. A spend cap cannot be enforced on a call Kawal never carries, so this agent is listed and not seated.`
             : "The registration points at a source repository rather than a running endpoint. The code is real and installable; there is nothing at this address to call, so Kawal makes no claim about uptime."}
         </p>
       )}
 
-      <dl className="mt-5 grid gap-x-8 gap-y-2 sm:grid-cols-2">
+      <dl className="cells mt-4 sm:grid-cols-2">
         <Row label="Endpoint">{proof.endpoint}</Row>
         {proof.serverName && <Row label="Server">{proof.serverName}</Row>}
         {proof.protocolVersion && <Row label="Protocol">{proof.protocolVersion}</Row>}
@@ -460,9 +329,7 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
         {proof.a2a && (
           <Row label="JSON-RPC">
             {rpcOutcomeLabel(proof.a2a.rpc)}
-            {proof.a2a.rpcStatus > 0 && (
-              <span className="tnum text-ink-3"> (HTTP {proof.a2a.rpcStatus})</span>
-            )}
+            {proof.a2a.rpcStatus > 0 && <span className="text-carbon-3"> (HTTP {proof.a2a.rpcStatus})</span>}
           </Row>
         )}
         {desc?.transport && <Row label="Transport">{desc.transport}</Row>}
@@ -478,64 +345,46 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
           The 404 is the one worth naming: the host answered *about* this agent
           to say it does not have it, which is a deregistration recorded
           nowhere, because ERC-8004 has no way to write one down. */}
-      {(() => {
-        if (desc || !proof.error) return null;
-        const d = diagnose(proof.error);
-        if (!d || d.failure === "unknown") return null;
-        return (
-          <p className="mt-5 border-l-2 pl-3 text-sm" style={{ borderColor: "var(--seat-health)" }}>
-            <span className="font-semibold">{failureLabel(d.failure)}.</span>{" "}
-            <span className="text-ink-2">{d.summary}</span>
-            {d.transient && (
-              <span className="text-ink-3"> A later check may pass.</span>
-            )}
-          </p>
-        );
-      })()}
-
-      {/* Says "at most a minute" rather than "live" because proofs are reused
-          for 60s. Claiming freshness the code does not deliver would be the
-          same kind of unearned confidence this page exists to strip out. */}
-      {/* Suppressed for a descriptor even when rows exist: they were written
-          before Kawal could tell a non-server from a dead one, and "0 of 4
-          answered" beside "runs locally" reads as unreliability rather than
-          as a category error on our side. */}
-      {uptime && uptime.checks > 1 && !desc && (
-        <p className="mt-5 border-l-2 pl-3 text-sm" style={{ borderColor: "var(--brass)" }}>
-          {/* One reading says an agent answered once. This says whether it
-              keeps answering, which is the question behind a spend cap.
-              Nothing in the ecosystem publishes it — Kawal is already making
-              the calls, so it keeps them. */}
-          <span className="tnum font-semibold">
-            {uptime.answered} of {uptime.checks}
-          </span>{" "}
-          checks answered since{" "}
-          {new Date(uptime.since * 1000).toISOString().slice(0, 10)}
-          {uptime.medianMs !== null && (
-            <span className="text-ink-3">
-              {" "}
-              · median {uptime.medianMs} ms
-              {uptime.worstMs !== null && uptime.worstMs > uptime.medianMs
-                ? `, slowest ${uptime.worstMs} ms`
-                : ""}
-            </span>
-          )}
+      {failure && failure.failure !== "unknown" && (
+        <p className="typed mt-4 max-w-[64ch] border-[1.5px] border-stamp-red bg-paper-pink px-3 py-2 text-[0.88rem]">
+          <span className="form-face font-700 uppercase tracking-[0.06em] text-stamp-red">{failureLabel(failure.failure)}.</span>{" "}
+          <span className="text-carbon-2">{failure.summary}</span>
+          {failure.transient && <span className="text-carbon-3"> A later check may pass.</span>}
         </p>
       )}
 
-      {/* What this measurement cannot see.
-          Kawal probes from one place, so it cannot tell "the agent is down"
-          from "the agent is unreachable from here" — an agent that geo-blocks
-          or ASN-blocks this prober is indistinguishable from one that is
-          broken. GEBO, the uptime agent writing feedback into this same
-          registry, publishes the identical defect about itself; borrowing the
-          habit costs nothing and a reliability figure with no stated blind
-          spot is asking to be over-trusted. */}
-      {uptime && uptime.checks > 1 && !desc && uptime.answered < uptime.checks && (
-        <p className="mt-3 max-w-2xl text-sm text-ink-3">
-          Measured from a single vantage point. A missed check means Kawal could
-          not reach it from here, which is not the same as the agent being down.
-        </p>
+      {/* Says "at most a minute" rather than "live" because proofs are reused
+          for 60s. Suppressed for a descriptor even when rows exist: they were
+          written before Kawal could tell a non-server from a dead one, and
+          "0 of 4 answered" beside "runs locally" reads as unreliability rather
+          than as a category error on our side. */}
+      {uptime && uptime.checks > 1 && !desc && (
+        <div className="mt-5 flex flex-col gap-3">
+          <Tally answered={uptime.answered} checks={uptime.checks} />
+          <p className="typed text-[0.9rem]">
+            <span className="font-bold">
+              {uptime.answered} of {uptime.checks}
+            </span>{" "}
+            checks answered since {new Date(uptime.since * 1000).toISOString().slice(0, 10)}
+            {uptime.medianMs !== null && (
+              <span className="text-carbon-3">
+                {" "}
+                · median {uptime.medianMs} ms
+                {uptime.worstMs !== null && uptime.worstMs > uptime.medianMs ? `, slowest ${uptime.worstMs} ms` : ""}
+              </span>
+            )}
+            {/* What this measurement cannot see. GEBO, the uptime agent
+                writing into the same registry, publishes the identical defect
+                about itself; a reliability figure with no stated blind spot
+                is asking to be over-trusted. */}
+            {uptime.answered < uptime.checks && (
+              <span className="stamp-note mt-1 block">
+                Measured from a single vantage point. A missed check means Kawal could not reach it from
+                here, which is not the same as the agent being down.
+              </span>
+            )}
+          </p>
+        </div>
       )}
 
       {proof.tools.length > 0 && (
@@ -544,27 +393,151 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
 
       {/* The limit of Kawal's own claim, stated where the claim is made.
           `hireable` means the endpoint completed an MCP handshake and listed
-          its tools. It does not mean any of those tools work: an agent that
-          answers `initialize`, names sixteen tools and errors on every one of
-          them scores exactly like an agent that does the job. Kawal is strict
+          its tools. It does not mean any of those tools work. Kawal is strict
           about everyone else's unverified claims, and this is its own — so it
           says so rather than deepening the probe by running strangers' tools
           uninvited, which could cost them money or have side effects. */}
       {proof.answered && (
-        <p className="mt-4 max-w-2xl text-sm text-ink-3">
+        <p className="stamp-note mt-4 max-w-[64ch]">
           {a2a
             ? "Kawal read the agent card and asked its JSON-RPC endpoint the one A2A question with no effect. It sent no message — that would start work on a stranger’s server. So this is evidence the agent answers, not that it works."
             : "Kawal completed the handshake and read the tool list. It did not run any of them — executing a stranger’s tool uninvited can cost them money or move something. So this is evidence the agent answers, not that it works."}
         </p>
       )}
 
-      <p className="label mt-4">
+      <p className="cap mt-4">
         {desc?.kind === "source-repository"
           ? `Read from the registration at ${proof.checkedAt.replace("T", " ").slice(0, 19)} UTC · no request was sent to a repository host`
           : `Kawal called this endpoint at ${proof.checkedAt.replace("T", " ").slice(0, 19)} UTC`}
-        {desc?.kind !== "source-repository" &&
-          " · at most a minute old, never from the registry’s cache"}
+        {desc?.kind !== "source-repository" && " · at most a minute old, never from the registry’s cache"}
       </p>
+    </section>
+  );
+}
+
+/**
+ * What the registration says about payment, next to what the server said.
+ *
+ * `x402_supported` is a flag a registration sets about itself, and the whole
+ * of BSC treats it as fact — including, until now, this page. A sweep of 200
+ * registrations found 75 claiming it and none of the reachable ones asking to
+ * be paid; `npm run x402` re-runs that count. The claim is not called a lie:
+ * an agent may take payment by a route this request cannot see.
+ */
+function PaymentTerms({ check }: { check: X402Check }) {
+  const charged = check.demanded;
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="cap">We asked it to charge us</h2>
+          <p className="heading mt-2 text-[1.9rem]">{charged ? "Quotes a price" : "Claims x402, asked for nothing"}</p>
+        </div>
+        <Stamp ink={charged ? "stamp-green" : "stamp-grey"}>{charged ? "Bertarif" : "Tanpa tagihan"}</Stamp>
+      </div>
+
+      <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
+        {charged
+          ? "Kawal sent the request an x402 client sends first — no payment header — and the server answered 402 with terms. Kawal read them and paid nothing."
+          : "This registration sets the x402 flag. Kawal sent the opening request of the protocol and the server answered without demanding payment, so the flag is unverified here. It may still charge by a route this request cannot see."}
+      </p>
+
+      <dl className="cells mt-4 sm:grid-cols-2">
+        <Row label="Endpoint">{check.endpoint}</Row>
+        <Row label="Answered">HTTP {check.status || "—"}</Row>
+        {check.serviceName && <Row label="Service">{check.serviceName}</Row>}
+        {check.quote && <Row label="In its own words">{check.quote}</Row>}
+        {check.x402Version !== null && <Row label="x402 version">{String(check.x402Version)}</Row>}
+        {check.accepts.map((a, i) => (
+          <Fragment key={`${a.network}-${a.asset}-${i}`}>
+            <Row label="Network">{networkName(a.network)}</Row>
+            <Row label="Asset">{a.asset}</Row>
+            <Row label="Amount">{a.amount} atomic units</Row>
+            <Row label="Pays to">{a.payTo}</Row>
+            {a.maxTimeoutSeconds !== null && <Row label="Settle within">{a.maxTimeoutSeconds} s</Row>}
+          </Fragment>
+        ))}
+        {!charged && check.error && <Row label="Result">{check.error}</Row>}
+      </dl>
+
+      <p className="cap mt-4">
+        Asked at {check.checkedAt.replace("T", " ").slice(0, 19)} UTC · Kawal never settles a payment on a visitor&rsquo;s behalf
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Who wrote this agent's track record.
+ *
+ * `total_feedbacks` and `average_score` are counts the registry keeps without
+ * asking who wrote the records. Reading 1,200 of them across BSC found a mark
+ * on every one — a graded register, not an empty one — but only 53 addresses
+ * behind the lot, one of which wrote 265 of the oldest 600 under the tag
+ * `get top 1 rank >`. An average over that turns one party's opinion into a
+ * consensus. Concentration is reported, not judged, and the address is shown
+ * so the reader can go and tell an uptime prober from an owner.
+ */
+function TrackRecord({ r }: { r: Reputation }) {
+  const unmarked = r.valued === 0;
+  const captured = r.raters === 1 || r.topRaterShare >= CAPTURED_SHARE;
+  const headline = unmarked
+    ? "Records carrying no mark"
+    : captured
+      ? "Feedback from almost one source"
+      : "Marked by several addresses";
+
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="cap">We read the feedback</h2>
+          <p className="heading mt-2 text-[1.9rem]">
+            <span>{headline}</span>
+          </p>
+        </div>
+        <Stamp ink={unmarked || captured ? "stamp-grey" : "stamp-violet"} evidence={r.sampled}>
+          {unmarked ? "Kosong" : captured ? "Satu sumber" : "Beberapa sumber"}
+        </Stamp>
+      </div>
+
+      <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
+        {unmarked
+          ? "Every record on this agent was written without a mark. There is nothing here to judge on, whatever number the registry prints beside it."
+          : captured
+            ? "One address wrote most of what is here. That is not proof of anything — a scheduled uptime prober looks exactly like this — but it is one party's opinion rather than a market's, and it is worth knowing which before granting a spend cap."
+            : "Several separate addresses marked this agent. That is as close to a track record as ERC-8004 currently gets on BSC."}
+      </p>
+
+      <dl className="cells mt-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Row label="Records held">{r.total.toLocaleString()}</Row>
+        <Row label="Carrying a mark">
+          {r.valued} of {r.sampled} read
+        </Row>
+        {/* 8004scan's own normalised field, which is what an `average_score`
+            is computed from. Null on 1,192 of 1,200 sampled chain-wide, so the
+            gap between this row and the one above is the gap between the marks
+            that exist and the marks the ecosystem averages. */}
+        <Row label="In the registry's score field">
+          {r.scored} of {r.sampled}
+        </Row>
+        <Row label="Carrying a comment">{r.commented}</Row>
+        <Row label="Distinct writers">{r.raters}</Row>
+        {r.revoked > 0 && <Row label="Withdrawn">{r.revoked}</Row>}
+        {r.topRater && (
+          <Row label="Busiest writer">
+            <a
+              href={`https://bscscan.com/address/${r.topRater}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline"
+            >
+              {r.topRater.slice(0, 10)}…{r.topRater.slice(-6)}
+            </a>
+            <span className="ml-2 text-carbon-3">{Math.round(r.topRaterShare * 100)}%</span>
+          </Row>
+        )}
+      </dl>
     </section>
   );
 }
@@ -575,8 +548,7 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
  * A 30 that has been climbing and a 30 that has been sliding are different
  * propositions, and the registry only ever displays the number. Most BSC
  * registrations have no history at all — thousands arrive daily — so "not
- * enough history yet" is the common answer and a signal in itself: nothing
- * has been observed about this agent over time.
+ * enough history yet" is the common answer and a signal in itself.
  */
 function Trajectory({ history }: { history: ScoreHistory }) {
   const points = [...history.history].reverse();
@@ -586,36 +558,32 @@ function Trajectory({ history }: { history: ScoreHistory }) {
     change === null || points.length < 2
       ? null
       : change > 0.5
-        ? { label: "rising", color: "var(--seat-yield)" }
+        ? { label: "rising", ink: "var(--stamp-green)" }
         : change < -0.5
-          ? { label: "falling", color: "var(--seat-health)" }
-          : { label: "flat", color: "var(--ink-3)" };
+          ? { label: "falling", ink: "var(--stamp-red)" }
+          : { label: "flat", ink: "var(--carbon-3)" };
 
   return (
-    <section className="border-b border-rule py-8">
-      <h2 className="label">Which way it is going</h2>
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <h2 className="cap">Which way it is going · 8004scan&rsquo;s score over time</h2>
 
       {points.length < 2 ? (
-        <p className="mt-3 text-ink-2">
-          Not enough history yet — 8004scan has scored this agent on{" "}
-          {history.data_points} day{history.data_points === 1 ? "" : "s"}. New
-          registrations arrive on BSC by the thousand, so most have no record
-          to read.
+        <p className="typed mt-3 max-w-[64ch] text-carbon-2">
+          Not enough history yet — 8004scan has scored this agent on {history.data_points} day
+          {history.data_points === 1 ? "" : "s"}. New registrations arrive on BSC by the thousand, so
+          most have no record to read.
         </p>
       ) : (
         <>
-          <p className="mt-3 flex flex-wrap items-baseline gap-3">
-            <span className="text-2xl font-semibold tracking-tight" style={{ color: direction?.color }}>
-              {direction?.label}
-            </span>
-            <span className="tnum label">
+          <p className="heading mt-2 text-[1.9rem]" style={{ color: direction?.ink }}>
+            {direction?.label}
+            <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">
               {change! >= 0 ? "+" : ""}
-              {change!.toFixed(2)} over {history.period_days} days ·{" "}
-              {history.data_points} readings
+              {change!.toFixed(2)} over {history.period_days} days · {history.data_points} readings
             </span>
           </p>
           <Sparkline values={points.map((p) => p.total_score)} />
-          <p className="label mt-2">
+          <p className="cap mt-2">
             {points.at(0)?.scored_at.slice(0, 10)} → {points.at(-1)?.scored_at.slice(0, 10)}
           </p>
         </>
@@ -628,7 +596,8 @@ function Trajectory({ history }: { history: ScoreHistory }) {
  * A score line, drawn as SVG rather than pulled from a charting library.
  *
  * Thirty numbers and one path element do not justify a dependency, and an
- * inline SVG renders on the server with no client JavaScript at all.
+ * inline SVG renders on the server with no client JavaScript at all. Drawn as
+ * a pen trace on the form's ruled paper.
  */
 function Sparkline({ values }: { values: number[] }) {
   const width = 320;
@@ -650,12 +619,15 @@ function Sparkline({ values }: { values: number[] }) {
 
   return (
     <svg
-      className="mt-4 w-full max-w-sm"
+      className="mt-4 w-full max-w-sm border border-rule bg-paper-white"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={`Score from ${min.toFixed(2)} to ${max.toFixed(2)} over ${values.length} readings`}
     >
-      <path d={d} fill="none" stroke="var(--brass)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      {[11, 22, 33].map((y) => (
+        <line key={y} x1="0" x2={width} y1={y} y2={y} stroke="var(--rule-faint)" strokeWidth="1" />
+      ))}
+      <path d={d} fill="none" stroke="var(--stamp-violet)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -666,39 +638,36 @@ function Sparkline({ values }: { values: number[] }) {
  * 8004scan has no price field anywhere, and price is the first question
  * anyone deciding whether to hire has. Agents put it in the tool description
  * themselves — "Free.", "Paid (0.2 BNB on BSC)" — so the listing reads it
- * back rather than pretending the question does not exist.
- *
- * Labelled "declares" throughout: the agent is making the claim, Kawal is
- * only refusing to hide it. Nothing here has been paid or verified.
+ * back rather than pretending the question does not exist. Labelled
+ * "declares" throughout: the agent is making the claim, Kawal is only
+ * refusing to hide it.
  */
 function ToolTable({ tools, total, unit = "tool" }: { tools: ProbedTool[]; total: number; unit?: string }) {
   const priced = tools.filter((t) => t.declaredPrice);
 
   return (
-    <div className="mt-6">
-      <h3 className="label">
-        What you can ask it · {total} {unit}{total === 1 ? "" : "s"}
+    <div className="mt-5">
+      <h3 className="cap">
+        What you can ask it · {total} {unit}
+        {total === 1 ? "" : "s"}
         {priced.length > 0 && ` · ${priced.length} declares a price`}
       </h3>
 
-      <ul className="mt-3 divide-y divide-rule border-y border-rule">
+      <ul className="mt-2 border-y-[1.5px] border-rule">
         {tools.map((t) => (
-          <li key={t.name} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
-            <span className="tnum font-mono text-sm">{t.name}</span>
-
-            {t.declaredPrice ? (
-              <span
-                className="label rounded-sm border px-1.5 py-0.5"
-                style={{ borderColor: "var(--brass)", color: "var(--brass)" }}
-              >
-                declares {t.declaredPrice.amount} {t.declaredPrice.token}
-              </span>
-            ) : t.declaredFree ? (
-              <span className="label">declares free</span>
-            ) : null}
-
+          <li key={t.name} className="grid grid-cols-[minmax(0,1fr)] gap-x-4 gap-y-1 border-b border-rule-soft py-2 last:border-b-0 sm:grid-cols-[14rem_auto_minmax(0,1fr)]">
+            <span className="typed text-[0.9rem] font-bold">{t.name}</span>
+            <span>
+              {t.declaredPrice ? (
+                <Stamp ink="stamp-green" size="sm" flat>
+                  declares {t.declaredPrice.amount} {t.declaredPrice.token}
+                </Stamp>
+              ) : t.declaredFree ? (
+                <span className="cap">declares free</span>
+              ) : null}
+            </span>
             {t.description && (
-              <span className="min-w-0 flex-1 text-sm text-ink-3">
+              <span className="typed min-w-0 text-[0.85rem] text-carbon-3">
                 {t.description.length > 110 ? `${t.description.slice(0, 110)}…` : t.description}
               </span>
             )}
@@ -707,7 +676,7 @@ function ToolTable({ tools, total, unit = "tool" }: { tools: ProbedTool[]; total
       </ul>
 
       {total > tools.length && (
-        <p className="label mt-2">
+        <p className="cap mt-2">
           showing {tools.length} of {total}
         </p>
       )}
@@ -715,39 +684,37 @@ function ToolTable({ tools, total, unit = "tool" }: { tools: ProbedTool[]; total
   );
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  healthy: "var(--seat-yield)",
-  degraded: "var(--brass)",
-  unhealthy: "var(--seat-health)",
-  unknown: "var(--ink-3)",
+const STATUS_INK: Record<string, string> = {
+  healthy: "var(--stamp-green)",
+  degraded: "var(--stamp-blue)",
+  unhealthy: "var(--stamp-red)",
+  unknown: "var(--carbon-3)",
 };
 
-function ServiceCard({ service }: { service: ServiceHealth }) {
+function ServiceCell({ service }: { service: ServiceHealth }) {
   return (
-    <div className="bg-surface px-4 py-3">
+    <div className="cell">
       <div className="flex items-center gap-2">
         <span
           aria-hidden
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: STATUS_COLOR[service.status] ?? "var(--ink-3)" }}
+          className="inline-block h-[9px] w-[9px] border border-rule"
+          style={{ background: STATUS_INK[service.status] ?? "var(--carbon-3)" }}
         />
-        <span className="label">{service.label}</span>
+        <span className="cap !mb-0">{service.label}</span>
         {service.latency_ms !== null && (
-          <span className="label tnum ml-auto">{Math.round(service.latency_ms)} ms</span>
+          <span className="typed ml-auto text-[0.8rem] text-carbon-3">{Math.round(service.latency_ms)} ms</span>
         )}
       </div>
-
-      {service.message && <p className="mt-1.5 text-sm text-ink-2">{service.message}</p>}
-
+      {service.message && <p className="typed mt-1.5 text-[0.85rem] text-carbon-2">{service.message}</p>}
       {service.domain && (
-        <p className="tnum mt-2 break-all font-mono text-xs text-ink-3">
+        <p className="typed mt-2 break-all text-[0.8rem] text-carbon-3">
           {service.domain}
           {/* Answering and being provably yours are different claims, and a
               user hiring an agent deserves to see the second one fail. */}
           {service.domain_verified ? (
-            <span className="ml-2 text-ink-2">domain verified</span>
+            <span className="ml-2 text-carbon-2">domain verified</span>
           ) : (
-            <span className="ml-2" style={{ color: "var(--seat-health)" }}>
+            <span className="ml-2 text-stamp-red">
               domain unverified
               {service.verification_error ? ` (${service.verification_error})` : ""}
             </span>
@@ -759,21 +726,21 @@ function ServiceCard({ service }: { service: ServiceHealth }) {
 }
 
 function RiskRow({ flag }: { flag: RiskFlag }) {
-  const tone =
+  const ink =
     flag.severity === "critical" || flag.severity === "high"
-      ? "var(--seat-health)"
+      ? "var(--stamp-red)"
       : flag.severity === "medium"
-        ? "var(--brass)"
-        : "var(--ink-3)";
+        ? "var(--stamp-blue)"
+        : "var(--carbon-3)";
   return (
-    <li className="flex gap-3">
-      <span aria-hidden className="mt-1.5 h-3 w-[3px] flex-none rounded-sm" style={{ background: tone }} />
+    <li className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-4 py-3">
+      <span aria-hidden className="self-stretch" style={{ background: ink }} />
       <div>
-        <p className="text-sm font-medium">
+        <p className="typed text-[0.92rem] font-bold">
           {flag.title}
-          <span className="label ml-2">{flag.severity}</span>
+          <span className="cap ml-2">{flag.severity}</span>
         </p>
-        <p className="text-sm text-ink-2">{flag.description}</p>
+        <p className="typed text-[0.88rem] text-carbon-2">{flag.description}</p>
       </div>
     </li>
   );
@@ -781,9 +748,9 @@ function RiskRow({ flag }: { flag: RiskFlag }) {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="border-b border-rule pb-3">
-      <dt className="label">{label}</dt>
-      <dd className="tnum mt-1 break-all font-mono text-sm text-ink-2">{children}</dd>
+    <div className="cell">
+      <dt className="cap">{label}</dt>
+      <dd className="typed break-all text-[0.88rem] text-carbon-2">{children}</dd>
     </div>
   );
 }

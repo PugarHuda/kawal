@@ -3,12 +3,12 @@ import { getAgent, getQuality, getScoreHistory } from "@/lib/scan";
 import { proveAgent, type EndpointProof } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { classify } from "@/lib/taxonomy";
-import { assess, tierLabel, type Assessment } from "@/lib/signals";
-import { categoryLabel, seatColor } from "@/components/listing";
+import { assess, type Assessment } from "@/lib/signals";
+import { categoryLabel, seatColor, TierStamp } from "@/components/listing";
 import type { ScanAgentDetail, AgentQuality, ScoreHistory } from "@/lib/scan";
 
 /**
- * Two or three agents, the same questions asked of each.
+ * Form K-4: two or three agents, the same questions asked of each.
  *
  * The rubric asks that a user "make a genuinely informed call", and a single
  * agent page cannot do that — judging one in isolation means holding the
@@ -79,8 +79,6 @@ async function loadColumn(chainId: number, tokenId: string): Promise<Column | nu
     assessment: assess(agent, undefined, await observedFor(proof?.endpoint)),
     category: categoryLabel(classification.category),
     confidence: classification.confidence,
-    // The seat colour a buyer is filling, so the category stays visible in
-    // the header rather than being a word in a table.
     color: seatColor(classification.category),
   };
 }
@@ -100,18 +98,25 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
 
   if (columns.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-4xl px-6 py-12">
-        <h1 className="text-3xl font-bold tracking-[-0.03em]">Compare agents</h1>
-        <p className="mt-3 max-w-xl text-ink-2">
-          Pick agents from a category listing and open them here together. The
-          address bar takes them as{" "}
-          <code className="font-mono text-sm">?ids=56:43129,56:45422</code>.
-        </p>
-        <p className="label mt-8">
-          <Link href="/agents" className="hover:text-ink">
-            ← Browse agents
-          </Link>
-        </p>
+      <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-4">
+        <section className="sheet">
+          <div className="flex items-baseline justify-between border-b-[1.5px] border-rule px-5 py-2">
+            <span className="cap">Form K-4 · perbandingan · comparison</span>
+            <span className="serial text-[0.85rem]">No. —</span>
+          </div>
+          <div className="px-5 py-6">
+            <h1 className="heading text-[2.4rem]">Compare agents</h1>
+            <p className="typed mt-3 max-w-[60ch] text-carbon-2">
+              Pick agents from a category listing and open them here together. The address bar takes
+              them as <code className="font-bold">?ids=56:43129,56:45422</code>.
+            </p>
+            <p className="mt-6">
+              <Link href="/agents" className="counterfoil counterfoil--quiet">
+                ← Browse agents
+              </Link>
+            </p>
+          </div>
+        </section>
       </div>
     );
   }
@@ -119,207 +124,192 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
   const missing = refs.length - columns.length;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-12">
-      <header>
-        <p className="label">Side by side</p>
-        <h1 className="mt-3 text-3xl font-bold tracking-[-0.03em]">
-          {columns.map((c) => c.agent.name).join("  ·  ")}
-        </h1>
-        {missing > 0 && (
-          <p className="label mt-3">
-            {missing} of the requested agents could not be loaded and are not shown.
-          </p>
-        )}
-      </header>
+    <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
+      <section className="sheet sheet--carbon">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Form K-4 · perbandingan · the same questions of each</span>
+          <span className="serial text-[0.85rem]">No. {columns.map((c) => c.ref).join(" · ")}</span>
+        </div>
 
-      <div className="mt-10 overflow-x-auto">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr>
-              <th className="label w-40 border-b border-rule pb-3 align-bottom">Question</th>
-              {columns.map((c) => (
-                <th key={c.ref} className="border-b border-rule pb-3 pl-6 align-bottom">
-                  <Link
-                    href={`/agents/${c.agent.chain_id}/${c.agent.token_id}`}
-                    className="text-base font-semibold tracking-tight hover:text-brass"
-                  >
-                    {c.agent.name}
-                  </Link>
-                  <span className="label mt-1 flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-3 w-[3px] rounded-sm"
-                      style={{ background: c.color }}
-                    />
-                    {c.category} · {Math.round(c.confidence * 100)}%
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
+        <header className="border-b-[1.5px] border-rule px-5 py-5">
+          <h1 className="heading text-[2rem] sm:text-[2.6rem]">{columns.map((c) => c.agent.name).join("  ·  ")}</h1>
+          {missing > 0 && (
+            <p className="cap mt-2">{missing} of the requested agents could not be loaded and are not shown.</p>
+          )}
+        </header>
 
-          <tbody>
-            <Row label="Can you hire it" columns={columns}>
-              {(c) => (
-                <span className={c.assessment.tier === "hireable" ? "text-brass" : ""}>
-                  {tierLabel(c.assessment.tier)}
-                </span>
-              )}
-            </Row>
+        <div className="overflow-x-auto px-5 pb-2">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr>
+                <th className="cap w-40 border-b-[1.5px] border-rule py-3 pr-4 align-bottom font-600">Question</th>
+                {columns.map((c) => (
+                  <th key={c.ref} className="border-b-[1.5px] border-rule py-3 pl-6 align-bottom">
+                    <span className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-3">
+                      <span aria-hidden className="self-stretch" style={{ background: c.color }} />
+                      <span>
+                        <Link
+                          href={`/agents/${c.agent.chain_id}/${c.agent.token_id}`}
+                          className="heading block text-[1.25rem] no-underline hover:underline"
+                        >
+                          {c.agent.name}
+                        </Link>
+                        <span className="cap block">
+                          {c.category} · {Math.round(c.confidence * 100)}%
+                        </span>
+                      </span>
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
 
-            <Row label="Answers right now" columns={columns}>
-              {(c) =>
-                !c.proof ? (
-                  <span className="text-ink-3">no MCP or A2A endpoint declared</span>
-                ) : c.proof.answered ? (
-                  <span style={{ color: "var(--seat-yield)" }}>
-                    yes, {c.proof.protocol.toUpperCase()} in {c.proof.latencyMs} ms
-                  </span>
-                ) : (
-                  <span style={{ color: "var(--seat-health)" }}>
-                    no — {c.proof.error?.slice(0, 60) ?? "did not answer"}
-                  </span>
-                )
-              }
-            </Row>
+            <tbody>
+              <Row label="Can you hire it" columns={columns}>
+                {(c) => (
+                  // The stamp's own text is the tier label, so no second copy:
+                  // a hidden duplicate would make "Hireable" resolve twice.
+                  <TierStamp tier={c.assessment.tier} evidence={c.uptime?.checks ?? null} />
+                )}
+              </Row>
 
-            <Row label="Keeps answering" columns={columns}>
-              {(c) =>
-                !c.uptime || c.uptime.checks < 2 ? (
-                  <span className="text-ink-3">only one check so far</span>
-                ) : (
-                  <span className="tnum">
-                    {c.uptime.answered}/{c.uptime.checks} since{" "}
-                    {new Date(c.uptime.since * 1000).toISOString().slice(0, 10)}
-                    {c.uptime.medianMs !== null && ` · median ${c.uptime.medianMs} ms`}
-                  </span>
-                )
-              }
-            </Row>
+              <Row label="Answers right now" columns={columns}>
+                {(c) =>
+                  !c.proof ? (
+                    <span className="text-carbon-3">no MCP or A2A endpoint declared</span>
+                  ) : c.proof.answered ? (
+                    <span className="text-stamp-green">
+                      yes, {c.proof.protocol.toUpperCase()} in {c.proof.latencyMs} ms
+                    </span>
+                  ) : (
+                    <span className="text-stamp-red">no — {c.proof.error?.slice(0, 60) ?? "did not answer"}</span>
+                  )
+                }
+              </Row>
 
-            <Row label="What it can do" columns={columns}>
-              {(c) =>
-                c.proof?.toolCount ? (
-                  <span className="tnum">{c.proof.toolCount} tools</span>
-                ) : (
-                  <span className="text-ink-3">nothing listed</span>
-                )
-              }
-            </Row>
+              <Row label="Keeps answering" columns={columns}>
+                {(c) =>
+                  !c.uptime || c.uptime.checks < 2 ? (
+                    <span className="text-carbon-3">only one check so far</span>
+                  ) : (
+                    <span>
+                      {c.uptime.answered}/{c.uptime.checks} since {new Date(c.uptime.since * 1000).toISOString().slice(0, 10)}
+                      {c.uptime.medianMs !== null && ` · median ${c.uptime.medianMs} ms`}
+                    </span>
+                  )
+                }
+              </Row>
 
-            <Row label="Declared price" columns={columns}>
-              {(c) => {
-                const priced = c.proof?.tools.filter((t) => t.declaredPrice) ?? [];
-                if (priced.length === 0) {
-                  const free = c.proof?.tools.some((t) => t.declaredFree);
+              <Row label="What it can do" columns={columns}>
+                {(c) =>
+                  c.proof?.toolCount ? (
+                    <span>
+                      {c.proof.toolCount} {c.proof.protocol === "a2a" ? "skills" : "tools"}
+                    </span>
+                  ) : (
+                    <span className="text-carbon-3">nothing listed</span>
+                  )
+                }
+              </Row>
+
+              <Row label="Declared price" columns={columns}>
+                {(c) => {
+                  const priced = c.proof?.tools.filter((t) => t.declaredPrice) ?? [];
+                  if (priced.length === 0) {
+                    const free = c.proof?.tools.some((t) => t.declaredFree);
+                    return <span className="text-carbon-3">{free ? "declares free" : "not stated"}</span>;
+                  }
                   return (
-                    <span className="text-ink-3">{free ? "declares free" : "not stated"}</span>
+                    <span className="text-stamp-green">
+                      {priced
+                        .map((t) => `${t.declaredPrice!.amount} ${t.declaredPrice!.token}`)
+                        .filter((v, i, a) => a.indexOf(v) === i)
+                        .join(", ")}
+                    </span>
                   );
-                }
-                return (
-                  <span className="text-brass">
-                    {priced
-                      .map((t) => `${t.declaredPrice!.amount} ${t.declaredPrice!.token}`)
-                      .filter((v, i, a) => a.indexOf(v) === i)
-                      .join(", ")}
+                }}
+              </Row>
+
+              <Row label="Domain proven" columns={columns}>
+                {(c) => {
+                  const services = c.quality?.endpoint_health?.services ?? [];
+                  const checked = services.filter((s) => s.status !== "skipped");
+                  if (checked.length === 0) return <span className="text-carbon-3">not checked</span>;
+                  const verified = checked.filter((s) => s.domain_verified).length;
+                  return verified === checked.length ? (
+                    <span className="text-stamp-green">all {checked.length}</span>
+                  ) : (
+                    <span className="text-stamp-red">
+                      {verified} of {checked.length}
+                    </span>
+                  );
+                }}
+              </Row>
+
+              <Row label="Track record" columns={columns}>
+                {(c) => (
+                  <span>
+                    {c.agent.total_feedbacks === 0
+                      ? "never rated"
+                      : `${c.agent.total_feedbacks} feedbacks, avg ${c.agent.average_score.toFixed(1)}`}
                   </span>
-                );
-              }}
-            </Row>
+                )}
+              </Row>
 
-            <Row label="Domain proven" columns={columns}>
-              {(c) => {
-                const services = c.quality?.endpoint_health?.services ?? [];
-                const checked = services.filter((s) => s.status !== "skipped");
-                if (checked.length === 0) return <span className="text-ink-3">not checked</span>;
-                const verified = checked.filter((s) => s.domain_verified).length;
-                return verified === checked.length ? (
-                  <span style={{ color: "var(--seat-yield)" }}>all {checked.length}</span>
-                ) : (
-                  <span style={{ color: "var(--seat-health)" }}>
-                    {verified} of {checked.length}
-                  </span>
-                );
-              }}
-            </Row>
+              <Row label="Score trend" columns={columns}>
+                {(c) => {
+                  const h = c.history;
+                  if (!h || h.data_points < 2 || h.score_change === null) {
+                    return <span className="text-carbon-3">no history yet</span>;
+                  }
+                  const up = h.score_change > 0.5;
+                  const down = h.score_change < -0.5;
+                  return (
+                    <span className={up ? "text-stamp-green" : down ? "text-stamp-red" : ""}>
+                      {up ? "rising" : down ? "falling" : "flat"} ({h.score_change >= 0 ? "+" : ""}
+                      {h.score_change.toFixed(2)} / {h.period_days}d)
+                    </span>
+                  );
+                }}
+              </Row>
 
-            <Row label="Track record" columns={columns}>
-              {(c) => (
-                <span className="tnum">
-                  {c.agent.total_feedbacks === 0
-                    ? "never rated"
-                    : `${c.agent.total_feedbacks} feedbacks, avg ${c.agent.average_score.toFixed(1)}`}
-                </span>
-              )}
-            </Row>
+              <Row label="Registry score" columns={columns}>
+                {(c) => <span>{c.agent.total_score.toFixed(2)}</span>}
+              </Row>
 
-            <Row label="Score trend" columns={columns}>
-              {(c) => {
-                const h = c.history;
-                if (!h || h.data_points < 2 || h.score_change === null) {
-                  return <span className="text-ink-3">no history yet</span>;
-                }
-                const up = h.score_change > 0.5;
-                const down = h.score_change < -0.5;
-                return (
-                  <span
-                    className="tnum"
-                    style={{
-                      color: up
-                        ? "var(--seat-yield)"
-                        : down
-                          ? "var(--seat-health)"
-                          : undefined,
-                    }}
-                  >
-                    {up ? "rising" : down ? "falling" : "flat"} ({h.score_change >= 0 ? "+" : ""}
-                    {h.score_change.toFixed(2)} / {h.period_days}d)
-                  </span>
-                );
-              }}
-            </Row>
+              <Row label="Flagged risks" columns={columns}>
+                {(c) => {
+                  const flags = c.quality?.risk_flags ?? [];
+                  if (flags.length === 0) return <span className="text-carbon-3">none</span>;
+                  return (
+                    <ul className="space-y-1">
+                      {flags.slice(0, 4).map((f) => (
+                        <li key={f.id}>
+                          <span className="cap mr-2">{f.severity}</span>
+                          {f.title}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                }}
+              </Row>
 
-            <Row label="Registry score" columns={columns}>
-              {(c) => <span className="tnum">{c.agent.total_score.toFixed(2)}</span>}
-            </Row>
+              <Row label="Registered" columns={columns}>
+                {(c) => <span>{new Date(c.agent.created_at).toISOString().slice(0, 10)}</span>}
+              </Row>
+            </tbody>
+          </table>
+        </div>
 
-            <Row label="Flagged risks" columns={columns}>
-              {(c) => {
-                const flags = c.quality?.risk_flags ?? [];
-                if (flags.length === 0) return <span className="text-ink-3">none</span>;
-                return (
-                  <ul className="space-y-1">
-                    {flags.slice(0, 4).map((f) => (
-                      <li key={f.id} className="text-sm">
-                        <span className="label mr-2">{f.severity}</span>
-                        {f.title}
-                      </li>
-                    ))}
-                  </ul>
-                );
-              }}
-            </Row>
+        <p className="stamp-note border-t-[1.5px] border-rule px-5 py-4 max-w-none">
+          Prices are what each agent states in its own tool descriptions. Nothing here has been paid
+          or independently confirmed — 8004scan carries no price field at all, so this is the
+          agent&rsquo;s claim, surfaced rather than hidden.
+        </p>
+      </section>
 
-            <Row label="Registered" columns={columns}>
-              {(c) => (
-                <span className="tnum font-mono text-xs">
-                  {new Date(c.agent.created_at).toISOString().slice(0, 10)}
-                </span>
-              )}
-            </Row>
-          </tbody>
-        </table>
-      </div>
-
-      <p className="mt-8 max-w-2xl text-sm text-ink-3">
-        Prices are what each agent states in its own tool descriptions. Nothing
-        here has been paid or independently confirmed — 8004scan carries no
-        price field at all, so this is the agent&rsquo;s claim, surfaced rather
-        than hidden.
-      </p>
-
-      <p className="label mt-8">
-        <Link href="/agents" className="hover:text-ink">
+      <p className="mt-6">
+        <Link href="/agents" className="counterfoil counterfoil--quiet">
           ← Back to the listing
         </Link>
       </p>
@@ -337,12 +327,12 @@ function Row({
   children: (c: Column) => React.ReactNode;
 }) {
   return (
-    <tr className="border-b border-rule align-top">
-      <th scope="row" className="label py-4 pr-4 font-normal">
+    <tr className="border-b border-rule-soft align-top">
+      <th scope="row" className="cap py-3.5 pr-4 font-600">
         {label}
       </th>
       {columns.map((c) => (
-        <td key={c.ref} className="py-4 pl-6 text-sm">
+        <td key={c.ref} className="typed py-3.5 pl-6 text-[0.88rem]">
           {children(c)}
         </td>
       ))}

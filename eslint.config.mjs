@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendor agent-skill files installed into the project by Impeccable and
+    // the Turso integration. Not ours to lint.
+    ".claude/**",
+    ".agents/**",
   ]),
 ]);
 

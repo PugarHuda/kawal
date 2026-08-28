@@ -1,77 +1,407 @@
 @import "tailwindcss";
 
-/* Kawal — ledger palette. Cool paper, warm brass, one hue per seat. */
+/*
+ * Kawal — Surat Jalan.
+ *
+ * The page is an inspection form. Carbonless form paper in three parts (white,
+ * yellow, pink), ruled cells with pre-printed captions, values typed in a
+ * typewriter face, and rubber-stamp impressions in violet and red for the
+ * verdicts Kawal pressed after it called. Light, because the scene is a desk
+ * under office light with the form flat on it; there is no dark rendition of
+ * a paper form.
+ *
+ * Every colour below is an ink or a paper stock. Nothing is a UI grey.
+ */
 :root {
-  --ground: #edeff3;
-  --surface: #f8f9fb;
-  --raised: #ffffff;
-  --ink: #131820;
-  --ink-2: #47515f;
-  /* Raised from #78828f. At the 10.5px the `.label` class uses, the old value
-     measured 3.38:1 against --ground and 3.70:1 against --surface, under the
-     4.5:1 WCAG AA minimum for normal text — and `.label` carries almost every
-     secondary annotation in this interface, so the whole product read below
-     the line. #616a78 is the lightest value that clears 4.5:1 on ground,
-     surface and raised alike (4.75 / 5.19 / 5.47), keeping the muted tone. */
-  --ink-3: #616a78;
-  --rule: #d3d9e1;
-  --rule-2: #bfc7d2;
-  /* Darkened from #8f6410. Brass is the accent on the "Hireable" badge, which
-     sits on --brass-soft: the pair measured 4.02:1 at the 10.5px the badge
-     uses, just under the 4.5:1 AA minimum. This was invisible until `.label`
-     stopped overriding `text-brass` — the badge had been rendering grey. */
-  --brass: #845b0e;
-  --brass-soft: #ede0c4;
+  color-scheme: light;
 
+  /* Paper stocks */
+  --paper: #f1eadb;          /* the desk: the ground every form lies on */
+  --paper-white: #fbf8f0;    /* top copy */
+  --paper-yellow: #f2dc8e;   /* second copy */
+  --paper-pink: #efbcc4;     /* third copy */
+  --paper-blue: #d2dff0;     /* the acetate ruler */
+
+  /* Carbon: what the typewriter and the pre-printing put down */
+  --carbon: #1c1913;
+  --carbon-2: #4a453b;
+  /* 5.1:1 on --paper, 5.6:1 on --paper-white, 4.6:1 on --paper-yellow */
+  --carbon-3: #66604f;
+
+  /* Rules: the printed grid of the form */
+  --rule: #2a2620;
+  --rule-soft: #a99f86;
+  --rule-faint: #d8cfb6;
+
+  /* Stamp inks: the verdicts. One ink per outcome, never mixed. */
+  --stamp-violet: #4a2a7d;   /* TELAH DIPERIKSA — inspected and answered */
+  --stamp-blue: #1f4e9c;     /* DITERIMA — reached, not in the declared way */
+  --stamp-red: #b5271f;      /* DITOLAK — called, no answer */
+  --stamp-grey: #5a5850;     /* BELUM DIPERIKSA — not yet called */
+  --stamp-green: #2f6b3a;    /* LUNAS — paid, confirmed */
+
+  /* Seats, as the inks the four manifest lines are ruled in */
   --seat-rebalancing: #0e6a71;
-  --seat-grid: #3a4ca0;
-  --seat-yield: #2c6740;
-  --seat-health: #9c382f;
-  --seat-security: #6b4a8f;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ground: #0d1015;
-    --surface: #14181f;
-    --raised: #191e26;
-    --ink: #e5e9ef;
-    --ink-2: #a2abb9;
-    /* Same correction for dark: #6d7787 measured 3.70:1 at worst. axe only
-       audits the light theme, so this half was invisible to the tooling and
-       had to be computed directly. #8891a0 clears 5.26:1 at worst. */
-    --ink-3: #8891a0;
-    --rule: #242a34;
-    --rule-2: #333b47;
-    --brass: #d8a445;
-    --brass-soft: #2a2115;
-
-    --seat-rebalancing: #4fc3cb;
-    --seat-grid: #8ba0f2;
-    --seat-yield: #6cc287;
-    --seat-health: #e5847b;
-    --seat-security: #b193d8;
-  }
+  --seat-grid: #2f4a9e;
+  --seat-yield: #2f6b3a;
+  --seat-health: #b5271f;
+  --seat-security: #4a2a7d;
 }
 
 @theme inline {
-  --color-ground: var(--ground);
-  --color-surface: var(--surface);
-  --color-raised: var(--raised);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
+  --color-paper: var(--paper);
+  --color-paper-white: var(--paper-white);
+  --color-paper-yellow: var(--paper-yellow);
+  --color-paper-pink: var(--paper-pink);
+  --color-paper-blue: var(--paper-blue);
+  --color-carbon: var(--carbon);
+  --color-carbon-2: var(--carbon-2);
+  --color-carbon-3: var(--carbon-3);
   --color-rule: var(--rule);
-  --color-rule-2: var(--rule-2);
-  --color-brass: var(--brass);
-  --color-brass-soft: var(--brass-soft);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-rule-soft: var(--rule-soft);
+  --color-rule-faint: var(--rule-faint);
+  --color-stamp-violet: var(--stamp-violet);
+  --color-stamp-blue: var(--stamp-blue);
+  --color-stamp-red: var(--stamp-red);
+  --color-stamp-grey: var(--stamp-grey);
+  --color-stamp-green: var(--stamp-green);
+  --font-typed: var(--font-courier-prime);
+  --font-form: var(--font-barlow-condensed);
+}
+
+html {
+  background: var(--paper);
+  /* The paper has a tooth. One repeating gradient, no image request. */
+  background-image:
+    repeating-linear-gradient(0deg, rgba(28, 25, 19, 0.022) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(28, 25, 19, 0.014) 0 1px, transparent 1px 4px);
 }
 
 body {
-  background: var(--ground);
-  color: var(--ink);
+  background: transparent;
+  color: var(--carbon);
+  font-family: var(--font-typed), "Courier New", monospace;
+  font-size: 15px;
+  line-height: 1.5;
+  /* Typewriter faces set every glyph the same width; the numbers must too. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------- browser surfaces ---
+   The parts nobody draws still carry the design. */
+::selection {
+  background: var(--paper-pink);
+  color: var(--carbon);
+}
+:focus-visible {
+  outline: 2px dashed var(--stamp-violet);
+  outline-offset: 3px;
+}
+input,
+textarea {
+  caret-color: var(--stamp-violet);
+  accent-color: var(--stamp-violet);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-soft) transparent;
+}
+a {
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+/* ---------------------------------------------------------- lettering ---
+   Two voices only. The pre-printing (captions, headings, stamps) is a
+   condensed grotesque, as on every carbon form; the entries are typed. */
+@layer components {
+  .form-face {
+    font-family: var(--font-form), "Arial Narrow", sans-serif;
+  }
+  .typed {
+    font-family: var(--font-typed), "Courier New", monospace;
+  }
+
+  /* A pre-printed field caption inside its cell. Small, tracked, upright. */
+  .cap {
+    font-family: var(--font-form), "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--carbon-3);
+  }
+
+  /* Headings are pre-printed too: heavy, condensed, tight. */
+  .heading {
+    font-family: var(--font-form), "Arial Narrow", sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+
+  /* A serial number, as the numbering machine strikes it. */
+  .serial {
+    font-family: var(--font-typed), "Courier New", monospace;
+    letter-spacing: 0.06em;
+    color: var(--stamp-red);
+  }
+
+  /* ------------------------------------------------------------ sheets ---
+     A form is a sheet of one paper stock with a printed border. Sheets stack
+     with a carbon offset: the copy beneath peeks out at the bottom-right. */
+  .sheet {
+    position: relative;
+    background: var(--paper-white);
+    border: 1.5px solid var(--rule);
+    color: var(--carbon);
+  }
+  .sheet--yellow {
+    background: var(--paper-yellow);
+  }
+  .sheet--pink {
+    background: var(--paper-pink);
+  }
+  .sheet--carbon::after {
+    content: "";
+    position: absolute;
+    inset: 6px -6px -6px 6px;
+    z-index: -1;
+    background: var(--paper-yellow);
+    border: 1.5px solid var(--rule);
+  }
+
+  /* The ruled grid. The gap is the rule; cells sit on it. */
+  .cells {
+    display: grid;
+    gap: 1px;
+    padding: 1px;
+    background: var(--paper-white);
+    border: 1.5px solid var(--rule);
+  }
+  .cell {
+    background: var(--paper-white);
+    padding: 0.55rem 0.8rem 0.7rem;
+    min-width: 0;
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+  .cell--yellow {
+    background: var(--paper-yellow);
+  }
+  .cell--pink {
+    background: var(--paper-pink);
+  }
+  .cell > .cap {
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  /* A fill-in line: the value is typed on a printed rule. */
+  .fill {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0.15rem;
+  }
+
+  /* ------------------------------------------------------------ stamps ---
+     A rubber stamp: double ring, condensed caps, pressed at the form's one
+     angle, ink multiplied into the paper. `--ink` sets how much evidence sits
+     behind it: a verdict after ninety probes prints darker than one after
+     ten. */
+  .stamp {
+    --ink: 1;
+    display: inline-block;
+    padding: 0.22em 0.55em 0.18em;
+    border: 3px double currentColor;
+    border-radius: 3px;
+    font-family: var(--font-form), "Arial Narrow", sans-serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    line-height: 1.1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    transform: rotate(-8deg);
+    transform-origin: 50% 60%;
+    mix-blend-mode: multiply;
+    opacity: var(--ink);
+    /* The ink never lies perfectly flat. */
+    mask-image: radial-gradient(120% 100% at 50% 50%, #000 62%, rgba(0, 0, 0, 0.72) 100%);
+    animation: stamp-press 380ms cubic-bezier(0.18, 0.9, 0.24, 1) both;
+  }
+  .stamp--lg {
+    font-size: 1.6rem;
+    border-width: 4px;
+    padding: 0.2em 0.6em 0.14em;
+  }
+  .stamp--sm {
+    font-size: 0.7rem;
+    border-width: 2px;
+    letter-spacing: 0.1em;
+    padding: 0.2em 0.45em 0.15em;
+  }
+  .stamp--flat {
+    transform: none;
+    animation: none;
+  }
+  .stamp-violet { color: var(--stamp-violet); }
+  .stamp-blue { color: var(--stamp-blue); }
+  .stamp-red { color: var(--stamp-red); }
+  .stamp-grey { color: var(--stamp-grey); }
+  .stamp-green { color: var(--stamp-green); }
+
+  /* The line under a stamp that says what the stamp cannot see. */
+  .stamp-note {
+    font-family: var(--font-typed), "Courier New", monospace;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    color: var(--carbon-3);
+  }
+
+  /* ------------------------------------------------------- counterfoil ---
+     The tear-off stub is the action. A dashed edge on the side it tears
+     from; pressing it seats the stub into the sheet. */
+  .counterfoil {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 1rem 0.7rem 1.1rem;
+    background: var(--paper-white);
+    border: 1.5px solid var(--rule);
+    border-left: 1.5px dashed var(--rule);
+    color: var(--carbon);
+    font-family: var(--font-form), "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: transform 120ms ease-out, background-color 120ms ease-out;
+  }
+  .counterfoil:hover {
+    background: var(--paper-yellow);
+    transform: translateX(2px);
+  }
+  .counterfoil:active {
+    transform: translateX(2px) translateY(1px);
+  }
+  .counterfoil--pink {
+    background: var(--paper-pink);
+  }
+  .counterfoil--pink:hover {
+    background: var(--paper-white);
+  }
+  .counterfoil--quiet {
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.75rem 0.45rem 0.85rem;
+  }
+  .counterfoil[aria-disabled="true"],
+  .counterfoil:disabled {
+    color: var(--carbon-3);
+    border-style: dotted;
+    cursor: not-allowed;
+    transform: none;
+    background: var(--paper);
+  }
+
+  /* --------------------------------------------------------------- tally ---
+     The probe history is a perforated tally strip: one cell per call, punched
+     when it answered, blank when it did not, the newest outlined. Never a
+     chart. */
+  .tally {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    width: min(100%, 21rem);
+  }
+  .tally > i {
+    display: block;
+    width: 11px;
+    height: 11px;
+    border: 1px solid var(--rule);
+    background: var(--paper-white);
+  }
+  .tally > i.on {
+    background: var(--carbon);
+  }
+  .tally > i.new {
+    outline: 2px solid var(--stamp-violet);
+    outline-offset: 1px;
+  }
+
+  /* -------------------------------------------------------------- legend ---
+     Every form carries its key. */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.4rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--rule-soft);
+    background: var(--paper-white);
+  }
+  .legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* --------------------------------------------------------------- forms ---
+     Typed entries in ruled boxes; a pressed button is a stamp. */
+  .field {
+    font-family: var(--font-typed), "Courier New", monospace;
+    font-size: 0.95rem;
+    background: var(--paper-white);
+    border: 1.5px solid var(--rule);
+    padding: 0.45rem 0.6rem;
+    color: var(--carbon);
+    min-height: 2.5rem;
+  }
+  .field::placeholder {
+    color: var(--carbon-3);
+  }
+
+  /* A row in a manifest: one consignment, ruled off from the next. */
+  .manifest-row {
+    border-bottom: 1px solid var(--rule);
+  }
+  .manifest-row:hover {
+    background: rgba(242, 220, 142, 0.35);
+  }
+
+  /* The acetate reading ruler: a translucent blue band laid across the sheet
+     at the form's angle. Decorative only where a real value sits under it. */
+  .ruler {
+    position: absolute;
+    pointer-events: none;
+    background: var(--paper-blue);
+    opacity: 0.55;
+    mix-blend-mode: multiply;
+    transform: rotate(-8deg);
+    border-top: 1px solid var(--stamp-blue);
+    border-bottom: 1px solid var(--stamp-blue);
+  }
+}
+
+@keyframes stamp-press {
+  from {
+    transform: rotate(-8deg) scale(1.22);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-8deg) scale(1);
+    opacity: var(--ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp {
+    animation: none;
+  }
+  .counterfoil {
+    transition: none;
+  }
 }
 
 /* Numbers that sit in columns must line up. */
@@ -79,24 +409,12 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* In the components layer, not unlayered.
-   Tailwind v4 puts utilities in a cascade layer, and unlayered CSS beats any
-   layered rule regardless of source order — so an unlayered `.label { color }`
-   silently overrode every `text-ground` and `text-brass` sitting beside it.
-   The active category chip rendered muted grey on near-black, and the Hireable
-   badge lost its brass. Layering this lets the utility win where one is
-   present and keeps the muted default where none is. */
-@layer components {
-  .label {
-    font-family: var(--font-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-}
-
-:focus-visible {
-  outline: 2px solid var(--brass);
-  outline-offset: 3px;
+/* Legacy alias kept for the four seat inks read through `seatColor`. */
+.label {
+  font-family: var(--font-form), "Arial Narrow", sans-serif;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--carbon-3);
 }

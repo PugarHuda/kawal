@@ -1,179 +1,192 @@
 import Link from "next/link";
 import { getStats, bscStats } from "@/lib/scan";
 import { CATEGORIES } from "@/lib/taxonomy";
-import { seatColor } from "@/components/listing";
+import { seatColor, Stamp, Cell, Legend } from "@/components/listing";
 import { observedTotals } from "@/lib/uptime";
 
 /**
- * Rendered per request so the CSP nonce can reach the scripts.
+ * Form K-1: the cover sheet of the book.
  *
- * A nonce is only unguessable if it is minted per request, which means the
- * HTML carrying it cannot be built ahead of time. This page was the one
- * statically prerendered route, so its markup shipped with no nonce at all and
- * every Next script was refused — the page rendered and never hydrated, which
- * looks like success from the outside.
- *
- * The alternative was `script-src 'unsafe-inline'`, which would have weakened
- * the exact thing a CSP is for. Rendering costs little here: the chain figures
- * below still come from the five-minute fetch cache, so this trades a
- * prerendered shell for a real policy, not a slower page.
+ * Rendered per request so the CSP nonce can reach the scripts. A nonce is
+ * only unguessable if it is minted per request, which means the HTML carrying
+ * it cannot be built ahead of time; a prerendered shell shipped with no nonce
+ * and every Next script on it was refused — the page rendered and never
+ * hydrated, which looks like success from the outside.
  */
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const stats = await getStats().catch(() => null);
-  const observed = await observedTotals();
+  const [stats, observed] = await Promise.all([getStats().catch(() => null), observedTotals()]);
   const bsc = stats ? bscStats(stats) : undefined;
 
   const roster = bsc?.total_agents ?? 0;
   const withProtocol = bsc ? bsc.mcp_agents + bsc.a2a_agents + bsc.oasf_agents : 0;
   const perAgent = bsc && bsc.total_agents ? bsc.total_feedbacks / bsc.total_agents : 0;
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6">
-      <section className="border-b border-rule py-16">
-        <p className="label">BNB Smart Chain · ERC-8004</p>
-        <h1 className="mt-5 max-w-3xl text-4xl font-bold leading-[1.05] tracking-[-0.035em] sm:text-6xl">
-          Most agents on BSC cannot be hired.
-        </h1>
-        <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-2">
-          Kawal lists the ones that can, shows you why, and lets you put them to
-          work under limits you set — spend cap, allowlist, expiry, revocable at
-          any moment.
-        </p>
-
-        <div className="mt-10 flex flex-wrap gap-3">
-          <Link
-            href="/agents"
-            className="rounded-sm bg-ink px-5 py-2.5 text-sm font-medium text-ground hover:opacity-90"
-          >
-            Browse agents
-          </Link>
-          <Link
-            href="/mandate"
-            className="rounded-sm border border-rule-2 px-5 py-2.5 text-sm font-medium text-ink-2 hover:text-ink"
-          >
-            See the limits
-          </Link>
-          <Link
-            href="/advantage"
-            className="rounded-sm border border-rule-2 px-5 py-2.5 text-sm font-medium text-ink-2 hover:text-ink"
-          >
-            Read the evidence
-          </Link>
+    <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
+      {/* ------------------------------------------------ Form K-1 ------ */}
+      <section className="sheet sheet--carbon">
+        {/* Serial and date strip: what a numbering machine and a date stamp
+            leave along the top of every sheet. */}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Form K-1 · Surat jalan agen · cover sheet</span>
+          <span className="serial text-[0.85rem]">
+            No. K1-{String(roster).padStart(6, "0")}
+          </span>
+          <span className="cap">Tgl · {today}</span>
         </div>
 
-        {/* Kawal is a marketplace for agents, in an ecosystem where the buyers
-            are increasingly agents. Publishing the evidence only as HTML would
-            have been the wrong shape for it. */}
-        <p className="mt-8 max-w-xl text-sm text-ink-2">
-          An agent can ask too:{" "}
-          <a href="/api/mcp" className="underline hover:text-ink">
-            <code>/api/mcp</code>
-          </a>{" "}
-          answers over the Model Context Protocol — dial an agent, ask whether it
-          really charges, read who wrote its feedback. No key, nothing to sign.
-        </p>
+        <div className="relative grid gap-px bg-rule lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          {/* The headline entry, typed large. */}
+          <div className="cell px-5 pt-6 pb-7 lg:px-7">
+            <span className="cap">Keterangan · what this form is for</span>
+            <h1 className="heading mt-3 max-w-[14ch] text-[2.6rem] sm:text-[3.6rem] lg:text-[4.2rem]">
+              Most agents on BSC cannot be hired.
+            </h1>
+            <p className="typed mt-5 max-w-[62ch] text-[1rem] leading-relaxed text-carbon-2">
+              Kawal calls every agent itself before it lists one, stamps what
+              answered, and lets you put it to work under limits it cannot
+              cross — spend cap, allowlist, expiry, revocable at any moment.
+            </p>
+
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link href="/agents" className="counterfoil">
+                Browse agents
+              </Link>
+              <Link href="/mandate" className="counterfoil counterfoil--quiet">
+                See the limits
+              </Link>
+              <Link href="/advantage" className="counterfoil counterfoil--quiet">
+                Read the evidence
+              </Link>
+            </div>
+
+            <p className="typed mt-6 max-w-[62ch] text-[0.85rem] text-carbon-3">
+              An agent can ask too:{" "}
+              <a href="/api/mcp" className="underline">
+                /api/mcp
+              </a>{" "}
+              answers over the Model Context Protocol and{" "}
+              <a href="/.well-known/agent-card.json" className="underline">
+                agent-card.json
+              </a>{" "}
+              over A2A — dial an agent, ask whether it really charges, read who
+              wrote its feedback. No key, nothing to sign.
+            </p>
+          </div>
+
+          {/* The inspector's own mark, pressed over the count it earned. This
+              is the only figure on the sheet Kawal did not copy from the
+              registry, and the stamp says so. */}
+          <div className="cell cell--yellow relative flex flex-col justify-between px-5 pt-6 pb-7 lg:px-7">
+            <span className="cap">Diperiksa oleh · inspected by Kawal itself</span>
+            {observed ? (
+              <>
+                <p className="heading mt-3 text-[3rem] leading-none sm:text-[3.8rem]">
+                  {observed.checks.toLocaleString()}
+                  <span className="typed block text-[0.95rem] font-normal tracking-normal text-carbon-2">
+                    calls placed to {observed.endpoints} declared endpoints since{" "}
+                    {new Date(observed.since * 1000).toISOString().slice(0, 10)}
+                  </span>
+                </p>
+                <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+                  <p className="typed max-w-[30ch] text-[0.85rem] text-carbon-2">
+                    <strong className="font-bold text-carbon">{observed.answered}</strong> of those
+                    endpoints answered. The rest are not there, or speak a protocol this prober
+                    does not — recorded as unknown, never counted as a failure.
+                  </p>
+                  <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
+                    Telah diperiksa
+                  </Stamp>
+                </div>
+                <p className="stamp-note mt-6">
+                  single vantage point · an endpoint that blocks this prober reads as down
+                </p>
+              </>
+            ) : (
+              <p className="typed mt-3 text-carbon-2">
+                No probes on this instance yet. The first visitor to an agent page makes the first call.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Three typed cells from the registry, labelled as the registry's. */}
+        {bsc && (
+          <div className="cells border-x-0 border-b-0 sm:grid-cols-3">
+            <Cell cap="Terdaftar · registered on BSC (8004scan's count)">
+              <p className="tnum heading text-[2rem]">{roster.toLocaleString()}</p>
+              <span className="text-[0.85rem] text-carbon-2">
+                {bsc.daily_new_agents.toLocaleString()} more arrived today; 62.8% of the newest 600 are
+                copies of a template across 464 owners
+              </span>
+            </Cell>
+            <Cell cap="Menyatakan antarmuka · declare an interface">
+              <p className="heading text-[2rem]">{((withProtocol / roster) * 100).toFixed(1)}%</p>
+              <span className="text-[0.85rem] text-carbon-2">
+                {withProtocol.toLocaleString()} agents expose MCP, A2A or OASF chain-wide. Among the
+                newest 600 it is 38.8% — the register is improving
+              </span>
+            </Cell>
+            <Cell cap="Catatan umpan balik · feedback records per agent">
+              <p className="heading text-[2rem]">{perAgent.toFixed(3)}</p>
+              <span className="text-[0.85rem] text-carbon-2">
+                {bsc.total_feedbacks.toLocaleString()} records chain-wide. A sample of 1,200 found just 53
+                addresses behind them — a count of writes, not of opinions
+              </span>
+            </Cell>
+          </div>
+        )}
       </section>
 
-      {bsc && (
-        <section className="grid gap-px border-b border-rule bg-rule sm:grid-cols-3">
-          {/* The count is the registry's. The second sentence is Kawal's:
-              `collapseDuplicates` already folds identical registrations
-              together on every listing, and run across the newest arrivals it
-              stops being a display detail. Spread across 464 distinct owners,
-              so it is a template being copied rather than one address minting
-              a farm. `npm run roster` re-measures. */}
-          <Figure
-            value={roster.toLocaleString()}
-            label="registered on BSC"
-            note={`${bsc.daily_new_agents.toLocaleString()} more arrived today, and 62.8% of the newest 600 are copies of a template across 464 owners`}
-          />
-          {/* The chain-wide rate is an average over everything ever minted,
-              which is a different population from the one arriving now: among
-              the 600 newest registrations it is 38.8%, four and a half times
-              this. Quoting only the low figure makes Kawal pessimistic about
-              exactly the agents a buyer meets first. `npm run roster`
-              re-measures both. */}
-          <Figure
-            value={`${((withProtocol / roster) * 100).toFixed(1)}%`}
-            label="declare an interface"
-            note={`${withProtocol.toLocaleString()} agents expose MCP, A2A or OASF. That is the whole backlog — among the 600 newest registrations it is 38.8%, and the register is improving`}
-          />
-          {/* Called "records", not "ratings". A sample of 1,200 taken from
-              both ends of the BSC register found a mark on every one but only
-              53 addresses behind the lot — `npm run reputation` re-measures.
-              A ratio computed over that counts writes, not opinions, and
-              calling it a rating on our front page would repeat exactly the
-              kind of claim this site exists to check. */}
-          <Figure
-            value={perAgent.toFixed(3)}
-            label="feedback records per agent"
-            note={`${bsc.total_feedbacks.toLocaleString()} records chain-wide. A sample of 1,200 found just 53 addresses behind them — a count of writes, not of opinions`}
-          />
-        </section>
-      )}
+      {/* ------------------------------------------------------ legend --- */}
+      <div className="mt-6">
+        <Legend
+          items={[
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Telah diperiksa</Stamp>, means: "Kawal called it and it answered in its declared protocol" },
+            { mark: <Stamp ink="stamp-blue" size="sm" flat>Diterima</Stamp>, means: "something answered, not in the declared way" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Ditolak</Stamp>, means: "called, nobody answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat>Belum diperiksa</Stamp>, means: "declares nothing to call" },
+          ]}
+        />
+      </div>
 
-      {observed && (
-        <section className="border-b border-rule bg-surface px-6 py-8">
-          <p className="label">Measured here, not read off the registry</p>
-          <p className="mt-3 max-w-2xl leading-relaxed text-ink-2">
-            Every figure above is 8004scan&rsquo;s. This one is Kawal&rsquo;s:{" "}
-            <strong className="tnum font-semibold text-ink">
-              {observed.checks.toLocaleString()}
-            </strong>{" "}
-            calls placed to{" "}
-            <strong className="tnum font-semibold text-ink">{observed.endpoints}</strong>{" "}
-            declared endpoints since{" "}
-            {new Date(observed.since * 1000).toISOString().slice(0, 10)}, of which{" "}
-            <strong className="tnum font-semibold text-ink">{observed.answered}</strong>{" "}
-            answered. The rest are either not there or speak a protocol this
-            prober does not — recorded as unknown rather than counted as a
-            failure.
-          </p>
-        </section>
-      )}
-
-      <section className="py-14">
-        <h2 className="text-2xl font-semibold tracking-tight">Hire by the job</h2>
-        <p className="mt-2 max-w-xl text-ink-2">
-          Four seats cover what capital on BSC actually needs. Fill one, or fill
-          them all and let them work the same pool under separate limits.
+      {/* ------------------------------------------------ the four seats --- */}
+      <section className="mt-12">
+        <h2 className="heading text-[2rem]">Hire by the job</h2>
+        <p className="typed mt-2 max-w-[62ch] text-carbon-2">
+          Four seats cover what capital on BSC actually needs. Fill one, or fill them all and let them
+          work the same pool under separate limits.
         </p>
 
-        <div className="mt-8 grid gap-px bg-rule sm:grid-cols-2">
-          {CATEGORIES.filter((c) => c.core).map((c) => (
-            <Link
-              key={c.id}
-              href={`/agents?category=${c.id}`}
-              className="group bg-surface p-6 transition-colors hover:bg-raised"
-            >
-              <div className="flex items-center gap-2.5">
-                <span
-                  aria-hidden
-                  className="h-4 w-[3px] rounded-sm"
-                  style={{ background: seatColor(c.id) }}
-                />
-                <span className="label">{c.seat}</span>
-              </div>
-              <h3 className="mt-3 text-lg font-semibold tracking-tight group-hover:text-brass">
-                {c.label}
-              </h3>
-              <p className="mt-1.5 text-sm text-ink-2">{c.blurb}</p>
-            </Link>
-          ))}
+        <div className="sheet mt-6">
+          <div className="flex items-baseline justify-between gap-6 border-b-[1.5px] border-rule px-5 py-2">
+            <span className="cap">Form K-2 · manifes kursi · the four seats</span>
+            <span className="cap">No. · kursi · tugas · keterangan</span>
+          </div>
+          <ol>
+            {CATEGORIES.filter((c) => c.core).map((c, i) => (
+              <li key={c.id} className="manifest-row last:border-b-0">
+                <Link
+                  href={`/agents?category=${c.id}`}
+                  className="grid grid-cols-[3rem_6px_minmax(0,1fr)] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_6px_11rem_minmax(0,1fr)_auto]"
+                >
+                  <span className="serial self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
+                  <span aria-hidden className="my-2" style={{ background: seatColor(c.id) }} />
+                  <span className="cap self-center py-4">{c.seat}</span>
+                  <span className="col-start-3 py-4 pr-5 sm:col-start-4">
+                    <h3 className="heading text-[1.5rem]">{c.label}</h3>
+                    <span className="typed block text-[0.9rem] text-carbon-2">{c.blurb}</span>
+                  </span>
+                  <span className="cap col-start-3 self-center pb-4 sm:col-start-5 sm:py-4 sm:pr-5">Open form →</span>
+                </Link>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Figure({ value, label, note }: { value: string; label: string; note: string }) {
-  return (
-    <div className="bg-surface px-6 py-8">
-      <p className="tnum text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="label mt-2">{label}</p>
-      <p className="mt-3 max-w-xs text-sm leading-relaxed text-ink-2">{note}</p>
     </div>
   );
 }

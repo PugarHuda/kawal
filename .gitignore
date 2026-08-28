@@ -66,3 +66,12 @@ playwright-report/
 .agents/
 skills-lock.json
 .claude/skills/turso-cloud/
+
+# Impeccable skill files (vendor tooling); PRODUCT.md and DESIGN.md stay tracked
+.claude/skills/impeccable/
+
+# Impeccable round artefacts; config.json stays tracked
+.impeccable/decision/
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/live/

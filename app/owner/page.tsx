@@ -6,9 +6,10 @@ import { uptimeFor } from "@/lib/uptime";
 import { diagnose, failureLabel } from "@/lib/failure";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
+import { Stamp, Tally } from "@/components/listing";
 
 /**
- * The other half of the market.
+ * Form K-6: the other half of the market.
  *
  * Everything else here is built for somebody deciding whether to hire. But a
  * registration is minted by someone, and that someone has no way to find out
@@ -17,8 +18,7 @@ import { BSC_MAINNET } from "@/lib/chains";
  *
  * Kawal already knows. `syenite.ai` failed to resolve on 62 separate probes
  * from this instance; the registry still lists that agent as declaring an
- * interface, and its owner almost certainly has no idea. That is a whole
- * audience the product was ignoring while sitting on the answer.
+ * interface, and its owner almost certainly has no idea.
  *
  * Deliberately not a dashboard. No sign-in, no claiming, no settings — an
  * address is public and so is everything shown against it, so asking someone
@@ -49,56 +49,57 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
   const address = normalise(asked);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-12">
-      <p className="label">For the other side of the listing</p>
-      <h1 className="mt-4 max-w-2xl text-4xl font-bold leading-[1.08] tracking-[-0.03em]">
-        Is your agent still answering?
-      </h1>
-      <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-2">
-        Nothing on BNB Smart Chain tells an owner their endpoint went dark. The
-        registry keeps listing it. Kawal has been calling these endpoints and
-        keeping every result, so paste the address that minted them and see what
-        it found.
-      </p>
+    <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
+      <section className="sheet sheet--carbon">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Form K-6 · surat pemilik · for the other side of the listing</span>
+          <span className="serial text-[0.85rem]">{address ? `Pemilik ${address.slice(0, 10)}…` : "No. —"}</span>
+        </div>
 
-      <form method="get" className="mt-8 flex flex-wrap gap-3">
-        <label htmlFor="address" className="sr-only">
-          Wallet address
-        </label>
-        <input
-          id="address"
-          name="address"
-          defaultValue={asked}
-          placeholder="0x…"
-          spellCheck={false}
-          autoComplete="off"
-          className="tnum w-full max-w-md rounded-sm border border-rule-2 bg-surface px-4 py-2.5 text-sm focus-visible:border-brass sm:w-auto"
-        />
-        <button
-          type="submit"
-          className="rounded-sm bg-ink px-5 py-2.5 text-sm font-medium text-ground hover:opacity-90"
-        >
-          Look it up
-        </button>
-      </form>
+        <div className="px-5 py-6">
+          <h1 className="heading max-w-[16ch] text-[2.4rem] sm:text-[3rem]">Is your agent still answering?</h1>
+          <p className="typed mt-3 max-w-[62ch] text-carbon-2">
+            Nothing on BNB Smart Chain tells an owner their endpoint went dark. The registry keeps
+            listing it. Kawal has been calling these endpoints and keeping every result, so paste the
+            address that minted them and see what it found.
+          </p>
 
-      {asked !== "" && address === null && (
-        <p className="mt-6 max-w-2xl text-ink-2">
-          That is not a wallet address. It should be <code className="text-sm">0x</code> followed by
-          forty hexadecimal characters.
-        </p>
-      )}
+          <form method="get" className="mt-6 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="cap">Alamat dompet · wallet address</span>
+              <input
+                id="address"
+                name="address"
+                defaultValue={asked}
+                placeholder="0x…"
+                spellCheck={false}
+                autoComplete="off"
+                className="field w-full sm:w-[26rem]"
+              />
+            </label>
+            <button type="submit" className="counterfoil">
+              Look it up
+            </button>
+          </form>
 
-      {address && <Results address={address} />}
+          {asked !== "" && address === null && (
+            <p className="typed mt-4 max-w-[60ch] border-[1.5px] border-stamp-red bg-paper-pink px-3 py-2 text-[0.9rem]">
+              That is not a wallet address. It should be <code className="font-bold">0x</code> followed by
+              forty hexadecimal characters.
+            </p>
+          )}
 
-      {!address && (
-        <p className="mt-10 max-w-2xl text-sm text-ink-3">
-          Nothing here is private. An ERC-8004 registration names its owner
-          on-chain, and every observation shown is a call Kawal made to an
-          endpoint the registration published — so there is nothing to sign in
-          to and nothing to prove.
-        </p>
-      )}
+          {!address && (
+            <p className="stamp-note mt-6 max-w-[62ch]">
+              Nothing here is private. An ERC-8004 registration names its owner on-chain, and every
+              observation shown is a call Kawal made to an endpoint the registration published — so
+              there is nothing to sign in to and nothing to prove.
+            </p>
+          )}
+        </div>
+
+        {address && <Results address={address} />}
+      </section>
     </div>
   );
 }
@@ -112,12 +113,10 @@ async function Results({ address }: { address: string }) {
 
   if (agents.length === 0) {
     return (
-      <section className="mt-10 border-t border-rule pt-8">
-        <p className="text-ink-2">
-          The registry holds no agents for this address on BNB Smart Chain. If you
-          minted on another chain, Kawal only reads BSC.
-        </p>
-      </section>
+      <p className="typed border-t-[1.5px] border-rule px-5 py-6 text-carbon-2">
+        The registry holds no agents for this address on BNB Smart Chain. If you minted on another
+        chain, Kawal only reads BSC.
+      </p>
     );
   }
 
@@ -127,11 +126,7 @@ async function Results({ address }: { address: string }) {
     try {
       const detail = await getAgent(a.chain_id, a.token_id);
       const proof = await proveAgent(detail);
-      return {
-        agent: a,
-        proof,
-        uptime: proof?.endpoint ? await uptimeFor(proof.endpoint) : null,
-      };
+      return { agent: a, proof, uptime: proof?.endpoint ? await uptimeFor(proof.endpoint) : null };
     } catch {
       return { agent: a, proof: null, uptime: null };
     }
@@ -140,86 +135,88 @@ async function Results({ address }: { address: string }) {
   const broken = rows.filter((r) => r.proof && !r.proof.answered && !r.proof.descriptor);
 
   return (
-    <section className="mt-10 border-t border-rule pt-8">
-      <p className="label">
-        {total} registration{total === 1 ? "" : "s"} on BSC
-        {total > agents.length && ` · showing the first ${agents.length}`}
-      </p>
-
-      {broken.length > 0 ? (
-        <p className="mt-4 max-w-2xl text-lg leading-relaxed">
-          <span className="font-semibold" style={{ color: "var(--seat-health)" }}>
-            {broken.length} of these did not answer when Kawal called.
-          </span>{" "}
-          <span className="text-ink-2">
-            The registry still lists them exactly as you registered them.
+    <div className="border-t-[1.5px] border-rule">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
+        <div>
+          <span className="cap">
+            {total} registration{total === 1 ? "" : "s"} on BSC
+            {total > agents.length && ` · showing the first ${agents.length}`}
           </span>
-        </p>
-      ) : (
-        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-ink-2">
-          Everything Kawal could call, answered.
-        </p>
-      )}
+          {broken.length > 0 ? (
+            <p className="heading mt-2 max-w-[24ch] text-[1.7rem] text-stamp-red">
+              {broken.length} of these did not answer when Kawal called.
+            </p>
+          ) : (
+            <p className="heading mt-2 text-[1.7rem]">Everything Kawal could call, answered.</p>
+          )}
+          {broken.length > 0 && (
+            <p className="typed mt-1 text-[0.9rem] text-carbon-2">
+              The registry still lists them exactly as you registered them.
+            </p>
+          )}
+        </div>
+        <Stamp ink={broken.length > 0 ? "stamp-red" : "stamp-violet"} size="lg" evidence={rows.length * 10}>
+          {broken.length > 0 ? "Perlu perbaikan" : "Semua menjawab"}
+        </Stamp>
+      </div>
 
-      <div className="mt-8 grid gap-px bg-rule">
-        {rows.map(({ agent, proof, uptime }) => {
+      <ol className="border-t-[1.5px] border-rule px-5">
+        {rows.map(({ agent, proof, uptime }, i) => {
           const d = proof?.error ? diagnose(proof.error) : null;
           const answering = proof?.answered === true;
           const descriptor = proof?.descriptor != null;
+          const ink = answering || descriptor ? "stamp-violet" : "stamp-red";
+          const verdict = answering
+            ? "Answering"
+            : descriptor
+              ? "Runs locally"
+              : d
+                ? failureLabel(d.failure)
+                : "No endpoint";
 
           return (
-            <article key={`${agent.chain_id}:${agent.token_id}`} className="bg-surface p-5">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <Link
-                  href={`/agents/${agent.chain_id}/${agent.token_id}`}
-                  className="font-semibold tracking-tight hover:text-brass"
-                >
-                  {agent.name}
-                </Link>
-                <span
-                  className="label"
-                  style={{
-                    color: answering || descriptor ? "var(--seat-yield)" : "var(--seat-health)",
-                  }}
-                >
-                  {answering
-                    ? "Answering"
-                    : descriptor
-                      ? "Runs locally"
-                      : d
-                        ? failureLabel(d.failure)
-                        : "No endpoint"}
-                </span>
+            <li
+              key={`${agent.chain_id}:${agent.token_id}`}
+              className="manifest-row grid grid-cols-[3rem_minmax(0,1fr)] gap-x-4 py-4 last:border-b-0 sm:grid-cols-[3rem_minmax(0,1fr)_auto]"
+            >
+              <span className="serial pt-1 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
+              <article className="min-w-0">
+                <h2 className="heading text-[1.35rem]">
+                  <Link href={`/agents/${agent.chain_id}/${agent.token_id}`} className="no-underline hover:underline">
+                    {agent.name}
+                  </Link>
+                </h2>
+                {proof?.endpoint && (
+                  <p className="typed mt-1 break-all text-[0.82rem] text-carbon-3">{proof.endpoint}</p>
+                )}
+                {d && !descriptor && (
+                  <p className="typed mt-2 max-w-[60ch] text-[0.88rem] text-carbon-2">{d.summary}</p>
+                )}
+                {uptime && uptime.checks > 1 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <Tally answered={uptime.answered} checks={uptime.checks} cap={40} />
+                    <p className="typed text-[0.85rem] text-carbon-2">
+                      {uptime.answered} of {uptime.checks} call{uptime.checks === 1 ? "" : "s"} answered since{" "}
+                      {new Date(uptime.since * 1000).toISOString().slice(0, 10)}
+                      {uptime.medianMs !== null && ` · median ${uptime.medianMs} ms`}
+                    </p>
+                  </div>
+                )}
+              </article>
+              <div className="col-start-2 mt-2 sm:col-start-3 sm:mt-0">
+                <Stamp ink={ink} size="sm" flat evidence={uptime?.checks ?? null}>
+                  {verdict}
+                </Stamp>
               </div>
-
-              {proof?.endpoint && (
-                <p className="tnum mt-2 break-all text-sm text-ink-3">{proof.endpoint}</p>
-              )}
-
-              {d && !descriptor && (
-                <p className="mt-3 max-w-2xl text-sm text-ink-2">{d.summary}</p>
-              )}
-
-              {uptime && uptime.checks > 1 && (
-                <p className="mt-3 text-sm text-ink-3">
-                  <span className="tnum">
-                    {uptime.answered} of {uptime.checks}
-                  </span>{" "}
-                  call{uptime.checks === 1 ? "" : "s"} answered since{" "}
-                  {new Date(uptime.since * 1000).toISOString().slice(0, 10)}
-                  {uptime.medianMs !== null && ` · median ${uptime.medianMs} ms`}
-                </p>
-              )}
-            </article>
+            </li>
           );
         })}
-      </div>
+      </ol>
 
-      <p className="mt-6 max-w-2xl text-sm text-ink-3">
-        Measured from a single vantage point. An endpoint that geo-blocks or
-        ASN-blocks this prober looks identical to one that is down, so a failure
-        here is a reason to check, not a verdict.
+      <p className="stamp-note max-w-none border-t-[1.5px] border-rule px-5 py-4">
+        Measured from a single vantage point. An endpoint that geo-blocks or ASN-blocks this prober
+        looks identical to one that is down, so a failure here is a reason to check, not a verdict.
       </p>
-    </section>
+    </div>
   );
 }

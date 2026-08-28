@@ -10,12 +10,21 @@ import {
   type SessionPlan,
 } from "@/lib/mandate";
 import { BSC_MAINNET } from "@/lib/chains";
-import { seatColor } from "@/components/listing";
+import { seatColor, Stamp, Legend } from "@/components/listing";
 import { loadLedger, isLive, walletHoldings, hasAdminKey, type LedgerSeat } from "@/lib/sessions";
 import { explorerTx } from "@/lib/altana";
 import { revokeAction, unlockAction, lockAction } from "./actions";
 import { isOperator, operatorConfigured } from "@/lib/operator";
 import { formatEther } from "viem";
+
+/*
+ * Form K-5: the mandate.
+ *
+ * A spend cap is the product's whole value, so on this form it is the box
+ * every other line points at: "TIDAK MELEBIHI · not to exceed", typed in the
+ * seat's own ink. Sessions that exist on-chain are a separate, stamped sheet
+ * above the planner; everything below the fold is a plan and says so.
+ */
 
 // USDT on BSC, the settlement token every seat's cap is denominated in.
 const USDT = "0x55d398326f99059fF775485246999027B3197955" as const;
@@ -41,14 +50,8 @@ function fromRaw(raw: bigint) {
 
 /**
  * The current Unix second, read as request-time data rather than during
- * render.
- *
- * `connection()` is Next's marker for "this render genuinely depends on the
- * request", which is exactly what reading a clock is; the docs use the same
- * shape for synchronous DB drivers. Keeping it out of the component body also
- * satisfies React's purity rule honestly instead of suppressing it — a render
- * that returns something different every time it runs is not idempotent, and
- * the rule is right to say so.
+ * render. `connection()` is Next's marker for "this render genuinely depends
+ * on the request", which is exactly what reading a clock is.
  */
 async function requestTime() {
   await connection();
@@ -56,11 +59,8 @@ async function requestTime() {
 }
 
 /**
- * Reads one number out of a query string, clamped.
- *
- * A `max` attribute on the input is a hint to a browser, not a constraint on
- * a URL anyone can type. Everything past this point assumes a sane number, so
- * this is where it becomes true.
+ * Reads one number out of a query string, clamped. A `max` attribute on the
+ * input is a hint to a browser, not a constraint on a URL anyone can type.
  */
 function num(v: string | string[] | undefined, fallback: number, max: number) {
   const n = Number(Array.isArray(v) ? v[0] : v);
@@ -102,17 +102,11 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
     }
   }
 
-  // `spend?.[0].limit` guards the array being absent, not its being empty:
-  // `[]?.[0]` is undefined and reading `.limit` off that throws before the
-  // fallback applies. Same shape as the bug found in lib/altana.ts.
   const committed = plans.reduce((s, p) => s + (p.permissions.spend?.[0]?.limit ?? 0n), 0n);
   const cut = plans.length
     ? preempt(plans, "health", "yield", 0.25, "health factor fell below the 1.40 floor")
     : null;
 
-  // Read once, with a guard, instead of `plans.find(...)!.permissions.spend![0]`
-  // inside the markup. Two non-null assertions in one expression is two places
-  // a wrong assumption turns into a render crash rather than a missing line.
   const yieldCapBefore = plans.find((p) => p.category === "yield")?.permissions.spend?.[0]?.limit;
   const yieldCapAfter = cut?.narrowed.spend?.[0]?.limit;
 
@@ -128,31 +122,30 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
   // that offers a button it cannot honour is a dead end dressed as a control.
   const canRevoke = hasAdminKey();
 
-  // What the wallet actually holds, so the caps below are read against a
-  // floor rather than in a vacuum.
-  // Every seat in a ledger shares one wallet, so the first row names it. Read
-  // through a binding rather than indexing twice: `length > 0` tells a human
-  // the index is safe but tells the compiler nothing.
   const firstSeat = ledger[0];
-  const holdings = firstSeat
-    ? await walletHoldings(firstSeat.chainId, firstSeat.walletAddress)
-    : null;
+  const holdings = firstSeat ? await walletHoldings(firstSeat.chainId, firstSeat.walletAddress) : null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-12">
-      <header>
-        <p className="label">Mandate</p>
-        <h1 className="mt-3 max-w-2xl text-3xl font-bold tracking-[-0.03em]">
-          Four seats, four sessions, none of them able to reach the others.
-        </h1>
-        <p className="mt-3 max-w-2xl text-ink-2">
-          Every seat gets its own spend cap, its own allowlist of contracts, and
-          the same expiry.{" "}
-          {ledger.length > 0
-            ? "The planner below is unsigned; the sessions above are already on-chain."
-            : "Nothing here is signed yet — this is exactly what a wallet would be asked to approve."}
-        </p>
-      </header>
+    <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
+      <section className="sheet sheet--carbon">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Form K-5 · surat mandat · the mandate</span>
+          <span className="serial text-[0.85rem]">Chain {BSC_MAINNET} · USDT</span>
+        </div>
+
+        <header className="px-5 py-6">
+          <span className="cap">Keterangan · what this form grants</span>
+          <h1 className="heading mt-2 max-w-[22ch] text-[2.2rem] sm:text-[2.8rem]">
+            Four seats, four sessions, none of them able to reach the others.
+          </h1>
+          <p className="typed mt-3 max-w-[62ch] text-carbon-2">
+            Every seat gets its own spend cap, its own allowlist of contracts, and the same expiry.{" "}
+            {ledger.length > 0
+              ? "The planner below is unsigned; the sessions above are already on-chain."
+              : "Nothing here is signed yet — this is exactly what a wallet would be asked to approve."}
+          </p>
+        </header>
+      </section>
 
       {ledger.length > 0 && (
         <LiveSessions
@@ -165,83 +158,105 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
         />
       )}
 
-      <form method="get" className="mt-8 flex flex-wrap items-end gap-4 border-y border-rule py-5">
-        <label className="flex flex-col gap-1.5">
-          <span className="label">Capital (USDT)</span>
-          <input
-            type="number"
-            name="capital"
-            defaultValue={capital}
-            min={1}
-            step="any"
-            className="tnum w-40 rounded-sm border border-rule-2 bg-surface px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="label">Duration (days)</span>
-          <input
-            type="number"
-            name="days"
-            defaultValue={days}
-            min={1}
-            max={MAX_DURATION_DAYS}
-            className="tnum w-32 rounded-sm border border-rule-2 bg-surface px-3 py-2 text-sm"
-          />
-        </label>
-        <button
-          type="submit"
-          className="rounded-sm bg-ink px-5 py-2.5 text-sm font-medium text-ground hover:opacity-90"
-        >
-          Plan mandate
-        </button>
-        <p className="label ml-auto max-w-xs leading-relaxed">
-          {fromRaw(committed)} of {capital.toLocaleString("en-US")} USDT committed —
-          the remainder never leaves your wallet.
-        </p>
-      </form>
+      {/* ------------------------------------------------------ the planner --- */}
+      <section className="sheet mt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+          <span className="cap">Bagian B · rencana · the plan (unsigned)</span>
+          <span className="cap">Isi lalu tekan · fill in, then press</span>
+        </div>
 
-      {error ? (
-        <div
-          className="mt-10 border bg-surface p-6"
-          style={{ borderColor: unexpected ? "var(--seat-health)" : "var(--rule-2)" }}
-        >
-          <p className="label">{unexpected ? "Unexpected failure" : "Refused"}</p>
-          <p className="mt-2 text-ink-2">{error}</p>
-          {!unexpected && (
-            <p className="mt-3 text-sm text-ink-3">
-              This is the planner declining to build a session it could not keep
-              scoped, not an error.
+        <form method="get" className="grid gap-px bg-rule sm:grid-cols-[auto_auto_auto_minmax(0,1fr)] sm:items-end">
+          <label className="cell">
+            <span className="cap">Modal · capital (USDT)</span>
+            <input
+              type="number"
+              name="capital"
+              defaultValue={capital}
+              min={1}
+              step="any"
+              className="field w-40"
+            />
+          </label>
+          <label className="cell">
+            <span className="cap">Masa · duration (days)</span>
+            <input
+              type="number"
+              name="days"
+              defaultValue={days}
+              min={1}
+              max={MAX_DURATION_DAYS}
+              className="field w-32"
+            />
+          </label>
+          <div className="cell flex items-end">
+            <button type="submit" className="counterfoil">
+              Plan mandate
+            </button>
+          </div>
+          <div className="cell cell--yellow">
+            <span className="cap">Terikat · committed</span>
+            <p className="typed text-[0.9rem]">
+              {fromRaw(committed)} of {capital.toLocaleString("en-US")} USDT committed — the remainder
+              never leaves your wallet.
             </p>
-          )}
-        </div>
-      ) : (
-        <div className="mt-10 grid gap-px bg-rule sm:grid-cols-2">
-          {plans.map((p) => (
-            <SeatCard key={p.category} plan={p} />
-          ))}
-        </div>
-      )}
+          </div>
+        </form>
 
-      {cut && yieldCapBefore !== undefined && yieldCapAfter !== undefined && (
-        <section className="mt-12 border-t border-rule pt-8">
-          <h2 className="label">Preemption</h2>
-          <p className="mt-3 max-w-2xl text-ink-2">
-            The risk officer outranks every other seat. When it needs capital
-            back, it narrows the allocator instead of asking — revoke, then
-            re-grant at the smaller cap. The allowlist is untouched.
-          </p>
-          <p className="tnum mt-4 font-mono text-sm">
-            <span className="text-ink-3">yield spend cap </span>
-            {fromRaw(yieldCapBefore)}
-            <span className="text-ink-3"> → </span>
-            <span className="text-brass">{fromRaw(yieldCapAfter)}</span>
-            <span className="text-ink-3"> USDT/day · {cut.reason}</span>
-          </p>
-        </section>
-      )}
+        {error ? (
+          <div className={`border-t-[1.5px] px-5 py-6 ${unexpected ? "border-stamp-red bg-paper-pink" : "border-rule"}`}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <span className="cap">{unexpected ? "Unexpected failure" : "Refused"}</span>
+                <p className="typed mt-2 max-w-[62ch] text-carbon-2">{error}</p>
+                {!unexpected && (
+                  <p className="stamp-note mt-2 max-w-[62ch]">
+                    This is the planner declining to build a session it could not keep scoped, not an
+                    error.
+                  </p>
+                )}
+              </div>
+              <Stamp ink={unexpected ? "stamp-red" : "stamp-grey"}>{unexpected ? "Gagal" : "Ditolak"}</Stamp>
+            </div>
+          </div>
+        ) : (
+          <div className="border-t-[1.5px] border-rule">
+            {plans.map((p, i) => (
+              <SeatLine key={p.category} plan={p} index={i + 1} />
+            ))}
+          </div>
+        )}
 
-      <p className="label mt-12">
-        <Link href="/agents" className="hover:text-ink">
+        {cut && yieldCapBefore !== undefined && yieldCapAfter !== undefined && (
+          <section className="border-t-[1.5px] border-rule px-5 py-6">
+            <h2 className="cap">Preemption</h2>
+            <p className="typed mt-2 max-w-[62ch] text-carbon-2">
+              The risk officer outranks every other seat. When it needs capital back, it narrows the
+              allocator instead of asking — revoke, then re-grant at the smaller cap. The allowlist is
+              untouched.
+            </p>
+            <p className="typed mt-3 text-[0.95rem]">
+              <span className="text-carbon-3">yield spend cap </span>
+              <span className="line-through decoration-stamp-red decoration-2">{fromRaw(yieldCapBefore)}</span>
+              <span className="text-carbon-3"> → </span>
+              <span className="font-bold text-stamp-violet">{fromRaw(yieldCapAfter)}</span>
+              <span className="text-carbon-3"> USDT/day · {cut.reason}</span>
+            </p>
+          </section>
+        )}
+      </section>
+
+      <div className="mt-6">
+        <Legend
+          items={[
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Live</Stamp>, means: "registered in the Altana KeyStore and not yet expired or revoked" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Revoked</Stamp>, means: "destroyed on-chain; KeyStore revocation cannot be undone" },
+            { mark: <span className="serial text-[0.8rem]">Tidak melebihi</span>, means: "the spend cap: what the seat may spend per day, never a deposit" },
+          ]}
+        />
+      </div>
+
+      <p className="mt-6">
+        <Link href="/agents" className="counterfoil counterfoil--quiet">
           ← Pick the agents that fill these seats
         </Link>
       </p>
@@ -274,117 +289,109 @@ function LiveSessions({
   const live = seats.filter((s) => isLive(s, now));
 
   return (
-    <section className="mt-10 border border-brass bg-brass-soft/30 p-6">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Granted on-chain</h2>
-        <span className="label">
+    <section className="sheet sheet--yellow mt-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+        <span className="cap">Bagian A · terdaftar di rantai · granted on-chain</span>
+        <span className="serial text-[0.85rem]">
           {live.length} live of {seats.length} · chain {seats[0]?.chainId}
         </span>
       </div>
-      <p className="mt-2 max-w-2xl text-sm text-ink-2">
-        These session keys are registered in the Altana KeyStore, so anyone can
-        read what they may do without trusting this page. Revoking takes effect
-        on the next block, not at the next expiry.
-      </p>
 
-      {holdings && (
-        <p className="tnum mt-3 font-mono text-sm">
-          <span className="label">wallet holds</span>{" "}
-          <span className="font-semibold">{formatEther(holdings.native)} BNB</span>
-          <span className="text-ink-3">
-            {" "}
-            · caps below total{" "}
-            {formatEther(
-              seats
-                .filter((s) => isLive(s, now))
-                .reduce((sum, s) => sum + BigInt(s.spendLimit), 0n),
-            )}{" "}
-            BNB/day across live seats
-          </span>
-        </p>
-      )}
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
+        <div>
+          <h2 className="heading text-[1.9rem]">Granted on-chain</h2>
+          <p className="typed mt-2 max-w-[62ch] text-[0.9rem] text-carbon-2">
+            These session keys are registered in the Altana KeyStore, so anyone can read what they may
+            do without trusting this page. Revoking takes effect on the next block, not at the next
+            expiry.
+          </p>
+          {holdings && (
+            <p className="typed mt-3 text-[0.9rem]">
+              <span className="cap">wallet holds</span>{" "}
+              <span className="font-bold">{formatEther(holdings.native)} BNB</span>
+              <span className="text-carbon-3">
+                {" "}
+                · caps below total{" "}
+                {formatEther(seats.filter((s) => isLive(s, now)).reduce((sum, s) => sum + BigInt(s.spendLimit), 0n))} BNB/day
+                across live seats
+              </span>
+            </p>
+          )}
+        </div>
+        <Stamp ink="stamp-violet" size="lg" evidence={seats.length * 20}>
+          Terdaftar
+        </Stamp>
+      </div>
 
-      <OperatorBar operator={operator} configured={configured} canRevoke={canRevoke} />
+      <div className="px-5 pb-5">
+        <OperatorBar operator={operator} configured={configured} canRevoke={canRevoke} />
+      </div>
 
-      <div className="mt-6 grid gap-px bg-rule sm:grid-cols-2">
+      <div className="cells border-x-0 border-b-0 sm:grid-cols-2">
         {seats.map((seat) => {
           const alive = isLive(seat, now);
           const expired = !seat.revokedAt && seat.expiry <= now;
+          const status = seat.revokedAt
+            ? seat.preemptedBy && !seat.supersedes
+              ? "Preempted"
+              : "Revoked"
+            : expired
+              ? "Expired"
+              : "Live";
           return (
-            <div key={seat.publicKey} className="bg-surface p-5">
-              <div className="flex items-center gap-2.5">
-                <span
-                  aria-hidden
-                  className="h-4 w-[3px] rounded-sm"
-                  style={{ background: seatColor(seat.category) }}
-                />
-                <span className="label">{seat.seat}</span>
-                <span
-                  className={`label ml-auto rounded-sm border px-2 py-0.5 ${
-                    alive
-                      ? "border-brass text-brass"
-                      : "border-rule-2 text-ink-3"
-                  }`}
-                >
-                  {seat.revokedAt
-                    ? seat.preemptedBy && !seat.supersedes
-                      ? "Preempted"
-                      : "Revoked"
-                    : expired
-                      ? "Expired"
-                      : "Live"}
-                </span>
+            <div key={seat.publicKey} className="cell px-5 py-5">
+              <div className="grid grid-cols-[6px_minmax(0,1fr)_auto] items-start gap-x-3">
+                <span aria-hidden className="self-stretch" style={{ background: seatColor(seat.category) }} />
+                <div>
+                  <span className="cap">{seat.seat}</span>
+                  <p className="heading text-[1.6rem]">
+                    {formatEther(BigInt(seat.spendLimit))}
+                    <span className="typed ml-2 text-[0.8rem] font-normal tracking-normal text-carbon-3">
+                      BNB / {seat.spendPeriod} · tidak melebihi
+                    </span>
+                  </p>
+                </div>
+                <Stamp ink={alive ? "stamp-violet" : "stamp-red"} size="sm" flat>
+                  {status}
+                </Stamp>
               </div>
 
-              <p className="tnum mt-3 text-lg font-semibold">
-                {formatEther(BigInt(seat.spendLimit))}{" "}
-                <span className="text-sm font-normal text-ink-3">
-                  BNB / {seat.spendPeriod}
-                </span>
-              </p>
-
-              <dl className="mt-4 space-y-2 text-sm">
+              <dl className="mt-4 space-y-2.5">
                 <div>
-                  <dt className="label">May call</dt>
-                  <dd className="tnum mt-1 space-y-0.5 break-all font-mono text-xs text-ink-3">
+                  <dt className="cap">May call</dt>
+                  <dd className="typed mt-1 space-y-0.5 break-all text-[0.78rem] text-carbon-3">
                     {seat.allowlist.map((a) => (
                       <p key={a}>{a}</p>
                     ))}
                   </dd>
                 </div>
                 <div>
-                  <dt className="label">Session key</dt>
-                  <dd className="tnum mt-1 break-all font-mono text-xs text-ink-3">
-                    {seat.publicKey}
-                  </dd>
+                  <dt className="cap">Session key</dt>
+                  <dd className="typed mt-1 break-all text-[0.78rem] text-carbon-3">{seat.publicKey}</dd>
                 </div>
                 <div>
-                  <dt className="label">Expires</dt>
-                  <dd className="tnum mt-1 font-mono text-xs text-ink-2">
+                  <dt className="cap">Expires</dt>
+                  <dd className="typed mt-1 text-[0.85rem] text-carbon-2">
                     {new Date(seat.expiry * 1000).toISOString().replace("T", " ").slice(0, 16)}
                   </dd>
                 </div>
               </dl>
 
               {seat.supersedes && (
-                <p className="mt-3 border-l-2 pl-3 text-sm text-ink-2" style={{ borderColor: seatColor(seat.category) }}>
-                  Narrowed by the {seat.preemptedBy ?? "higher-priority"} seat.
-                  Replaced key{" "}
-                  <span className="tnum font-mono text-xs">
-                    {seat.supersedes.slice(0, 20)}…
-                  </span>
-                  , which is revoked for good — KeyStore revocation cannot be
-                  undone, only superseded.
+                <p className="typed mt-3 max-w-[60ch] text-[0.85rem] text-carbon-2">
+                  Narrowed by the {seat.preemptedBy ?? "higher-priority"} seat. Replaced key{" "}
+                  <span className="text-[0.78rem]">{seat.supersedes.slice(0, 20)}…</span>, which is revoked
+                  for good — KeyStore revocation cannot be undone, only superseded.
                 </p>
               )}
 
               {seat.revokeTx && explorerTx(seat.chainId, seat.revokeTx) && (
-                <p className="label mt-4">
+                <p className="mt-3">
                   <a
                     href={explorerTx(seat.chainId, seat.revokeTx)!}
                     target="_blank"
                     rel="noreferrer"
-                    className="underline hover:text-ink"
+                    className="cap underline"
                   >
                     revocation transaction ↗
                   </a>
@@ -392,20 +399,15 @@ function LiveSessions({
               )}
 
               {seat.revokeError && (
-                <p className="mt-4 border p-2 text-xs text-ink-2"
-                  style={{ borderColor: "var(--seat-health)" }}>
-                  Revoke did not land: {seat.revokeError}. The session is still
-                  live.
+                <p className="typed mt-3 border-[1.5px] border-stamp-red bg-paper-pink px-2 py-1.5 text-[0.8rem] text-carbon-2">
+                  Revoke did not land: {seat.revokeError}. The session is still live.
                 </p>
               )}
 
               {alive && operator && canRevoke && (
                 <form action={revokeAction} className="mt-4">
                   <input type="hidden" name="publicKey" value={seat.publicKey} />
-                  <button
-                    type="submit"
-                    className="rounded-sm border border-rule-2 px-3 py-1.5 text-sm font-medium hover:border-ink hover:bg-ink hover:text-ground"
-                  >
+                  <button type="submit" className="counterfoil counterfoil--pink counterfoil--quiet">
                     Revoke this seat
                   </button>
                 </form>
@@ -438,30 +440,29 @@ function OperatorBar({
   // unlock, so offering the form would invite an operator into a dead end.
   if (!canRevoke) {
     return (
-      <p className="mt-5 border border-rule-2 bg-surface p-4 text-sm text-ink-2">
-        <span className="label">View only</span> — this instance holds no admin
-        key, so it can show these sessions but not revoke them. Revocation
-        happens where the wallet key lives.
+      <p className="typed border-[1.5px] border-rule bg-paper-white px-3 py-2.5 text-[0.88rem] text-carbon-2">
+        <span className="cap">View only</span> — this instance holds no admin key, so it can show these
+        sessions but not revoke them. Revocation happens where the wallet key lives.
       </p>
     );
   }
 
   if (!configured) {
     return (
-      <p className="mt-5 border border-rule-2 bg-surface p-4 text-sm text-ink-2">
-        <span className="label">Locked</span> — no{" "}
-        <code className="font-mono text-xs">KAWAL_OPERATOR_TOKEN</code> is set on this
-        deployment, so nobody can revoke a session here. Set it to unlock the control
-        room.
+      <p className="typed border-[1.5px] border-rule bg-paper-white px-3 py-2.5 text-[0.88rem] text-carbon-2">
+        <span className="cap">Locked</span> — no <code className="font-bold">KAWAL_OPERATOR_TOKEN</code> is
+        set on this deployment, so nobody can revoke a session here. Set it to unlock the control room.
       </p>
     );
   }
 
   if (operator) {
     return (
-      <form action={lockAction} className="mt-5 flex items-center gap-3">
-        <span className="label">Unlocked as operator</span>
-        <button type="submit" className="label underline hover:text-ink">
+      <form action={lockAction} className="flex flex-wrap items-center gap-3">
+        <Stamp ink="stamp-violet" size="sm" flat>
+          Unlocked as operator
+        </Stamp>
+        <button type="submit" className="cap underline">
           lock again
         </button>
       </form>
@@ -469,77 +470,67 @@ function OperatorBar({
   }
 
   return (
-    <form action={unlockAction} className="mt-5 flex flex-wrap items-end gap-3">
+    <form action={unlockAction} className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1.5">
-        <span className="label">Operator token</span>
-        <input
-          type="password"
-          name="token"
-          autoComplete="off"
-          className="w-64 rounded-sm border border-rule-2 bg-surface px-3 py-2 text-sm"
-        />
+        <span className="cap">Operator token</span>
+        <input type="password" name="token" autoComplete="off" className="field w-64" />
       </label>
-      <button
-        type="submit"
-        className="rounded-sm border border-rule-2 px-4 py-2 text-sm font-medium hover:border-ink"
-      >
+      <button type="submit" className="counterfoil counterfoil--quiet">
         Unlock to revoke
       </button>
-      <p className="label max-w-xs leading-relaxed">
-        Viewing is open to anyone. Revoking is not.
-      </p>
+      <p className="stamp-note max-w-xs">Viewing is open to anyone. Revoking is not.</p>
     </form>
   );
 }
 
-function SeatCard({ plan }: { plan: SessionPlan }) {
+/** One planned seat, as a line of the form: the cap in its own box. */
+function SeatLine({ plan, index }: { plan: SessionPlan; index: number }) {
   const policy = SEAT_POLICIES.find((s) => s.category === plan.category)!;
   const spend = plan.permissions.spend?.[0];
   const limit = spend?.limit ?? 0n;
 
   return (
-    <div className="bg-surface p-6">
-      <div className="flex items-center gap-2.5">
-        <span
-          aria-hidden
-          className="h-4 w-[3px] rounded-sm"
-          style={{ background: seatColor(plan.category) }}
-        />
-        <span className="label">{plan.seat}</span>
-        <span className="label tnum ml-auto">priority {plan.priority}</span>
+    <div className="manifest-row grid grid-cols-[3rem_6px_minmax(0,1fr)] gap-x-4 px-5 py-5 last:border-b-0 lg:grid-cols-[3rem_6px_11rem_minmax(0,1fr)_auto]">
+      <span className="serial pt-1 text-[0.85rem]">{String(index).padStart(2, "0")}</span>
+      <span aria-hidden className="self-stretch" style={{ background: seatColor(plan.category) }} />
+      <div>
+        <span className="cap">{plan.seat}</span>
+        <span className="cap block !text-carbon-2">priority {plan.priority}</span>
       </div>
-
-      <p className="tnum mt-4 text-2xl font-semibold tracking-tight">
-        {fromRaw(limit)}{" "}
-        <span className="text-base font-normal text-ink-3">USDT / {spend?.period ?? "day"}</span>
-      </p>
-
-      <dl className="mt-5 space-y-3">
+      <dl className="col-start-3 mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:col-start-4 lg:mt-0">
         <div>
-          <dt className="label">May call</dt>
-          <dd className="mt-1.5 space-y-1.5">
+          <dt className="cap">May call</dt>
+          <dd className="mt-1 space-y-1">
             {policy.venues.map((id) => {
               const venue = VENUES[id];
               const address = venue?.deployments[BSC_MAINNET]?.address;
               if (!venue || !address) return null;
               return (
-                <p key={id} className="text-sm">
+                <p key={id} className="typed text-[0.85rem]">
                   {venue.protocol}
-                  <span className="tnum block break-all font-mono text-xs text-ink-3">
-                    {address}
-                  </span>
+                  <span className="block break-all text-[0.75rem] text-carbon-3">{address}</span>
                 </p>
               );
             })}
           </dd>
         </div>
         <div>
-          <dt className="label">Expires</dt>
-          <dd className="tnum mt-1 font-mono text-sm text-ink-2">
-            {new Date(plan.expiry * 1000).toISOString().slice(0, 10)}
-          </dd>
+          <dt className="cap">Expires</dt>
+          <dd className="typed mt-1 text-[0.85rem] text-carbon-2">{new Date(plan.expiry * 1000).toISOString().slice(0, 10)}</dd>
         </div>
       </dl>
+      {/* The box every other line points at. */}
+      <div className="col-start-3 mt-3 lg:col-start-5 lg:mt-0">
+        <div className="inline-block border-[1.5px] border-rule bg-paper-white px-3 py-2" style={{ borderColor: seatColor(plan.category) }}>
+          <span className="cap block">Tidak melebihi · not to exceed</span>
+          <p className="tnum heading text-[1.7rem]" style={{ color: seatColor(plan.category) }}>
+            {fromRaw(limit)}{" "}
+            <span className="typed text-[0.8rem] font-normal tracking-normal text-carbon-3">
+              USDT / {spend?.period ?? "day"}
+            </span>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
