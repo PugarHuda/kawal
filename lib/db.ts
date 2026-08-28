@@ -20,7 +20,6 @@
  * component, a route handler or a script.
  */
 
-import { DatabaseSync } from "node:sqlite";
 import { isAbsolute, join } from "node:path";
 
 export type Row = Record<string, unknown>;
@@ -47,7 +46,11 @@ export function resolvePath(configured: string): string {
 
 /* ------------------------------------------------------------- local --- */
 
-function local(file: string): Store {
+async function local(file: string): Promise<Store> {
+  // Imported here rather than at the top: a host in remote mode never opens a
+  // file, and a static import would make every store depend on `node:sqlite`
+  // being present in a runtime that is not going to use it.
+  const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(resolvePath(file));
   return {
     async exec(sql) {
@@ -121,7 +124,9 @@ export function openStore(localFile: string): Promise<Store | null> {
   if (!pending) {
     pending = (async () => {
       try {
-        return isRemote() ? await remote() : local(localFile);
+        // Both awaited, so a store that throws while opening — a read-only
+        // filesystem, a bad URL — resolves to null here instead of rejecting.
+        return isRemote() ? await remote() : await local(localFile);
       } catch {
         return null;
       }
