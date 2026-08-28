@@ -75,3 +75,5 @@ skills-lock.json
 .impeccable/mocks/
 .impeccable/review/
 .impeccable/live/
+.codex/
+.impeccable/questions/
