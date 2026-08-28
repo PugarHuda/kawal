@@ -135,7 +135,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
 
         <header className="px-5 py-6">
           <span className="cap">Keterangan · what this form grants</span>
-          <h1 className="heading mt-2 max-w-[22ch] text-[2.2rem] sm:text-[2.8rem]">
+          <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2 max-w-[24ch]">
             Four seats, four sessions, none of them able to reach the others.
           </h1>
           <p className="typed mt-3 max-w-[62ch] text-carbon-2">
@@ -159,9 +159,9 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
       )}
 
       {/* ------------------------------------------------------ the planner --- */}
-      <section className="sheet mt-6">
+      <section className="sheet sheet--pink mt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Bagian B · rencana · the plan (unsigned)</span>
+          <span className="cap">Bagian B · rencana · the plan (unsigned) · salinan ketiga</span>
           <span className="cap">Isi lalu tekan · fill in, then press</span>
         </div>
 
@@ -340,10 +340,9 @@ function LiveSessions({
               : "Live";
           return (
             <div key={seat.publicKey} className="cell px-5 py-5">
-              <div className="grid grid-cols-[6px_minmax(0,1fr)_auto] items-start gap-x-3">
-                <span aria-hidden className="self-stretch" style={{ background: seatColor(seat.category) }} />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
                 <div>
-                  <span className="cap">{seat.seat}</span>
+                  <span className="cap" style={{ color: seatColor(seat.category) }}>{seat.seat}</span>
                   <p className="heading text-[1.6rem]">
                     {formatEther(BigInt(seat.spendLimit))}
                     <span className="typed ml-2 text-[0.8rem] font-normal tracking-normal text-carbon-3">
@@ -393,7 +392,7 @@ function LiveSessions({
                     rel="noreferrer"
                     className="cap underline"
                   >
-                    revocation transaction ↗
+                    revocation transaction on bscscan
                   </a>
                 </p>
               )}
@@ -490,14 +489,16 @@ function SeatLine({ plan, index }: { plan: SessionPlan; index: number }) {
   const limit = spend?.limit ?? 0n;
 
   return (
-    <div className="manifest-row grid grid-cols-[3rem_6px_minmax(0,1fr)] gap-x-4 px-5 py-5 last:border-b-0 lg:grid-cols-[3rem_6px_11rem_minmax(0,1fr)_auto]">
-      <span className="serial pt-1 text-[0.85rem]">{String(index).padStart(2, "0")}</span>
-      <span aria-hidden className="self-stretch" style={{ background: seatColor(plan.category) }} />
+    <div
+      className="manifest-row grid grid-cols-[3rem_minmax(0,1fr)] gap-x-4 px-5 py-5 last:border-b-0 lg:grid-cols-[3rem_11rem_minmax(0,1fr)_auto]"
+      style={{ ["--seat" as string]: seatColor(plan.category) }}
+    >
+      <span className="serial serial--seat pt-1 text-[0.85rem]">{String(index).padStart(2, "0")}</span>
       <div>
-        <span className="cap">{plan.seat}</span>
+        <span className="cap" style={{ color: seatColor(plan.category) }}>{plan.seat}</span>
         <span className="cap block !text-carbon-2">priority {plan.priority}</span>
       </div>
-      <dl className="col-start-3 mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:col-start-4 lg:mt-0">
+      <dl className="col-start-2 mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:col-start-3 lg:mt-0">
         <div>
           <dt className="cap">May call</dt>
           <dd className="mt-1 space-y-1">
@@ -520,7 +521,7 @@ function SeatLine({ plan, index }: { plan: SessionPlan; index: number }) {
         </div>
       </dl>
       {/* The box every other line points at. */}
-      <div className="col-start-3 mt-3 lg:col-start-5 lg:mt-0">
+      <div className="col-start-2 mt-3 lg:col-start-4 lg:mt-0">
         <div className="inline-block border-[1.5px] border-rule bg-paper-white px-3 py-2" style={{ borderColor: seatColor(plan.category) }}>
           <span className="cap block">Tidak melebihi · not to exceed</span>
           <p className="tnum heading text-[1.7rem]" style={{ color: seatColor(plan.category) }}>

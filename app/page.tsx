@@ -42,7 +42,7 @@ export default async function Home() {
           {/* The headline entry, typed large. */}
           <div className="cell px-5 pt-6 pb-7 lg:px-7">
             <span className="cap">Keterangan · what this form is for</span>
-            <h1 className="heading mt-3 max-w-[14ch] text-[2.6rem] sm:text-[3.6rem] lg:text-[4.2rem]">
+            <h1 className="typed mt-3 max-w-[16ch] text-[2.1rem] font-bold leading-[1.08] text-balance sm:text-[2.9rem] lg:text-[3.4rem]">
               Most agents on BSC cannot be hired.
             </h1>
             <p className="typed mt-5 max-w-[62ch] text-[1rem] leading-relaxed text-carbon-2">
@@ -84,23 +84,26 @@ export default async function Home() {
             <span className="cap">Diperiksa oleh · inspected by Kawal itself</span>
             {observed ? (
               <>
-                <p className="heading mt-3 text-[3rem] leading-none sm:text-[3.8rem]">
-                  {observed.checks.toLocaleString()}
-                  <span className="typed block text-[0.95rem] font-normal tracking-normal text-carbon-2">
-                    calls placed to {observed.endpoints} declared endpoints since{" "}
-                    {new Date(observed.since * 1000).toISOString().slice(0, 10)}
-                  </span>
-                </p>
-                <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                  <p className="typed max-w-[30ch] text-[0.85rem] text-carbon-2">
-                    <strong className="font-bold text-carbon">{observed.answered}</strong> of those
-                    endpoints answered. The rest are not there, or speak a protocol this prober
-                    does not — recorded as unknown, never counted as a failure.
+                <div className="relative mt-3">
+                  <p className="typed text-[3rem] font-bold leading-none sm:text-[3.8rem]">
+                    {observed.checks.toLocaleString()}
+                    <span className="block text-[0.95rem] font-normal text-carbon-2">
+                      calls placed to {observed.endpoints} declared endpoints since{" "}
+                      {new Date(observed.since * 1000).toISOString().slice(0, 10)}
+                    </span>
                   </p>
-                  <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
-                    Telah diperiksa
-                  </Stamp>
+                  {/* Pressed over the count it earned, not beside it. */}
+                  <span className="absolute right-0 top-[1.7rem] z-10 sm:top-[2.1rem]">
+                    <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
+                      Telah diperiksa
+                    </Stamp>
+                  </span>
                 </div>
+                <p className="typed mt-6 max-w-[34ch] text-[0.85rem] text-carbon-2">
+                  <strong className="font-bold text-carbon">{observed.answered}</strong> of those endpoints
+                  answered. The rest are not there, or speak a protocol this prober does not — recorded as
+                  unknown, never counted as a failure.
+                </p>
                 <p className="stamp-note mt-6">
                   single vantage point · an endpoint that blocks this prober reads as down
                 </p>
@@ -117,21 +120,21 @@ export default async function Home() {
         {bsc && (
           <div className="cells border-x-0 border-b-0 sm:grid-cols-3">
             <Cell cap="Terdaftar · registered on BSC (8004scan's count)">
-              <p className="tnum heading text-[2rem]">{roster.toLocaleString()}</p>
+              <p className="tnum text-[1.9rem] font-bold leading-tight">{roster.toLocaleString()}</p>
               <span className="text-[0.85rem] text-carbon-2">
                 {bsc.daily_new_agents.toLocaleString()} more arrived today; 62.8% of the newest 600 are
                 copies of a template across 464 owners
               </span>
             </Cell>
             <Cell cap="Menyatakan antarmuka · declare an interface">
-              <p className="heading text-[2rem]">{((withProtocol / roster) * 100).toFixed(1)}%</p>
+              <p className="text-[1.9rem] font-bold leading-tight">{((withProtocol / roster) * 100).toFixed(1)}%</p>
               <span className="text-[0.85rem] text-carbon-2">
                 {withProtocol.toLocaleString()} agents expose MCP, A2A or OASF chain-wide. Among the
                 newest 600 it is 38.8% — the register is improving
               </span>
             </Cell>
             <Cell cap="Catatan umpan balik · feedback records per agent">
-              <p className="heading text-[2rem]">{perAgent.toFixed(3)}</p>
+              <p className="text-[1.9rem] font-bold leading-tight">{perAgent.toFixed(3)}</p>
               <span className="text-[0.85rem] text-carbon-2">
                 {bsc.total_feedbacks.toLocaleString()} records chain-wide. A sample of 1,200 found just 53
                 addresses behind them — a count of writes, not of opinions
@@ -168,19 +171,18 @@ export default async function Home() {
           </div>
           <ol>
             {CATEGORIES.filter((c) => c.core).map((c, i) => (
-              <li key={c.id} className="manifest-row last:border-b-0">
+              <li key={c.id} className="manifest-row last:border-b-0" style={{ ["--seat" as string]: seatColor(c.id) }}>
                 <Link
                   href={`/agents?category=${c.id}`}
-                  className="grid grid-cols-[3rem_6px_minmax(0,1fr)] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_6px_11rem_minmax(0,1fr)_auto]"
+                  className="grid grid-cols-[3rem_minmax(0,1fr)] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_11rem_minmax(0,1fr)_auto]"
                 >
-                  <span className="serial self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
-                  <span aria-hidden className="my-2" style={{ background: seatColor(c.id) }} />
-                  <span className="cap self-center py-4">{c.seat}</span>
-                  <span className="col-start-3 py-4 pr-5 sm:col-start-4">
+                  <span className="serial serial--seat self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="cap self-center py-4" style={{ color: seatColor(c.id) }}>{c.seat}</span>
+                  <span className="col-start-2 py-4 pr-5 sm:col-start-3">
                     <h3 className="heading text-[1.5rem]">{c.label}</h3>
                     <span className="typed block text-[0.9rem] text-carbon-2">{c.blurb}</span>
                   </span>
-                  <span className="cap col-start-3 self-center pb-4 sm:col-start-5 sm:py-4 sm:pr-5">Open form →</span>
+                  <span className="cap col-start-2 self-center pb-4 sm:col-start-4 sm:py-4 sm:pr-5">Open form →</span>
                 </Link>
               </li>
             ))}

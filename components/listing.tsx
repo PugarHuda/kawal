@@ -194,10 +194,10 @@ export function ListingRow({ listing, proof }: { listing: Listing; proof?: Endpo
   const evidence = observed ? Number(observed.detail.match(/of (\d+) call/)?.[1] ?? 0) || null : null;
 
   return (
-    <article className="manifest-row grid grid-cols-[6px_1fr] gap-x-4 py-4 sm:grid-cols-[6px_minmax(0,1fr)_auto]">
-      {/* The ink the line is ruled in. */}
-      <span aria-hidden className="row-span-2 self-stretch" style={{ background: color }} />
-
+    <article
+      className="manifest-row grid grid-cols-[minmax(0,1fr)] gap-x-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
+      style={{ ["--seat" as string]: color }}
+    >
       <div className="min-w-0">
         <h3 className="heading text-[1.35rem]">
           <Link href={`/agents/${agent.chain_id}/${agent.token_id}`} className="no-underline hover:underline">
@@ -222,7 +222,7 @@ export function ListingRow({ listing, proof }: { listing: Listing; proof?: Endpo
         </ul>
       </div>
 
-      <div className="col-start-2 mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:col-start-3 sm:mt-0 sm:flex-col sm:items-end">
+      <div className="col-start-1 mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:col-start-2 sm:mt-0 sm:flex-col sm:items-end">
         <TierStamp tier={assessment.tier} evidence={evidence} />
         {/* Only typed when Kawal actually called the endpoint. A line with no
             entry means unchecked, never "checked and fine". */}
@@ -245,10 +245,10 @@ export function ListingRow({ listing, proof }: { listing: Listing; proof?: Endpo
               : "did not answer"}
           </span>
         )}
-        <span className="cap">
+        <span className="cap" style={{ color }}>
           {categoryLabel(classification.category)} · {Math.round(classification.confidence * 100)}%
         </span>
-        <span className="serial text-[0.78rem]">No. {agent.token_id}</span>
+        <span className="serial serial--seat text-[0.78rem]">No. {agent.token_id}</span>
       </div>
     </article>
   );

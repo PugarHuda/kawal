@@ -112,18 +112,17 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         </div>
 
         {/* ------------------------------------------------- the entry --- */}
-        <header className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-5 border-b-[1.5px] border-rule px-5 py-6 sm:grid-cols-[6px_minmax(0,1fr)_auto]">
-          <span aria-hidden className="self-stretch" style={{ background: seat }} />
+        <header className="grid grid-cols-[minmax(0,1fr)] gap-x-5 border-b-[1.5px] px-5 py-6 sm:grid-cols-[minmax(0,1fr)_auto]" style={{ borderColor: seat }}>
           <div className="min-w-0">
-            <span className="cap">
+            <span className="cap" style={{ color: seat }}>
               {categoryLabel(classification.category)} · {Math.round(classification.confidence * 100)}% confidence
             </span>
-            <h1 className="heading mt-2 text-[2.4rem] sm:text-[3.2rem]">{agent.name}</h1>
+            <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2">{agent.name}</h1>
             <p className="typed mt-3 max-w-[64ch] text-carbon-2">
               {agent.description?.trim() || "No description registered."}
             </p>
           </div>
-          <div className="col-start-2 mt-4 sm:col-start-3 sm:mt-1 sm:pl-4">
+          <div className="col-start-1 mt-4 sm:col-start-2 sm:mt-1 sm:pl-4">
             <Stamp ink={tierInk(assessment.tier)} evidence={uptime?.checks ?? null} size="lg">
               {assessment.tier === "hireable"
                 ? "Telah diperiksa"
@@ -139,7 +138,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         {/* --------------------------------------------- can you hire it --- */}
         <section className="border-b-[1.5px] border-rule px-5 py-6">
           <h2 className="cap">Can you hire it</h2>
-          <p className="heading mt-2 text-[1.9rem]">{tierLabel(assessment.tier)}</p>
+          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{tierLabel(assessment.tier)}</p>
           <dl className="cells mt-4 sm:grid-cols-2 lg:grid-cols-3">
             {assessment.signals.map((s) => (
               <div key={s.key} className="cell">
@@ -171,10 +170,10 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         {quality?.endpoint_health && (
           <section className="border-b-[1.5px] border-rule px-5 py-6">
             <h2 className="cap">Is it answering right now · 8004scan&rsquo;s reading</h2>
-            <p className="heading mt-2 text-[1.9rem] capitalize">
+            <p className="typed mt-2 text-[1.6rem] font-bold capitalize leading-tight">
               {quality.endpoint_health.overall_status}
               {quality.endpoint_health.checked_at && (
-                <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">
+                <span className="ml-3 text-[0.85rem] font-normal text-carbon-3">
                   checked {new Date(quality.endpoint_health.checked_at).toISOString().replace("T", " ").slice(0, 16)}
                 </span>
               )}
@@ -294,9 +293,9 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="cap">We just called it</h2>
-          <p className="heading mt-2 text-[1.9rem]">
+          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">
             {headline}
-            <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">{proof.latencyMs} ms</span>
+            <span className="ml-3 text-[0.85rem] font-normal text-carbon-3">{proof.latencyMs} ms</span>
           </p>
         </div>
         <Stamp ink={ink} evidence={uptime?.checks ?? null}>
@@ -431,7 +430,7 @@ function PaymentTerms({ check }: { check: X402Check }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="cap">We asked it to charge us</h2>
-          <p className="heading mt-2 text-[1.9rem]">{charged ? "Quotes a price" : "Claims x402, asked for nothing"}</p>
+          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{charged ? "Quotes a price" : "Claims x402, asked for nothing"}</p>
         </div>
         <Stamp ink={charged ? "stamp-green" : "stamp-grey"}>{charged ? "Bertarif" : "Tanpa tagihan"}</Stamp>
       </div>
@@ -492,7 +491,7 @@ function TrackRecord({ r }: { r: Reputation }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="cap">We read the feedback</h2>
-          <p className="heading mt-2 text-[1.9rem]">
+          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">
             <span>{headline}</span>
           </p>
         </div>
@@ -575,9 +574,9 @@ function Trajectory({ history }: { history: ScoreHistory }) {
         </p>
       ) : (
         <>
-          <p className="heading mt-2 text-[1.9rem]" style={{ color: direction?.ink }}>
+          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight" style={{ color: direction?.ink }}>
             {direction?.label}
-            <span className="typed ml-3 text-[0.85rem] font-normal tracking-normal text-carbon-3">
+            <span className="ml-3 text-[0.85rem] font-normal text-carbon-3">
               {change! >= 0 ? "+" : ""}
               {change!.toFixed(2)} over {history.period_days} days · {history.data_points} readings
             </span>
@@ -733,12 +732,11 @@ function RiskRow({ flag }: { flag: RiskFlag }) {
         ? "var(--stamp-blue)"
         : "var(--carbon-3)";
   return (
-    <li className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-4 py-3">
-      <span aria-hidden className="self-stretch" style={{ background: ink }} />
+    <li className="py-3">
       <div>
         <p className="typed text-[0.92rem] font-bold">
           {flag.title}
-          <span className="cap ml-2">{flag.severity}</span>
+          <span className="cap ml-2" style={{ color: ink }}>{flag.severity}</span>
         </p>
         <p className="typed text-[0.88rem] text-carbon-2">{flag.description}</p>
       </div>

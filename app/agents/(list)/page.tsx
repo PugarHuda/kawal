@@ -96,7 +96,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
         <header className="grid gap-px bg-rule lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div className="cell px-5 pt-5 pb-6">
             <span className="cap">Keterangan · what is listed here</span>
-            <h1 className="heading mt-2 text-[2.4rem] sm:text-[3rem]">{heading}</h1>
+            <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2">{heading}</h1>
             <p className="typed mt-3 max-w-[62ch] text-carbon-2">{subheading}</p>
 
             {/* The search line, typed into the form itself. */}

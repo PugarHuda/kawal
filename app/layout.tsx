@@ -75,6 +75,27 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${typed.variable} ${form.variable} h-full`}>
       <body className="min-h-full flex flex-col">
         <div hidden aria-hidden dangerouslySetInnerHTML={{ __html: CONTRACT }} />
+        {/* The stamp ink. One filter every .stamp on the site is pressed
+            through: a fine displacement roughens the ring and the letters,
+            and a coarser noise, thresholded, takes the ink out where the
+            pressure was light. Defined once here so it is one DOM node. */}
+        <svg width="0" height="0" aria-hidden focusable="false" style={{ position: "absolute" }}>
+          <filter id="stamp-ink" x="-8%" y="-12%" width="116%" height="124%" colorInterpolationFilters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="edge" />
+            <feDisplacementMap in="SourceGraphic" in2="edge" scale="1.3" xChannelSelector="R" yChannelSelector="G" result="rough" />
+            {/* Light pressure loss only: the ring and letters stay legible,
+                the fill just stops being a perfectly even print. */}
+            <feTurbulence type="fractalNoise" baseFrequency="0.22" numOctaves="3" seed="3" result="pressure" />
+            <feColorMatrix in="pressure" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.1 0.25" result="press" />
+            <feComposite in="rough" in2="press" operator="in" />
+          </filter>
+          {/* Small stamps get the rough edge only; a drop-out at 11px is a
+              missing letter, not a light impression. */}
+          <filter id="stamp-ink-fine" x="-8%" y="-12%" width="116%" height="124%" colorInterpolationFilters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="1" seed="5" result="edge" />
+            <feDisplacementMap in="SourceGraphic" in2="edge" scale="0.8" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </svg>
         <header className="border-b-[1.5px] border-rule bg-paper-white">
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-stretch gap-x-8 px-6">
             <Link href="/" className="heading flex items-baseline gap-3 py-3 text-2xl no-underline">

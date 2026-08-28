@@ -86,7 +86,7 @@ export default function AdvantagePage() {
         <header className="grid gap-px bg-rule lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="cell px-5 pt-6 pb-7">
             <span className="cap">Keterangan · what was measured</span>
-            <h1 className="heading mt-2 max-w-[16ch] text-[2.4rem] sm:text-[3.2rem]">
+            <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2 max-w-[18ch]">
               Hiring won {hiredWins} of these {tasks.length} tasks.
             </h1>
             <p className="typed mt-4 max-w-[62ch] text-[1rem] text-carbon-2">

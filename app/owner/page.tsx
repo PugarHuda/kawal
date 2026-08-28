@@ -57,7 +57,7 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
         </div>
 
         <div className="px-5 py-6">
-          <h1 className="heading max-w-[16ch] text-[2.4rem] sm:text-[3rem]">Is your agent still answering?</h1>
+          <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] max-w-[18ch]">Is your agent still answering?</h1>
           <p className="typed mt-3 max-w-[62ch] text-carbon-2">
             Nothing on BNB Smart Chain tells an owner their endpoint went dark. The registry keeps
             listing it. Kawal has been calling these endpoints and keeping every result, so paste the

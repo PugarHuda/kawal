@@ -25,7 +25,7 @@ export default function NotFound() {
         </div>
         <div className="grid gap-6 px-5 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
           <div>
-            <h1 className="heading max-w-[18ch] text-[2.4rem] sm:text-[3rem]">
+            <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] max-w-[20ch]">
               There is no agent at this address.
             </h1>
             <p className="typed mt-4 max-w-[60ch] text-carbon-2">
@@ -44,15 +44,14 @@ export default function NotFound() {
       <div className="sheet mt-4">
         <ol>
           {CATEGORIES.filter((c) => c.core).map((c, i) => (
-            <li key={c.id} className="manifest-row last:border-b-0">
+            <li key={c.id} className="manifest-row last:border-b-0" style={{ ["--seat" as string]: seatColor(c.id) }}>
               <Link
                 href={`/agents?category=${c.id}`}
-                className="grid grid-cols-[3rem_6px_minmax(0,1fr)] items-stretch gap-x-4 no-underline"
+                className="grid grid-cols-[3rem_minmax(0,1fr)] items-stretch gap-x-4 no-underline"
               >
-                <span className="serial self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
-                <span aria-hidden className="my-2" style={{ background: seatColor(c.id) }} />
+                <span className="serial serial--seat self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
                 <span className="py-4 pr-5">
-                  <span className="cap block">{c.seat}</span>
+                  <span className="cap block" style={{ color: seatColor(c.id) }}>{c.seat}</span>
                   <span className="heading block text-[1.35rem]">{c.label}</span>
                   <span className="typed block text-[0.9rem] text-carbon-2">{c.blurb}</span>
                 </span>

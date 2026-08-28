@@ -73,8 +73,8 @@ html {
   background: var(--paper);
   /* The paper has a tooth. One repeating gradient, no image request. */
   background-image:
-    repeating-linear-gradient(0deg, rgba(28, 25, 19, 0.022) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(28, 25, 19, 0.014) 0 1px, transparent 1px 4px);
+    repeating-linear-gradient(0deg, rgba(28, 25, 19, 0.06) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(28, 25, 19, 0.04) 0 1px, transparent 1px 4px);
 }
 
 body {
@@ -164,12 +164,26 @@ a {
   .sheet--pink {
     background: var(--paper-pink);
   }
+  /* --carbon-3 measures 3.8:1 on pink; the second ink clears 4.5:1 there. */
+  .sheet--pink .text-carbon-3,
+  .sheet--pink .stamp-note,
+  .sheet--pink .cap {
+    color: var(--carbon-2);
+  }
   .sheet--carbon::after {
     content: "";
     position: absolute;
     inset: 6px -6px -6px 6px;
     z-index: -1;
     background: var(--paper-yellow);
+    border: 1.5px solid var(--rule);
+  }
+  .sheet--carbon::before {
+    content: "";
+    position: absolute;
+    inset: 12px -12px -12px 12px;
+    z-index: -2;
+    background: var(--paper-pink);
     border: 1.5px solid var(--rule);
   }
 
@@ -226,8 +240,10 @@ a {
     transform-origin: 50% 60%;
     mix-blend-mode: multiply;
     opacity: var(--ink);
-    /* The ink never lies perfectly flat. */
-    mask-image: radial-gradient(120% 100% at 50% 50%, #000 62%, rgba(0, 0, 0, 0.72) 100%);
+    /* Inked, not drawn: #stamp-ink (layout.tsx) roughens the edges with a
+       turbulence displacement and drops the ring and letters out where the
+       pressure was light. Text stays text underneath it. */
+    filter: url(#stamp-ink);
     animation: stamp-press 380ms cubic-bezier(0.18, 0.9, 0.24, 1) both;
   }
   .stamp--lg {
@@ -240,6 +256,10 @@ a {
     border-width: 2px;
     letter-spacing: 0.1em;
     padding: 0.2em 0.45em 0.15em;
+  }
+  .stamp--sm {
+    /* Rough edge only at this size; see #stamp-ink-fine. */
+    filter: url(#stamp-ink-fine);
   }
   .stamp--flat {
     transform: none;
@@ -364,7 +384,10 @@ a {
 
   /* A row in a manifest: one consignment, ruled off from the next. */
   .manifest-row {
-    border-bottom: 1px solid var(--rule);
+    border-bottom: 1.5px solid var(--seat, var(--rule));
+  }
+  .serial--seat {
+    color: var(--seat, var(--stamp-red));
   }
   .manifest-row:hover {
     background: rgba(242, 220, 142, 0.35);

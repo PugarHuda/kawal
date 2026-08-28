@@ -132,7 +132,7 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
         </div>
 
         <header className="border-b-[1.5px] border-rule px-5 py-5">
-          <h1 className="heading text-[2rem] sm:text-[2.6rem]">{columns.map((c) => c.agent.name).join("  ·  ")}</h1>
+          <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem]">{columns.map((c) => c.agent.name).join("  ·  ")}</h1>
           {missing > 0 && (
             <p className="cap mt-2">{missing} of the requested agents could not be loaded and are not shown.</p>
           )}
@@ -145,18 +145,15 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
                 <th className="cap w-40 border-b-[1.5px] border-rule py-3 pr-4 align-bottom font-600">Question</th>
                 {columns.map((c) => (
                   <th key={c.ref} className="border-b-[1.5px] border-rule py-3 pl-6 align-bottom">
-                    <span className="grid grid-cols-[6px_minmax(0,1fr)] gap-x-3">
-                      <span aria-hidden className="self-stretch" style={{ background: c.color }} />
-                      <span>
-                        <Link
-                          href={`/agents/${c.agent.chain_id}/${c.agent.token_id}`}
-                          className="heading block text-[1.25rem] no-underline hover:underline"
-                        >
-                          {c.agent.name}
-                        </Link>
-                        <span className="cap block">
-                          {c.category} · {Math.round(c.confidence * 100)}%
-                        </span>
+                    <span className="block border-b-[3px] pb-2" style={{ borderColor: c.color }}>
+                      <Link
+                        href={`/agents/${c.agent.chain_id}/${c.agent.token_id}`}
+                        className="heading block text-[1.25rem] no-underline hover:underline"
+                      >
+                        {c.agent.name}
+                      </Link>
+                      <span className="cap block" style={{ color: c.color }}>
+                        {c.category} · {Math.round(c.confidence * 100)}%
                       </span>
                     </span>
                   </th>
