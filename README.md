@@ -79,7 +79,7 @@ data; the probes call live agents.
 | Command | What it does |
 |---|---|
 | `npm run check` | Offline self-check: taxonomy, tiers, mandate policy, SSRF guard, caching, schemas, pricing, report verdicts, vault |
-| `npm run test:e2e` | 142 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
+| `npm run test:e2e` | 145 Playwright tests against production builds: Chromium, Firefox, WebKit, a phone viewport, and a second instance running against a dead registry. Includes an axe accessibility audit and a CSP-violation check on every page |
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
@@ -99,6 +99,8 @@ balance:
 | `npm run preempt` | Dry run by default; `-- --send` costs ~0.00075 BNB |
 | `npm run publish` | Dry run by default; `-- --send` writes Kawal's uptime measurements into the ERC-8004 reputation registry. Gas is estimated per record against the real contract (~0.0000124 BNB each at 0.05 gwei), the balance decides how many go, most-observed first, and what was sent is recorded in `.kawal-published.json` so a re-run does not write the same agent twice in a day |
 | `npm run ledger:push` | Copies the seat ledger to the deployed site's database, session keys stripped. Needs `TURSO_DATABASE_URL` |
+| `npm run history:push` | Copies this machine's probe history into the deployed site's database, keyed by endpoint and second so a re-run adds nothing |
+| `npm run register` | Dry run by default; `-- --send` mints Kawal's own ERC-8004 registration (gas only, ~0.00001 BNB). The document must resolve at the deployed origin first |
 
 ## What is proven on-chain
 
@@ -208,6 +210,29 @@ The terms live in `lib/x402.terms.ts`, which is pure, and the offline check
 asserts that Kawal's own challenge parses with Kawal's own reader. A payment
 claim this project cannot verify is precisely what it refuses to publish about
 anybody else.
+
+## Kawal's own registration
+
+`/.well-known/agent-registration.json` is Kawal's ERC-8004 `registration-v1`
+document, shaped as read off a live BSC registration rather than the
+specification's example: services for MCP, A2A and the web, `x402Support`
+exactly as true as the challenge at `/api/report` is, `active` only when
+there is a wallet to be paid. It is held to the rule this project holds every
+other registration to — nothing declared that the prober would not verify —
+and the suite reads it and then dials what it declares from the same origin.
+`npm run register` mints it with `register(string agentURI)`, found by
+simulating the reference signatures against the live Identity Registry: it is
+the one that estimates rather than reverts.
+
+## Probes on a schedule
+
+Every reputation record Kawal wrote carried "probes are made when the site is
+used rather than on a schedule" among its stated defects, and it was true. A
+Vercel Cron now calls `/api/cron/sweep` daily: at most forty agents a run,
+rotating by the hour so successive runs cover the roster, behind the secret
+Vercel sends with the request. No secret configured means no sweep rather
+than an open one — an endpoint that makes Kawal dial the whole roster must
+not run because a variable is missing.
 
 ## Is your agent still answering?
 
