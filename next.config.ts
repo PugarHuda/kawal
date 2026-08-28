@@ -54,6 +54,9 @@ const nextConfig: NextConfig = {
       // have a card and no address for it — present but undiscoverable, which
       // for an agent is the same as absent.
       { source: "/.well-known/agent-card.json", destination: "/api/agent-card" },
+      // The ERC-8004 registration document, at the path other registrations
+      // on BSC use for theirs ("Domain proof" points here on their hosts).
+      { source: "/.well-known/agent-registration.json", destination: "/api/agent-registration" },
     ];
   },
 };

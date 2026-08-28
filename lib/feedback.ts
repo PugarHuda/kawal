@@ -98,7 +98,7 @@ export const KNOWN_DEFECTS = [
   "Single vantage point: an agent that geo-blocks or ASN-blocks the prober appears unreachable.",
   "Cannot distinguish 'the agent is down' from 'unreachable from here'.",
   "A probe counts as answered only on a completed MCP initialize handshake, or for A2A an agent card plus a JSON-RPC envelope from the endpoint it names; HTTP 200 alone is not counted.",
-  "Probes are made when the site is used rather than on a schedule, so the sample is not evenly spaced in time.",
+  "Probes are made on a daily schedule and additionally whenever the site is used, so the sample is denser when the site is busier.",
 ];
 
 export type Measurement = {

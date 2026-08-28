@@ -49,6 +49,7 @@ next-env.d.ts
 .kawal-payments.db
 .kawal-ledger.db
 .kawal-published.json
+.kawal-registration.json
 
 # playwright mcp scratch
 .playwright-mcp/

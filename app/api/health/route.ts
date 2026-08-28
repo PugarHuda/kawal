@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getStats } from "@/lib/scan";
 import { loadLedger, isLive, hasAdminKey } from "@/lib/sessions";
 import { uptimeFor } from "@/lib/uptime";
+import { isRemote } from "@/lib/db";
 
 /**
  * Whether this instance can actually do its job.
@@ -65,7 +66,7 @@ export async function GET() {
       // reliability panel, which is exactly the kind of quiet degradation an
       // operator should hear about here instead.
       await uptimeFor("https://health-check.invalid/never-probed");
-      return "database readable";
+      return isRemote() ? "shared database (libSQL) readable" : "local file readable — resets on a host without a disk";
     }),
   ]);
 

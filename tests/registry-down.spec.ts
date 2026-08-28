@@ -106,3 +106,21 @@ test("the endpoints that fetch on a caller's behalf have a ceiling", async ({ re
   expect(statuses.at(-1)).toBe(429);
   expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(50);
 });
+
+test("the scheduled sweep is gated by its secret, and runs when given it", async ({ request }) => {
+  // This instance carries CRON_SECRET. A wrong bearer is refused outright…
+  const wrong = await request.get("/api/cron/sweep", { headers: { authorization: "Bearer nope" } });
+  expect(wrong.status()).toBe(401);
+  const missing = await request.get("/api/cron/sweep");
+  expect(missing.status()).toBe(401);
+
+  // …and the right one runs the sweep. With no registry there is nothing to
+  // probe, which is exactly the point: the authenticated path is exercised
+  // in milliseconds instead of dialling forty agents inside a test.
+  const ok = await request.get("/api/cron/sweep", { headers: { authorization: "Bearer playwright-cron-secret" } });
+  expect(ok.status()).toBe(200);
+  const body = await ok.json();
+  expect(body.eligible).toBe(0);
+  expect(body.probed).toBe(0);
+  expect(Array.isArray(body.results)).toBe(true);
+});

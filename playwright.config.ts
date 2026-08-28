@@ -103,7 +103,7 @@ export default defineConfig({
       url: `http://127.0.0.1:${OFFLINE_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { SCAN_API_ORIGIN: "http://127.0.0.1:1", TURSO_DATABASE_URL: "" },
+      env: { SCAN_API_ORIGIN: "http://127.0.0.1:1", TURSO_DATABASE_URL: "", CRON_SECRET: "playwright-cron-secret" },
     },
   ],
 });
