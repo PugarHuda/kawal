@@ -10,7 +10,9 @@ import { test, expect } from "@playwright/test";
  *
  * Serving: Kawal publishes its own card and JSON-RPC surface. The card is
  * fetched from the well-known path a client would try first, and the same
- * request Kawal sends every other agent is sent to Kawal.
+ * request Kawal sends every other agent is sent to Kawal. Every skill is
+ * sent through `message/send`, and `message/stream` is read as the SSE the
+ * card promises.
  *
  * Live agents move, so the reading tests assert the page's own consistency —
  * an A2A headline beside A2A evidence — rather than any particular number.
@@ -20,6 +22,43 @@ import { test, expect } from "@playwright/test";
 const CARD_AGENT = "/agents/56/153672";
 /** Brain on BNB: the declared endpoint is the JSON-RPC URL itself. */
 const BARE_AGENT = "/agents/56/304494";
+
+const A2A = "/api/a2a";
+type Ctx = import("@playwright/test").APIRequestContext;
+
+/** The same minimal calls the MCP suite makes, in the data-part form. */
+const MIN_ARGS: Record<string, Record<string, unknown>> = {
+  verify_agent: { tokenId: "43129" },
+  check_payment: { tokenId: "43129" },
+  read_reputation: { tokenId: "43129" },
+  find_agents: { query: "watch my lending position", limit: 3 },
+  agents_by_owner: { owner: "0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92" },
+  compare_agents: { agents: [{ tokenId: "43129" }, { chainId: 56, tokenId: "153672" }] },
+  uptime_history: { tokenId: "43129" },
+  plan_mandate: { capitalUsdt: 10000, days: 30 },
+  deep_report: { tokenId: "43129" },
+};
+
+function envelope(method: string, params: unknown, id: unknown = 1) {
+  return { jsonrpc: "2.0", id, method, params };
+}
+
+function withSkill(skill: string, args: Record<string, unknown>, contextId?: string) {
+  return { message: { role: "user", messageId: `m-${skill}`, ...(contextId ? { contextId } : {}), parts: [{ kind: "data", data: { skill, ...args } }] } };
+}
+
+async function post(request: Ctx, body: unknown) {
+  return request.post(A2A, { headers: { "content-type": "application/json" }, data: body });
+}
+
+/** Splits an SSE body into the JSON each `data:` line carried. */
+function events(sse: string): Array<Record<string, unknown>> {
+  return sse
+    .split(/\n\n/)
+    .map((block) => block.split("\n").find((line) => line.startsWith("data: ")))
+    .filter((line): line is string => line !== undefined)
+    .map((line) => JSON.parse(line.slice("data: ".length)));
+}
 
 test("an A2A agent with a well-known card is verified as A2A, not filed as silent", async ({ page }) => {
   await page.goto(CARD_AGENT);
@@ -59,6 +98,11 @@ test("Kawal's own card is at the well-known path and names a live endpoint", asy
   expect(card.preferredTransport).toBe("JSONRPC");
   expect(card.url).toBe(`${baseURL}/api/a2a`);
   expect(card.skills.length).toBeGreaterThan(0);
+  // The card promises streaming and names the second door.
+  expect(card.capabilities.streaming).toBe(true);
+  expect(card.supportsAuthenticatedExtendedCard).toBe(false);
+  expect(card.additionalInterfaces).toContainEqual({ url: `${baseURL}/api/mcp`, transport: "MCP" });
+  expect(card.additionalInterfaces).toContainEqual({ url: `${baseURL}/api/a2a`, transport: "JSONRPC" });
 
   // The same harmless question Kawal asks everyone else, asked of Kawal at
   // the URL the card names. A card over a silent server would be exactly the
@@ -71,25 +115,14 @@ test("Kawal's own card is at the well-known path and names a live endpoint", asy
   const body = await rpc.json();
   expect(body.jsonrpc).toBe("2.0");
   expect(body.error.code).toBe(-32001);
+
+  // The card says there is no authenticated one; the method agrees.
+  const extended = await (await post(request, envelope("agent/getAuthenticatedExtendedCard", {}))).json();
+  expect(extended.error.code).toBe(-32007);
 });
 
 test("a message naming a skill gets an answer with evidence in it", async ({ request }) => {
-  const res = await request.post("/api/a2a", {
-    headers: { "content-type": "application/json" },
-    data: {
-      jsonrpc: "2.0",
-      id: 7,
-      method: "message/send",
-      params: {
-        message: {
-          role: "user",
-          messageId: "m1",
-          contextId: "ctx-1",
-          parts: [{ kind: "data", data: { skill: "verify_agent", tokenId: "43129" } }],
-        },
-      },
-    },
-  });
+  const res = await post(request, envelope("message/send", withSkill("verify_agent", { tokenId: "43129" }, "ctx-1"), 7));
   expect(res.status()).toBe(200);
   const body = await res.json();
   expect(body.error).toBeUndefined();
@@ -104,21 +137,122 @@ test("a message naming a skill gets an answer with evidence in it", async ({ req
   expect(typeof data.result.probe.answered).toBe("boolean");
 });
 
-test("plain text with a token id in it is understood", async ({ request }) => {
-  const res = await request.post("/api/a2a", {
-    headers: { "content-type": "application/json" },
-    data: {
-      jsonrpc: "2.0",
-      id: 8,
-      method: "message/send",
-      params: { message: { role: "user", messageId: "m2", parts: [{ kind: "text", text: "is 43129 still up?" }] } },
-    },
+for (const [skill, args] of Object.entries(MIN_ARGS)) {
+  test(`${skill} answers over message/send`, async ({ request }) => {
+    const res = await post(request, envelope("message/send", withSkill(skill, args)));
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.error, JSON.stringify(body.error)).toBeUndefined();
+    expect(body.result.kind).toBe("message");
+    const data = body.result.parts.find((p: { kind: string }) => p.kind === "data").data;
+    expect(data.skill).toBe(skill);
+    expect(typeof data.result).toBe("object");
+    // The text part carries the same answer for a client that reads prose.
+    expect(JSON.parse(body.result.parts.find((p: { kind: string }) => p.kind === "text").text)).toEqual(data.result);
   });
+}
+
+test("every skill in the card has a minimal call in this suite", async ({ request }) => {
+  const card = await (await request.get("/.well-known/agent-card.json")).json();
+  for (const s of card.skills as Array<{ id: string; examples: string[] }>) {
+    expect(MIN_ARGS, s.id).toHaveProperty(s.id);
+    // The worked example on the card must itself be a valid data part.
+    expect(JSON.parse(s.examples[0]!).skill).toBe(s.id);
+  }
+});
+
+test("message/stream narrates the task as events and ends on a final state", async ({ request }) => {
+  const res = await post(request, envelope("message/stream", withSkill("plan_mandate", { capitalUsdt: 250, days: 7 }, "ctx-stream"), "s1"));
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toMatch(/^text\/event-stream/);
+
+  const seen = events(await res.text());
+  expect(seen.length).toBeGreaterThanOrEqual(4);
+  for (const e of seen) {
+    expect(e.jsonrpc).toBe("2.0");
+    expect(e.id).toBe("s1");
+    expect(e.error).toBeUndefined();
+  }
+  const results = seen.map((e) => e.result as Record<string, unknown>);
+  const [first, , third] = results;
+  expect(first!.kind).toBe("task");
+  expect((first!.status as { state: string }).state).toBe("submitted");
+  expect(first!.contextId).toBe("ctx-stream");
+
+  const taskId = first!.id;
+  const kinds = results.map((r) => r.kind);
+  expect(kinds).toEqual(["task", "status-update", "artifact-update", "status-update"]);
+  for (const r of results.slice(1)) expect(r.taskId).toBe(taskId);
+
+  const artifact = third!.artifact as { artifactId: string; name: string; parts: Array<{ kind: string; data?: { skill: string; result: { seats: unknown[] } } }> };
+  expect(artifact.name).toBe("plan_mandate");
+  expect(third!.lastChunk).toBe(true);
+  expect(artifact.parts.find((p) => p.kind === "data")!.data!.result.seats.length).toBe(4);
+
+  const last = results[results.length - 1]!;
+  expect((last.status as { state: string }).state).toBe("completed");
+  expect(last.final).toBe(true);
+  // Every event before the last says it is not the last.
+  for (const r of results.slice(1, -1)) if (r.kind === "status-update") expect(r.final).toBe(false);
+
+  // The task was narrated, not kept: asking for it afterwards is TaskNotFound.
+  const after = await (await post(request, envelope("tasks/get", { id: taskId }))).json();
+  expect(after.error.code).toBe(-32001);
+});
+
+test("a skill that fails mid-stream ends the task as failed, with the reason", async ({ request }) => {
+  const res = await post(request, envelope("message/stream", withSkill("verify_agent", { tokenId: "../etc" }), "s2"));
+  const results = events(await res.text()).map((e) => e.result as Record<string, unknown>);
+  const last = results[results.length - 1]!;
+  expect(last.kind).toBe("status-update");
+  expect(last.final).toBe(true);
+  const status = last.status as { state: string; message: { parts: Array<{ text: string }> } };
+  expect(status.state).toBe("failed");
+  expect(status.message.parts[0]!.text).toMatch(/decimal token id/);
+});
+
+test("a stream that cannot resolve a skill is one error event, not a task", async ({ request }) => {
+  const res = await post(request, envelope("message/stream", { message: { role: "user", messageId: "m", parts: [{ kind: "data", data: { skill: "drop_tables" } }] } }, "s3"));
+  const seen = events(await res.text());
+  expect(seen.length).toBe(1);
+  expect((seen[0]!.error as { code: number }).code).toBe(-32602);
+});
+
+test("plain text with a token id in it is understood", async ({ request }) => {
+  const res = await post(request, envelope("message/send", { message: { role: "user", messageId: "m2", parts: [{ kind: "text", text: "is 43129 still up?" }] } }, 8));
   const body = await res.json();
   expect(body.error).toBeUndefined();
   const data = body.result.parts.find((p: { kind: string }) => p.kind === "data").data;
   expect(data.skill).toBe("verify_agent");
   expect(data.result.agent.tokenId).toBe("43129");
+});
+
+test("the caller's mistakes are named with the code the specification gives them", async ({ request }) => {
+  const unknownMethod = await (await post(request, envelope("nonsense/method", {}))).json();
+  expect(unknownMethod.error.code).toBe(-32601);
+
+  const noMethod = await post(request, { jsonrpc: "2.0", id: 1 });
+  expect(noMethod.status()).toBe(400);
+  expect((await noMethod.json()).error.code).toBe(-32600);
+
+  const notJson = await request.post(A2A, { headers: { "content-type": "application/json" }, data: "{ not json" });
+  expect(notJson.status()).toBe(400);
+  expect((await notJson.json()).error.code).toBe(-32700);
+
+  const noParts = await (await post(request, envelope("message/send", { message: { role: "user" } }))).json();
+  expect(noParts.error.code).toBe(-32602);
+
+  const unknownSkill = await (await post(request, envelope("message/send", withSkill("drop_tables", {})))).json();
+  expect(unknownSkill.error.code).toBe(-32602);
+  expect(unknownSkill.error.message).toMatch(/drop_tables/);
+
+  const badArgument = await (await post(request, envelope("message/send", withSkill("verify_agent", { tokenId: "../etc" })))).json();
+  expect(badArgument.error.code).toBe(-32602);
+
+  // A notification gets nothing back, not even "null".
+  const note = await post(request, { jsonrpc: "2.0", method: "message/send", params: {} });
+  expect(note.status()).toBe(202);
+  expect(await note.text()).toBe("");
 });
 
 test("the A2A skills and the MCP tools are the same list", async ({ request }) => {
@@ -133,9 +267,10 @@ test("the A2A skills and the MCP tools are the same list", async ({ request }) =
 });
 
 test("a browser landing on the A2A endpoint is told what it is", async ({ request }) => {
-  const res = await request.get("/api/a2a");
+  const res = await request.get(A2A);
   expect(res.status()).toBe(200);
   const body = await res.json();
   expect(body.agentCard).toMatch(/\/\.well-known\/agent-card\.json$/);
   expect(body.example.method).toBe("message/send");
+  expect(res.headers()["access-control-allow-origin"]).toBe("*");
 });

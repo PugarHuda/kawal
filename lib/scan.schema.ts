@@ -196,6 +196,88 @@ export const ScoreHistorySchema = z.object({
   score_change: z.number().nullable().catch(null),
 });
 
+/**
+ * One of the five v5 dimensions. `details` differs per dimension and is kept
+ * as-is: the service block, for instance, carries the tool count 8004scan's
+ * own health check saw, which is worth printing next to Kawal's.
+ */
+const V5DimensionSchema = z.object({
+  score: z.number().catch(0),
+  weight: z.number().catch(0),
+  weighted_score: z.number().catch(0),
+  explanation: z.string().catch(""),
+  details: z.record(z.string(), z.unknown()).catch({}),
+});
+
+/**
+ * The v5 score breakdown, read live off `/agents/scores/v5/56/43129`.
+ *
+ * Every dimension is nullable because the endpoint says it "falls back to a
+ * legacy response" for agents not yet scored under v5 — and that response has
+ * none of them.
+ */
+export const ScoreV5Schema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string().catch(""),
+  total_score: z.number().catch(0),
+  last_scored_at: nullableString,
+  version: z.string().catch(""),
+  algorithm: z.string().catch(""),
+  engagement: V5DimensionSchema.nullable().catch(null),
+  service: V5DimensionSchema.nullable().catch(null),
+  publisher: V5DimensionSchema.nullable().catch(null),
+  compliance: V5DimensionSchema.nullable().catch(null),
+  momentum: V5DimensionSchema.nullable().catch(null),
+  weights: z.record(z.string(), z.number()).catch({}),
+});
+
+/**
+ * What 8004scan knows about a wallet from the chain itself.
+ *
+ * `balance` and `total_revenue` are wei as decimal strings — wider than a
+ * double — and are left as strings for the same reason feedback `value` is.
+ */
+export const WalletMetricsSchema = z.object({
+  address: z.string(),
+  primary_chain_id: nullableNumber,
+  ens_name: nullableString,
+  balance: z.string().catch("0"),
+  tx_count: z.number().catch(0),
+  wallet_age_days: z.number().catch(0),
+  first_tx_at: nullableString,
+  last_tx_at: nullableString,
+  payment_count: z.number().catch(0),
+  total_revenue: z.string().catch("0"),
+  is_agent_wallet: z.boolean().catch(false),
+  is_contract: z.boolean().catch(false),
+  metrics_updated_at: nullableString,
+  total_associated_agents: z.number().catch(0),
+});
+
+/** An owner's on-chain `appendResponse` to a feedback record. */
+export const FeedbackReplySchema = z.object({
+  id: z.string().catch(""),
+  feedback_id: z.string().catch(""),
+  responder_address: z.string().catch(""),
+  response_uri: nullableString,
+  offchain_data: z.record(z.string(), z.unknown()).nullable().catch(null),
+  transaction_hash: z.string().catch(""),
+  responded_at: z.string().catch(""),
+});
+
+/** `POST /agents/verify-endpoint/{c}/{t}` on success. */
+export const VerificationRequestSchema = z.object({
+  message: z.string().catch(""),
+  queued: z.boolean().catch(true),
+  estimated_check_at: nullableString,
+});
+
+export type ScoreV5 = z.infer<typeof ScoreV5Schema>;
+export type V5Dimension = z.infer<typeof V5DimensionSchema>;
+export type WalletMetrics = z.infer<typeof WalletMetricsSchema>;
+export type FeedbackReply = z.infer<typeof FeedbackReplySchema>;
+export type VerificationRequest = z.infer<typeof VerificationRequestSchema>;
+
 export type ScorePoint = z.infer<typeof ScorePointSchema>;
 export type ScoreHistory = z.infer<typeof ScoreHistorySchema>;
 

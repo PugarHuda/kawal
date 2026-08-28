@@ -1,8 +1,9 @@
+import { Suspense } from "react";
 import Link from "next/link";
-import { listAgents } from "@/lib/scan";
-import { proveAgent } from "@/lib/probe";
-import { getAgent } from "@/lib/scan";
-import { uptimeFor } from "@/lib/uptime";
+import { listAgents, getAgent, type ScanAgent } from "@/lib/scan";
+import { proveAgent, type EndpointProof } from "@/lib/probe";
+import { uptimeFor, type Uptime } from "@/lib/uptime";
+import { ownerOfAgent } from "@/lib/feedback";
 import { diagnose, failureLabel } from "@/lib/failure";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
@@ -36,17 +37,28 @@ export const metadata = {
 /** Enough to cover any real owner; the roster's busiest hold a handful. */
 const MAX_AGENTS = 24;
 /** Other people's servers, so this stays gentle even for a large owner. */
-const CONCURRENCY = 4;
+const CONCURRENCY = 6;
+/**
+ * Shorter than the agent page's patience. One owner can hold two dozen
+ * registrations, and a page that waits the full default on each dead host
+ * would take longer to arrive than most people wait for anything.
+ */
+const PROBE_TIMEOUT_MS = 6_000;
 
 function normalise(input: string | undefined): string | null {
   const raw = (input ?? "").trim();
   return /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw.toLowerCase() : null;
 }
 
+function short(hex: string) {
+  return `${hex.slice(0, 6)}…${hex.slice(-4)}`;
+}
+
 export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
   const params = await searchParams;
   const asked = typeof params.address === "string" ? params.address : "";
   const address = normalise(asked);
+  const invalid = asked !== "" && address === null;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
@@ -65,7 +77,9 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
           </p>
 
           <form method="get" className="mt-6 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1.5">
+            {/* Full row on a phone so the field is as wide as the sheet and no
+                wider; the 26rem width only applies once there is room. */}
+            <label className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto">
               <span className="cap">Alamat dompet · wallet address</span>
               <input
                 id="address"
@@ -74,7 +88,9 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
                 placeholder="0x…"
                 spellCheck={false}
                 autoComplete="off"
-                className="field w-full sm:w-[26rem]"
+                aria-invalid={invalid || undefined}
+                aria-describedby={invalid ? "address-error" : undefined}
+                className="field w-full max-w-full sm:w-[26rem]"
               />
             </label>
             <button type="submit" className="counterfoil">
@@ -82,8 +98,12 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
             </button>
           </form>
 
-          {asked !== "" && address === null && (
-            <p className="typed mt-4 max-w-[60ch] border-[1.5px] border-stamp-red bg-paper-pink px-3 py-2 text-[0.9rem]">
+          {invalid && (
+            <p
+              id="address-error"
+              role="alert"
+              className="typed mt-4 max-w-[60ch] border-[1.5px] border-stamp-red bg-paper-pink px-3 py-2 text-[0.9rem]"
+            >
               That is not a wallet address. It should be <code className="font-bold">0x</code> followed by
               forty hexadecimal characters.
             </p>
@@ -98,41 +118,97 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
           )}
         </div>
 
-        {address && <Results address={address} />}
+        {/* The form flushes first; the registry read and the fan-out of calls
+            to other people's servers stream in beneath it. */}
+        {address && (
+          <Suspense fallback={<Calling />}>
+            <Results address={address} />
+          </Suspense>
+        )}
       </section>
     </div>
   );
 }
 
-async function Results({ address }: { address: string }) {
-  const { agents, total } = await listAgents({
-    chainId: BSC_MAINNET,
-    ownerAddress: address,
-    limit: MAX_AGENTS,
-  });
+/** The blank lines under the form while the endpoints are being called. */
+function Calling() {
+  return (
+    <div className="border-t-[1.5px] border-rule px-5 py-5" aria-busy="true">
+      <span className="cap">Reading the registry, then calling every endpoint it lists…</span>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="manifest-row grid grid-cols-[3rem_minmax(0,1fr)] gap-x-4 py-4 last:border-b-0">
+          <span className="h-4 w-6 bg-rule-faint" />
+          <div>
+            <div className="h-5 w-56 bg-rule-faint" />
+            <div className="mt-3 h-3 w-full max-w-xl bg-rule-faint opacity-70" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-  if (agents.length === 0) {
+type OwnedRow = {
+  agent: ScanAgent;
+  proof: EndpointProof | null;
+  uptime: Uptime | null;
+  /** The Identity Registry's answer to `ownerOf`, or null when it gave none. */
+  onchainOwner: string | null;
+};
+
+async function Results({ address }: { address: string }) {
+  let agents: ScanAgent[];
+  let total: number;
+  try {
+    ({ agents, total } = await listAgents({ chainId: BSC_MAINNET, ownerAddress: address, limit: MAX_AGENTS }));
+  } catch {
+    // The same sentence the manifest prints. A registry outage is not this
+    // owner's fault and must not read as "no agents".
     return (
-      <p className="typed border-t-[1.5px] border-rule px-5 py-6 text-carbon-2">
-        The registry holds no agents for this address on BNB Smart Chain. If you minted on another
-        chain, Kawal only reads BSC.
+      <p className="typed border-t-[1.5px] border-rule bg-paper-pink px-5 py-6 text-carbon-2">
+        The 8004scan registry did not respond. Nothing here is cached yet, so the lookup is empty
+        until it comes back.
       </p>
     );
   }
 
+  if (agents.length === 0) {
+    return (
+      <div className="flex flex-wrap items-start justify-between gap-4 border-t-[1.5px] border-rule px-5 py-6">
+        <div>
+          <h2 className="heading text-[1.7rem]">No registrations under this address.</h2>
+          <p className="typed mt-2 max-w-[60ch] text-[0.9rem] text-carbon-2">
+            The registry holds no agents for {short(address)} on BNB Smart Chain. If you minted on
+            another chain, Kawal only reads BSC; if you minted from a different key, look that one up
+            instead. Nothing was called.
+          </p>
+        </div>
+        <Stamp ink="stamp-grey" size="lg">
+          <span lang="id">Kosong</span>
+        </Stamp>
+      </div>
+    );
+  }
+
   // The probe is what makes this worth loading. Reading the registry back to
-  // an owner would just be showing them what they already filled in.
-  const rows = await mapLimit(agents, CONCURRENCY, async (a) => {
+  // an owner would just be showing them what they already filled in. The
+  // Identity Registry is asked who owns each token at the same time: 8004scan
+  // indexed an owner once, the chain says who holds it now.
+  const rows: OwnedRow[] = await mapLimit(agents, CONCURRENCY, async (agent) => {
+    const onchain = ownerOfAgent(agent.chain_id, agent.token_id);
     try {
-      const detail = await getAgent(a.chain_id, a.token_id);
-      const proof = await proveAgent(detail);
-      return { agent: a, proof, uptime: proof?.endpoint ? await uptimeFor(proof.endpoint) : null };
+      const detail = await getAgent(agent.chain_id, agent.token_id);
+      const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
+      const uptime = proof?.endpoint ? await uptimeFor(proof.endpoint) : null;
+      return { agent, proof, uptime, onchainOwner: await onchain };
     } catch {
-      return { agent: a, proof: null, uptime: null };
+      return { agent, proof: null, uptime: null, onchainOwner: await onchain };
     }
   });
 
   const broken = rows.filter((r) => r.proof && !r.proof.answered && !r.proof.descriptor);
+  const chainAnswered = rows.filter((r) => r.onchainOwner !== null);
+  const chainAgrees = chainAnswered.filter((r) => r.onchainOwner!.toLowerCase() === address);
 
   return (
     <div className="border-t-[1.5px] border-rule">
@@ -154,17 +230,25 @@ async function Results({ address }: { address: string }) {
               The registry still lists them exactly as you registered them.
             </p>
           )}
+          <p className="typed mt-2 text-[0.85rem] text-carbon-2">
+            {chainAnswered.length === 0
+              ? "The Identity Registry did not answer ownerOf for any of these, so the owner shown is 8004scan's index alone."
+              : chainAgrees.length === chainAnswered.length
+                ? `The Identity Registry names this address as the holder of ${chainAgrees.length === 1 ? "the token" : `all ${chainAgrees.length} tokens`} it answered for; 8004scan's index agrees.`
+                : `The Identity Registry disagrees with 8004scan on ${chainAnswered.length - chainAgrees.length} of ${chainAnswered.length} tokens — the index is stale or the token moved.`}
+          </p>
         </div>
         <Stamp ink={broken.length > 0 ? "stamp-red" : "stamp-violet"} size="lg" evidence={rows.length * 10}>
-          {broken.length > 0 ? "Perlu perbaikan" : "Semua menjawab"}
+          <span lang="id">{broken.length > 0 ? "Perlu perbaikan" : "Semua menjawab"}</span>
         </Stamp>
       </div>
 
       <ol className="border-t-[1.5px] border-rule px-5">
-        {rows.map(({ agent, proof, uptime }, i) => {
+        {rows.map(({ agent, proof, uptime, onchainOwner }, i) => {
           const d = proof?.error ? diagnose(proof.error) : null;
           const answering = proof?.answered === true;
           const descriptor = proof?.descriptor != null;
+          const silent = proof !== null && !answering && !descriptor;
           const ink = answering || descriptor ? "stamp-violet" : "stamp-red";
           const verdict = answering
             ? "Answering"
@@ -173,6 +257,12 @@ async function Results({ address }: { address: string }) {
               : d
                 ? failureLabel(d.failure)
                 : "No endpoint";
+          const ownership =
+            onchainOwner === null
+              ? "chain did not answer ownerOf"
+              : onchainOwner.toLowerCase() === address
+                ? "Identity Registry agrees: this address holds the token"
+                : `Identity Registry names ${short(onchainOwner)} as holder, not this address`;
 
           return (
             <li
@@ -189,18 +279,48 @@ async function Results({ address }: { address: string }) {
                 {proof?.endpoint && (
                   <p className="typed mt-1 break-all text-[0.82rem] text-carbon-3">{proof.endpoint}</p>
                 )}
+                <p className="typed mt-1 text-[0.8rem] text-carbon-3">
+                  No. {agent.token_id} · {ownership}
+                </p>
                 {d && !descriptor && (
                   <p className="typed mt-2 max-w-[60ch] text-[0.88rem] text-carbon-2">{d.summary}</p>
                 )}
                 {uptime && uptime.checks > 1 && (
                   <div className="mt-3 flex flex-col gap-2">
-                    <Tally answered={uptime.answered} checks={uptime.checks} cap={40} />
+                    <Tally answered={uptime.answered} checks={uptime.checks} cap={40} newestAnswered={uptime.lastAnswered} />
                     <p className="typed text-[0.85rem] text-carbon-2">
                       {uptime.answered} of {uptime.checks} call{uptime.checks === 1 ? "" : "s"} answered since{" "}
                       {new Date(uptime.since * 1000).toISOString().slice(0, 10)}
                       {uptime.medianMs !== null && ` · median ${uptime.medianMs} ms`}
                     </p>
                   </div>
+                )}
+                {/* What to do about it, on the row that needs it. The three
+                    links are the three places the fix and the re-check live:
+                    the registration as 8004scan indexed it, the standard that
+                    says what the endpoint field must hold, and Kawal's own
+                    tool that will call it again on request. */}
+                {silent && (
+                  <p className="stamp-note mt-3 max-w-[64ch]">
+                    Next: check the endpoint in{" "}
+                    <a
+                      href={`https://8004scan.io/agents/${agent.chain_id}/${agent.token_id}`}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="underline"
+                    >
+                      your registration on 8004scan
+                    </a>{" "}
+                    against{" "}
+                    <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank" rel="noreferrer noopener" className="underline">
+                      the ERC-8004 registration format
+                    </a>
+                    , fix or re-host it, then ask <code className="font-bold">verify_agent</code> on{" "}
+                    <a href="/api/mcp" className="underline">
+                      /api/mcp
+                    </a>{" "}
+                    to call it again — the tally above only moves when someone does.
+                  </p>
                 )}
               </article>
               <div className="col-start-2 mt-2 sm:col-start-3 sm:mt-0">
@@ -214,8 +334,9 @@ async function Results({ address }: { address: string }) {
       </ol>
 
       <p className="stamp-note max-w-none border-t-[1.5px] border-rule px-5 py-4">
-        Measured from a single vantage point. An endpoint that geo-blocks or ASN-blocks this prober
-        looks identical to one that is down, so a failure here is a reason to check, not a verdict.
+        Measured from a single vantage point, with {PROBE_TIMEOUT_MS / 1000} seconds&rsquo; patience per
+        call. An endpoint that geo-blocks or ASN-blocks this prober looks identical to one that is
+        down, so a failure here is a reason to check, not a verdict.
       </p>
     </div>
   );

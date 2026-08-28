@@ -400,6 +400,11 @@ a {
   .counterfoil {
     transition: none;
   }
+  /* The stub seating into the sheet is motion too, not just the fade. */
+  .counterfoil:hover,
+  .counterfoil:active {
+    transform: none;
+  }
 }
 
 /* Numbers that sit in columns must line up. */
@@ -420,20 +425,48 @@ a {
 /* The same seat inks print one step darker on the pink copy. Teal, green
    and red measure 3.8:1 on #efbcc4; these clear 5:1. Redefined as the
    tokens themselves so every rule, serial and caption ruled in a seat's ink
-   follows without knowing which sheet it sits on. */
+   follows without knowing which sheet it sits on.
+
+   The stamp inks follow the same rule. Grey measured 4.3:1 on the pink copy,
+   red 3.9, green 3.85, blue 4.8; these read 6.6 / 5.4 / 5.2 / 6.7. Violet
+   already clears 6.6 and is left alone. Same ink, same verdict, one shade
+   more pressure. */
 .sheet--pink {
   --seat-rebalancing: #0a5057;
   --seat-grid: #263d85;
   --seat-yield: #25562e;
   --seat-health: #8f1e18;
   --seat-security: #3d2268;
+  --stamp-grey: #3e3d38;
+  --stamp-red: #8f1e18;
+  --stamp-blue: #173a75;
+  --stamp-green: #25562e;
 }
 
-/* The cover-sheet stamp shrinks one step on a phone so it can cross the
-   count's last digit without leaving the cell. */
+/* Every large stamp shrinks one step on a phone. First done for the cover
+   sheet alone so it could cross the count's last digit without leaving the
+   cell; the same stamp at 1.6rem on K-3, K-6 and the error sheets was the
+   widest thing in a 360px column. */
 @media (max-width: 639px) {
-  .stamp-responsive .stamp--lg {
+  .stamp--lg {
     font-size: 1.15rem;
     border-width: 3px;
   }
+}
+
+/* Skip link: off-canvas until it takes focus, then a counterfoil at the top
+   of the sheet. Unlayered so `sr-only` from the utilities layer cannot keep
+   it hidden once focused. */
+.skip-link:focus-visible {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 10;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: nowrap;
 }

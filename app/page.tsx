@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getStats, bscStats } from "@/lib/scan";
+import { getStats, bscStats, registryAsOf } from "@/lib/scan";
 import { CATEGORIES } from "@/lib/taxonomy";
 import { seatColor, Stamp, Cell, Legend } from "@/components/listing";
 import { observedTotals } from "@/lib/uptime";
@@ -18,11 +18,20 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const [stats, observed] = await Promise.all([getStats().catch(() => null), observedTotals()]);
   const bsc = stats ? bscStats(stats) : undefined;
+  const asOf = registryAsOf();
 
   const roster = bsc?.total_agents ?? 0;
-  const withProtocol = bsc ? bsc.mcp_agents + bsc.a2a_agents + bsc.oasf_agents : 0;
-  const perAgent = bsc && bsc.total_agents ? bsc.total_feedbacks / bsc.total_agents : 0;
+  // A sum of per-protocol counts, so an agent declaring MCP and A2A is in it
+  // twice. The registry offers no distinct count, so the cell says
+  // "declarations" rather than "agents" and does not divide by the roster
+  // when there is none.
+  const declarations = bsc ? bsc.mcp_agents + bsc.a2a_agents + bsc.oasf_agents : 0;
+  const declaredShare = roster > 0 ? `${((declarations / roster) * 100).toFixed(1)}%` : "—";
+  const perAgent = bsc && roster > 0 ? (bsc.total_feedbacks / roster).toFixed(3) : "—";
   const today = new Date().toISOString().slice(0, 10);
+  // The three research figures below were taken once, by hand, and dated;
+  // the live values beside them move daily. Re-run to refresh.
+  const sampled = "sampled 2026-08-26";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
@@ -36,6 +45,10 @@ export default async function Home() {
             No. K1-{String(roster).padStart(6, "0")}
           </span>
           <span className="cap">Tgl · {today}</span>
+          {/* The registry's figures come through a five-minute cache; the
+              date above is when this sheet was printed, this is when the
+              registry last spoke. */}
+          {bsc && asOf && <span className="cap">Registry data as of {asOf.replace("T", " ").slice(0, 16)} UTC</span>}
         </div>
 
         <div className="relative grid gap-px bg-rule lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
@@ -124,22 +137,33 @@ export default async function Home() {
             <Cell cap="Terdaftar · registered on BSC (8004scan's count)">
               <p className="tnum text-[1.9rem] font-bold leading-tight">{roster.toLocaleString()}</p>
               <span className="text-[0.85rem] text-carbon-2">
-                {bsc.daily_new_agents.toLocaleString()} more arrived today; 62.8% of the newest 600 are
-                copies of a template across 464 owners
+                {bsc.daily_new_agents.toLocaleString()} more arrived today
+              </span>
+              <span className="stamp-note mt-1 block">
+                62.8% of the newest 600 are copies of a template across 464 owners · {sampled},{" "}
+                <code>npm run roster</code>
               </span>
             </Cell>
-            <Cell cap="Menyatakan antarmuka · declare an interface">
-              <p className="text-[1.9rem] font-bold leading-tight">{((withProtocol / roster) * 100).toFixed(1)}%</p>
+            <Cell cap="Menyatakan antarmuka · interface declarations">
+              <p className="text-[1.9rem] font-bold leading-tight">{declaredShare}</p>
               <span className="text-[0.85rem] text-carbon-2">
-                {withProtocol.toLocaleString()} agents expose MCP, A2A or OASF chain-wide. Among the
-                newest 600 it is 38.8% — the register is improving
+                {declarations.toLocaleString()} declarations chain-wide, where agents expose MCP, A2A or
+                OASF — one declaring two is counted twice
+              </span>
+              <span className="stamp-note mt-1 block">
+                among the newest 600 the share is 38.8% — the register is improving · {sampled},{" "}
+                <code>npm run roster</code>
               </span>
             </Cell>
             <Cell cap="Catatan umpan balik · feedback records per agent">
-              <p className="text-[1.9rem] font-bold leading-tight">{perAgent.toFixed(3)}</p>
+              <p className="text-[1.9rem] font-bold leading-tight">{perAgent}</p>
               <span className="text-[0.85rem] text-carbon-2">
-                {bsc.total_feedbacks.toLocaleString()} records chain-wide. A sample of 1,200 found just 53
-                addresses behind them — a count of writes, not of opinions
+                {bsc.total_feedbacks.toLocaleString()} records chain-wide — a count of writes, not of
+                opinions
+              </span>
+              <span className="stamp-note mt-1 block">
+                a sample of 1,200 found just 53 addresses behind them · {sampled},{" "}
+                <code>npm run reputation</code>
               </span>
             </Cell>
           </div>
@@ -150,10 +174,10 @@ export default async function Home() {
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat>Telah diperiksa</Stamp>, means: "Kawal called it and it answered in its declared protocol" },
-            { mark: <Stamp ink="stamp-blue" size="sm" flat>Diterima</Stamp>, means: "something answered, not in the declared way" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat>Ditolak</Stamp>, means: "called, nobody answered" },
-            { mark: <Stamp ink="stamp-grey" size="sm" flat>Belum diperiksa</Stamp>, means: "declares nothing to call" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat lang="id">Telah diperiksa</Stamp>, means: "Kawal called it and it answered in its declared protocol" },
+            { mark: <Stamp ink="stamp-blue" size="sm" flat lang="id">Diterima</Stamp>, means: "something answered, not in the declared way" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat lang="id">Ditolak</Stamp>, means: "called, nobody answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat lang="id">Belum diperiksa</Stamp>, means: "declares nothing to call" },
           ]}
         />
       </div>
@@ -174,17 +198,21 @@ export default async function Home() {
           <ol>
             {CATEGORIES.filter((c) => c.core).map((c, i) => (
               <li key={c.id} className="manifest-row last:border-b-0" style={{ ["--seat" as string]: seatColor(c.id) }}>
+                {/* The whole line is the link, named by its seat heading
+                    alone; the arrow is the printed mark, not a second
+                    affordance. */}
                 <Link
                   href={`/agents?category=${c.id}`}
-                  className="grid grid-cols-[3rem_minmax(0,1fr)] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_11rem_minmax(0,1fr)_auto]"
+                  aria-labelledby={`seat-${c.id}`}
+                  className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_11rem_minmax(0,1fr)_auto]"
                 >
                   <span className="serial serial--seat self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
                   <span className="cap self-center py-4" style={{ color: seatColor(c.id) }}>{c.seat}</span>
                   <span className="col-start-2 py-4 pr-5 sm:col-start-3">
-                    <h3 className="heading text-[1.5rem]">{c.label}</h3>
+                    <h3 id={`seat-${c.id}`} className="heading text-[1.5rem]">{c.label}</h3>
                     <span className="typed block text-[0.9rem] text-carbon-2">{c.blurb}</span>
                   </span>
-                  <span className="cap col-start-2 self-center pb-4 sm:col-start-4 sm:py-4 sm:pr-5">Open form →</span>
+                  <span aria-hidden className="heading col-start-3 self-center pr-5 text-[1.5rem] sm:col-start-4">→</span>
                 </Link>
               </li>
             ))}

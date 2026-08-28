@@ -190,7 +190,7 @@ The five seat inks rule the manifest lines. A listing row sets `--seat`, and its
 
 **The Pink Copy Rule.** Anything set in Carbon 3 or a seat ink on a pink sheet steps one shade darker. The override lives outside `@layer components` on purpose: Tailwind emits `text-carbon-3` in its utilities layer, which outranks anything inside the components layer, and the first layered version of the rule lost.
 
-**The Ink Density Rule.** A stamp's opacity is its evidence: `0.62 + min(evidence, 90) / 90 * 0.38`. Ten probes press at about two thirds, ninety at full. A stamp given no evidence prints at full.
+**The Ink Density Rule.** A stamp's opacity is its evidence: `0.62 + min(evidence, 90) / 90 * 0.38`. Ten probes press at about two thirds, ninety at full. A stamp given no evidence prints at the base density (0.62): ink it did not earn is ink it does not get. Small stamps are exempt — 11px type at base ink falls under AA — and print full.
 
 ## Typography
 
@@ -253,6 +253,8 @@ A rubber stamp: double ring, condensed caps, one angle, ink multiplied into the 
 - **Ink:** one of the five stamp inks via `ink`; `tierInk()` maps hireable → violet, reachable → blue, unreachable → red, otherwise grey.
 - **Density:** `evidence` sets `--ink` per the Ink Density Rule.
 - **Flat:** `flat` removes the rotation and the press animation for stamps inside table cells and the legend, where a rotated block would collide with the rule.
+- **Language:** an Indonesian face carries `lang="id"` so a screen reader pronounces it as Indonesian; `TierStamp` prints the Indonesian face with the English tier in an `sr-only` span. There is no `title` prop — information that only lives in a tooltip is information a phone never shows.
+- **Pink copy:** on `.sheet--pink` the stamp inks step darker with the seat inks (grey, red, blue, green), all measured ≥5:1 on the pink.
 - **Note:** a large stamp carries a `.stamp-note` beneath it stating its blind spot ("single vantage point · an endpoint that blocks this prober reads as down").
 
 ### Sheet
@@ -274,13 +276,13 @@ A rubber stamp: double ring, condensed caps, one angle, ink multiplied into the 
 - **Tabs:** Barlow Condensed 600 0.9rem uppercase 0.05em in Carbon 2, divided by 1px Rule Soft, with the form code in serial red beside the label; hover turns the tab paper-yellow and the text Carbon. Same treatment at every width; tabs wrap.
 
 ### Manifest Row (signature)
-One consignment line on Form K-2. Sets `--seat` from the category; the 1.5px bottom rule, the serial (`No. {token_id}`) and the category caption take that ink. Left: the agent name (Title), description (0.9rem Carbon 2), and the signal list as 9px punched squares (carbon when passing, blank when not) with a typed line each. Right: the tier stamp (small, flat, density from the observed probe count) and, only when Kawal actually called, a probe line with a 9px violet or red square. Hover washes the row paper-yellow at 35%.
+One consignment line on Form K-2. Sets `--seat` from the category; the 1.5px bottom rule, the serial (`No. {token_id}`) and the category caption take that ink. Left: the agent name (Title), description (0.9rem Carbon 2), and the signal list as 9px punched squares (carbon when passing, blank when not) with a typed line each. Right: the tier stamp (small, flat, density from the observed signal's `evidence`) and, only when Kawal actually called, a probe line with a 9px violet or red square that prints the tool or skill count in plain text. When the manifest is selectable each row carries a tick box labelled `Bandingkan · compare`, posting to Form K-4. Each punched square's meaning is spoken as "passes:" / "fails:" for a reader who cannot see the fill. Hover washes the row paper-yellow at 35%.
 
 ### Tally (signature)
-The probe history as a perforated tally strip: 11px cells with a 1px Rule border on paper-white, 3px gap, punched carbon when the call answered, blank when it did not, the newest outlined 2px violet. Drawn from counts (up to `cap`, default 60, 40 on K-6) with the punched cells distributed proportionally; the strip carries `role="img"` and an `aria-label` of "N of M calls answered". Never a chart.
+The probe history as a perforated tally strip: 11px cells with a 1px Rule border on paper-white, 3px gap, punched carbon when the call answered, blank when it did not, the newest outlined 2px violet — on the punched side when the newest call answered, the blank side when it did not, and not drawn at all when that is unknown. Drawn from counts (up to `cap`, default 60, 40 on K-6) with the punched cells distributed proportionally; the strip carries `role="img"` and an `aria-label` of "N of M calls answered". Never a chart.
 
 ### Legend (signature)
-Every form carries its key: a 1px Rule Soft box on paper-white opening with the caption `Keterangan · key`, followed by each mark in use on that page (a small flat stamp, a punched square) beside a typed 0.8rem Carbon 2 meaning. Pass only the entries the page actually uses.
+Every form carries its key: a `<section aria-label="Legend">` — a 1px Rule Soft box on paper-white opening with the caption `Keterangan · key`, followed by a `<dl>` pairing each mark in use on that page (a small flat stamp, a punched square) with its typed 0.8rem Carbon 2 meaning. Pass only the entries the page actually uses.
 
 ### Serial
 Courier Prime at 0.06em in Stamp Red: the numbering machine's strike. `.serial--seat` takes the row's seat ink instead.

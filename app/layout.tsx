@@ -19,7 +19,10 @@ const typed = Courier_Prime({
 
 const form = Barlow_Condensed({
   variable: "--font-barlow-condensed",
-  weight: ["500", "600", "700", "800"],
+  // 600 for captions and tabs, 700 for headings and counterfoils, 800 for
+  // stamps. No rule on the site sets 500, so shipping it was a font file
+  // nobody read.
+  weight: ["600", "700", "800"],
   subsets: ["latin"],
 });
 
@@ -81,6 +84,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${typed.variable} ${form.variable} h-full`}>
       <body className="min-h-full flex flex-col">
         <div hidden aria-hidden dangerouslySetInnerHTML={{ __html: CONTRACT }} />
+        {/* The first thing a keyboard reaches. Off-canvas until focused, then
+            a counterfoil that jumps past the header to the form. */}
+        <a href="#main" className="skip-link counterfoil counterfoil--quiet sr-only focus:not-sr-only">
+          Skip to the form
+        </a>
         {/* The stamp ink. One filter every .stamp on the site is pressed
             through: a fine displacement roughens the ring and the letters,
             and a coarser noise, thresholded, takes the ink out where the
@@ -111,7 +119,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             {/* The book's tabs. The form code is printed beside each name and
                 hidden from the accessible name, so a screen reader hears the
                 page and a sighted reader sees where it sits in the book. */}
-            <nav aria-label="Forms" className="ml-auto flex flex-wrap items-stretch">
+            <nav
+              aria-label="Forms"
+              className="ml-auto flex flex-wrap items-stretch max-sm:basis-full max-sm:border-t max-sm:border-rule-soft"
+            >
               {TABS.map((t) => (
                 <Link
                   key={t.href}
@@ -128,13 +139,21 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
         </header>
 
-        <main className="flex-1">{children}</main>
+        <main id="main" className="flex-1">
+          {children}
+        </main>
 
         <footer className="mt-16 border-t-[1.5px] border-rule bg-paper-white">
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-baseline justify-between gap-x-8 gap-y-2 px-6 py-4">
             <span className="cap">Kawal · roster via 8004scan · every stamp pressed after a call</span>
-            <span className="cap">
-              Forms K-1 to K-7 · MCP at /api/mcp · A2A at /.well-known/agent-card.json
+            {/* The machine surfaces, as links rather than mentions: an agent
+                developer reading the footer should be one click from each. */}
+            <span className="cap flex flex-wrap gap-x-3 gap-y-1">
+              <span>Forms K-1 to K-7</span>
+              <a href="/api/mcp" className="underline">MCP at /api/mcp</a>
+              <a href="/.well-known/agent-card.json" className="underline">A2A card</a>
+              <a href="/.well-known/agent-registration.json" className="underline">ERC-8004 registration</a>
+              <a href="/api/health" className="underline">health</a>
             </span>
           </div>
         </footer>

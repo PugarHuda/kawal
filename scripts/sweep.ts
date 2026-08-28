@@ -11,7 +11,10 @@
  * an interface is declared and x402 is supported — and the registry tests
  * neither. The first sweep of 19 such agents found 6 that answered, 2 whose
  * declared endpoint is simply not there, and 11 speaking only A2A or OASF,
- * which this prober does not speak and therefore says nothing about.
+ * which this prober did not then speak. It speaks all three now: MCP by
+ * handshake, A2A by card and a harmless JSON-RPC call, OASF by fetching the
+ * record — so "unchecked" below is reserved for a registration that declares
+ * no endpoint at all.
  */
 
 import { CATEGORIES } from "../lib/taxonomy.ts";
@@ -66,7 +69,7 @@ const rows = await mapLimit(targets, CONCURRENCY, async (t): Promise<Row> => {
         answered: false,
         latencyMs: null,
         tools: null,
-        error: "declares no MCP endpoint",
+        error: "declares no MCP, A2A or OASF endpoint",
         history: "-",
       };
     }
@@ -97,10 +100,10 @@ const rows = await mapLimit(targets, CONCURRENCY, async (t): Promise<Row> => {
 for (const category of new Set(rows.map((r) => r.category))) {
   console.log(category);
   for (const r of rows.filter((x) => x.category === category)) {
-    // Three states, not two. An agent that speaks only A2A or OASF was never
-    // called — Kawal's prober speaks MCP — and printing that as DOWN would be
-    // the same conflation this whole listing exists to avoid: "we did not
-    // check" is not "we checked and it failed".
+    // Three states, not two. An agent with no endpoint in its services was
+    // never called, and printing that as DOWN would be the same conflation
+    // this whole listing exists to avoid: "we did not check" is not "we
+    // checked and it failed".
     const mark = r.answered ? "ok    " : r.endpoint === null ? "unchecked" : "DOWN  ";
     const detail = r.answered
       ? `${String(r.latencyMs).padStart(5)} ms  ${r.tools ?? "?"} tools`
@@ -115,8 +118,8 @@ const noEndpoint = rows.filter((r) => r.endpoint === null).length;
 const dead = rows.length - answered - noEndpoint;
 
 console.log(`${answered} of ${rows.length} answered`);
-console.log(`${noEndpoint} speak only A2A or OASF — never called, so nothing is claimed about them`);
-console.log(`${dead} declare an MCP endpoint that did not answer`);
+console.log(`${noEndpoint} declare no endpoint at all — never called, so nothing is claimed about them`);
+console.log(`${dead} declare an endpoint that did not answer`);
 
 if (dead > 0) {
   console.log(

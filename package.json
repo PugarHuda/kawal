@@ -22,10 +22,13 @@
     "roster": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/roster.ts",
     "ledger:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/ledger-push.ts",
     "register": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/register.ts",
-    "history:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/history-push.ts"
+    "history:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/history-push.ts",
+    "pay": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pay.ts",
+    "hire": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/hire.ts"
   },
   "dependencies": {
-    "@altananetwork/sdk": "^0.5.1",
+    "@altananetwork/sdk": "^0.8.0",
+    "@altananetwork/x402-server": "^0.2.0",
     "@libsql/client": "^0.17.4",
     "next": "16.3.1",
     "react": "19.2.8",

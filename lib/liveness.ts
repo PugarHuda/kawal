@@ -19,7 +19,7 @@
 
 import { getAgent } from "./scan.ts";
 import { proveAgent, type EndpointProof } from "./probe.ts";
-import { observedFor } from "./uptime.ts";
+import { observedFor, uptimeFor, type Uptime } from "./uptime.ts";
 import { mapLimit } from "./concurrency.ts";
 import type { Observed } from "./signals.ts";
 import type { Listing } from "./catalog.ts";
@@ -40,6 +40,8 @@ export type ListingProbe = {
   proof: EndpointProof;
   /** The running record for this endpoint, when Kawal has one. */
   observed?: Observed;
+  /** The same record with latency, for the ranking's speed term. */
+  uptime?: Uptime | null;
 };
 
 export async function probeListings(listings: Listing[]): Promise<Map<string, ListingProbe>> {
@@ -57,9 +59,10 @@ export async function probeListings(listings: Listing[]): Promise<Map<string, Li
       const detail = await getAgent(listing.agent.chain_id, listing.agent.token_id);
       const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
       if (proof) {
-        const observed = await observedFor(proof.endpoint);
+        const [observed, uptime] = await Promise.all([observedFor(proof.endpoint), uptimeFor(proof.endpoint)]);
         proofs.set(listing.agent.agent_id, {
           proof,
+          uptime,
           // The database records whether a call answered as MCP, which is the
           // right thing for uptime and the wrong thing for this question. The
           // proof in hand knows the difference; the row does not.
@@ -72,4 +75,28 @@ export async function probeListings(listings: Listing[]): Promise<Map<string, Li
   });
 
   return proofs;
+}
+
+/**
+ * Probes a set of agents under the listing's bounds, for the owner page.
+ *
+ * `/owner` fans out to every agent an address holds — as many as two dozen —
+ * and each went out with the agent page's twenty-second default, so one slow
+ * host could hold the page for the whole of it. Six seconds is the listing's
+ * figure: an agent that has not completed a handshake in six seconds is not
+ * one to grant a seat to today, and the history keeps the miss. Results keep
+ * the input order; a detail that could not be proved is null, never a throw.
+ */
+export async function probeAgents(
+  details: ReadonlyArray<Parameters<typeof proveAgent>[0]>,
+  opts: { timeoutMs?: number; concurrency?: number } = {},
+): Promise<Array<EndpointProof | null>> {
+  const timeoutMs = opts.timeoutMs ?? PROBE_TIMEOUT_MS;
+  return mapLimit(details, opts.concurrency ?? CONCURRENCY, async (detail) => {
+    try {
+      return await proveAgent(detail, { timeoutMs });
+    } catch {
+      return null;
+    }
+  });
 }

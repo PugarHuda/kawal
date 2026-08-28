@@ -2,7 +2,16 @@
  * 8004scan (AltLayer) public API client.
  *
  * The roster, reputation and semantic search for every ERC-8004 agent.
- * Docs: https://8004scan.io/api/v1/public/docs/openapi.json
+ * Docs: https://api.8004scan.io/openapi.json
+ *
+ * Two namespaces, and the difference is not cosmetic. `/api/v1/public/*`
+ * wraps its payload in an envelope, takes camelCase parameters and is what
+ * the roster has always been read from. `/api/v1/*` answers unwrapped, takes
+ * snake_case, and is the only one that honours the `has_mcp` / `has_a2a` /
+ * `has_oasf` / `min_feedbacks` filters — the public path accepts them without
+ * complaint and returns the whole 288,000-row roster regardless, which was
+ * measured before this comment was written. A filter that fails by returning
+ * everything is worse than one that errors.
  *
  * What this API does NOT give us, and what Kawal therefore has to build:
  *   - no category  -> lib/taxonomy.ts
@@ -16,12 +25,19 @@ import {
   ScanStatsSchema,
   AgentQualitySchema,
   ScoreHistorySchema,
+  ScoreV5Schema,
+  WalletMetricsSchema,
+  FeedbackReplySchema,
+  VerificationRequestSchema,
   parseAgents,
   type ScanAgent,
   type ScoreHistory,
   type ScanAgentDetail,
   type ScanStats,
   type AgentQuality,
+  type ScoreV5,
+  type WalletMetrics,
+  type FeedbackReply,
 } from "./scan.schema.ts";
 
 /**
@@ -38,6 +54,7 @@ const ORIGIN = process.env.SCAN_API_ORIGIN ?? "https://8004scan.io";
 /** How long any one registry call may take before it is treated as an outage. */
 export const REGISTRY_TIMEOUT_MS = 15_000;
 const BASE = `${ORIGIN}/api/v1/public`;
+const API = `${ORIGIN}/api/v1`;
 
 export {
   ScoreHistorySchema,
@@ -45,6 +62,9 @@ export {
   ScanAgentDetailSchema,
   ScanStatsSchema,
   AgentQualitySchema,
+  ScoreV5Schema,
+  WalletMetricsSchema,
+  FeedbackReplySchema,
   parseAgents,
 } from "./scan.schema.ts";
 export type {
@@ -58,12 +78,20 @@ export type {
   ServiceHealth,
   RiskFlag,
   QualityDimension,
+  ScoreV5,
+  V5Dimension,
+  WalletMetrics,
+  FeedbackReply,
+  VerificationRequest,
 } from "./scan.schema.ts";
 
 type Envelope<T> = {
   success: boolean;
   data: T;
-  meta?: { pagination?: { page: number; limit: number; total: number; hasMore: boolean } };
+  meta?: {
+    timestamp?: string;
+    pagination?: { page: number; limit: number; total: number; hasMore: boolean };
+  };
 };
 
 export class ScanError extends Error {
@@ -78,16 +106,52 @@ export class ScanError extends Error {
   }
 }
 
-async function get<T>(path: string, params: Record<string, string | number | undefined> = {}) {
-  const url = new URL(BASE + path);
+/**
+ * The API key goes in `X-API-Key`. Named by the `XApiKey` security scheme in
+ * the OpenAPI document ("8004scan API key for programmatic access and higher
+ * rate limits"); the other two schemes there are JWTs for logged-in users,
+ * which Kawal is not.
+ */
+function headers(): Record<string, string> {
+  const h: Record<string, string> = { accept: "application/json" };
+  if (process.env.SCAN_API_KEY) h["X-API-Key"] = process.env.SCAN_API_KEY;
+  return h;
+}
+
+/**
+ * When the registry last spoke to us, as the registry stamps it.
+ *
+ * Results are held in Next's fetch cache for five minutes, so a page can be
+ * rendering a roster read some time ago. Rather than pretend otherwise, every
+ * response's own timestamp is kept — the public envelope carries one, and the
+ * `date` header stands in elsewhere — and the newest is what a page prints
+ * after "registry data as of". A cached response keeps the header it was
+ * cached with, which is exactly the age we want to admit to.
+ */
+let latestAsOf: string | null = null;
+
+function noteAsOf(stamp: string | null | undefined): string {
+  const asOf = stamp && !Number.isNaN(Date.parse(stamp)) ? new Date(stamp).toISOString() : new Date().toISOString();
+  if (!latestAsOf || asOf > latestAsOf) latestAsOf = asOf;
+  return asOf;
+}
+
+/** ISO time of the freshest registry response this process has seen, if any. */
+export function registryAsOf(): string | null {
+  return latestAsOf;
+}
+
+type Params = Record<string, string | number | boolean | undefined>;
+
+function withParams(url: URL, params: Params) {
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
+  return url;
+}
 
-  const headers: Record<string, string> = { accept: "application/json" };
-  // Pro tier lifts us from 10 req/min to 500. Header name to be confirmed
-  // against the Developer Hub once the key is issued.
-  if (process.env.SCAN_API_KEY) headers["x-api-key"] = process.env.SCAN_API_KEY;
+async function get<T>(path: string, params: Params = {}) {
+  const url = withParams(new URL(BASE + path), params);
 
   // A category page now costs a dozen upstream calls: each probe is run once
   // against semantic search and once per callable protocol. Rendering that
@@ -103,14 +167,29 @@ async function get<T>(path: string, params: Record<string, string | number | und
   // registry was down, and every page reading the roster hung with it. A
   // registry that has not answered in fifteen seconds is not going to.
   const res = await fetch(url, {
-    headers,
+    headers: headers(),
     next: { revalidate: 300 },
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!res.ok) throw new ScanError(res.status, path);
 
   const body = (await res.json()) as Envelope<T>;
-  return body;
+  return { body, asOf: noteAsOf(body.meta?.timestamp ?? res.headers.get("date")) };
+}
+
+/**
+ * The unwrapped `/api/v1` namespace: quality, scores, wallets, feedback and
+ * the filtered roster. Same key, same bound, same cache; no envelope.
+ */
+async function apiGet<T>(path: string, params: Params = {}, revalidate = 300) {
+  const url = withParams(new URL(API + path), params);
+  const res = await fetch(url, {
+    headers: headers(),
+    next: { revalidate },
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new ScanError(res.status, path);
+  return { body: (await res.json()) as T, asOf: noteAsOf(res.headers.get("date")) };
 }
 
 export type ListParams = {
@@ -123,13 +202,57 @@ export type ListParams = {
   sortBy?: "total_score" | "created_at" | "star_count" | "total_feedbacks";
   sortOrder?: "asc" | "desc";
   isTestnet?: boolean;
+  /**
+   * Server-side filters. Any of these routes the call through `/api/v1/agents`,
+   * the only path that applies them; see the module comment for why the
+   * public path cannot be trusted with them.
+   */
+  hasMcp?: boolean;
+  hasA2a?: boolean;
+  hasOasf?: boolean;
+  minFeedbacks?: number;
+  x402Supported?: boolean;
 };
 
+type Paged = { items?: unknown; total?: unknown };
+
 export async function listAgents(params: ListParams = {}) {
-  const body = await get<unknown[]>("/agents", {
+  const limit = params.limit ?? 50;
+  const page = params.page ?? 1;
+  const filtered =
+    params.hasMcp !== undefined ||
+    params.hasA2a !== undefined ||
+    params.hasOasf !== undefined ||
+    params.minFeedbacks !== undefined ||
+    params.x402Supported !== undefined;
+
+  if (filtered) {
+    // The public path sorts by `star_count`; this one calls it `stars`.
+    const sortBy = params.sortBy === "star_count" ? "stars" : (params.sortBy ?? "total_score");
+    const { body, asOf } = await apiGet<Paged>("/agents", {
+      chain_id: params.chainId ?? BSC_MAINNET,
+      limit,
+      offset: (page - 1) * limit,
+      search: params.search,
+      supported_protocol: params.protocol,
+      owner_address: params.ownerAddress,
+      sort_by: sortBy,
+      sort_order: params.sortOrder ?? "desc",
+      is_testnet: params.isTestnet,
+      has_mcp: params.hasMcp,
+      has_a2a: params.hasA2a,
+      has_oasf: params.hasOasf,
+      min_feedbacks: params.minFeedbacks,
+      x402_supported: params.x402Supported,
+    });
+    const { agents } = parseAgents(body.items);
+    return { agents, total: typeof body.total === "number" ? body.total : agents.length, asOf };
+  }
+
+  const { body, asOf } = await get<unknown[]>("/agents", {
     chainId: params.chainId ?? BSC_MAINNET,
-    page: params.page ?? 1,
-    limit: params.limit ?? 50,
+    page,
+    limit,
     search: params.search,
     protocol: params.protocol,
     ownerAddress: params.ownerAddress,
@@ -140,7 +263,7 @@ export async function listAgents(params: ListParams = {}) {
   // Rows that cannot be understood are dropped rather than trusted. One odd
   // registration in a roster of 280,000 must not take a page down.
   const { agents } = parseAgents(body.data);
-  return { agents, total: body.meta?.pagination?.total ?? 0 };
+  return { agents, total: body.meta?.pagination?.total ?? 0, asOf };
 }
 
 /**
@@ -155,29 +278,29 @@ export async function listAgents(params: ListParams = {}) {
 export async function searchAgents(
   q: string,
   opts: { limit?: number; chainId?: number; semanticWeight?: number } = {},
-): Promise<{ agents: ScanAgent[]; total: number; semantic: boolean }> {
+): Promise<{ agents: ScanAgent[]; total: number; semantic: boolean; asOf: string }> {
   const limit = opts.limit ?? 40;
   const chainId = opts.chainId ?? BSC_MAINNET;
 
   try {
-    const body = await get<unknown[]>("/agents/search", {
+    const { body, asOf } = await get<unknown[]>("/agents/search", {
       q,
       limit,
       chainId,
       semanticWeight: opts.semanticWeight,
     });
     const { agents } = parseAgents(body.data);
-    if (agents.length) return { agents, total: agents.length, semantic: true };
+    if (agents.length) return { agents, total: agents.length, semantic: true, asOf };
   } catch {
     // fall through to keyword search
   }
 
-  const { agents, total } = await listAgents({ chainId, search: q, limit });
-  return { agents, total, semantic: false };
+  const { agents, total, asOf } = await listAgents({ chainId, search: q, limit });
+  return { agents, total, semantic: false, asOf };
 }
 
 export async function getAgent(chainId: number, tokenId: string) {
-  const body = await get<unknown>(`/agents/${chainId}/${tokenId}`);
+  const { body } = await get<unknown>(`/agents/${chainId}/${tokenId}`);
   // A detail page has one row and no fallback, so a shape we cannot parse is
   // a hard failure rather than a silent drop — the caller already renders a
   // 404 for a missing agent, which is the honest outcome either way.
@@ -187,22 +310,17 @@ export async function getAgent(chainId: number, tokenId: string) {
 /**
  * Quality Center data: liveness, latency, domain verification and risk flags.
  *
- * Lives outside the `/public` namespace and returns its payload unwrapped, so
- * it does not go through `get()`. Worth the exception — this is the only
- * endpoint that answers "is this thing actually up right now", which is the
- * difference between a directory and a marketplace.
+ * Worth the exception to the envelope path — this is the only endpoint that
+ * answers "is this thing actually up right now", which is the difference
+ * between a directory and a marketplace.
  */
 export async function getQuality(
   chainId: number,
   tokenId: string,
 ): Promise<AgentQuality | null> {
   try {
-    const res = await fetch(
-      `${ORIGIN}/api/v1/agents/${chainId}/${tokenId}/quality`,
-      { headers: { accept: "application/json" }, next: { revalidate: 300 }, signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) },
-    );
-    if (!res.ok) return null;
-    const parsed = AgentQualitySchema.safeParse(await res.json());
+    const { body } = await apiGet<unknown>(`/agents/${chainId}/${tokenId}/quality`);
+    const parsed = AgentQualitySchema.safeParse(body);
     return parsed.success ? (parsed.data satisfies AgentQuality) : null;
   } catch {
     // A missing health report must not blank out the agent page: the
@@ -217,21 +335,14 @@ export async function getQuality(
  * A snapshot says how an agent is doing; this says which way it is going, and
  * the two disagree often enough to matter — a score of 30 that has been
  * climbing is a different proposition from a 30 that has been falling.
- *
- * Lives outside the `/public` namespace and returns its payload unwrapped, so
- * it does not go through `get()`.
  */
 export async function getScoreHistory(
   chainId: number,
   tokenId: string,
 ): Promise<ScoreHistory | null> {
   try {
-    const res = await fetch(
-      `${ORIGIN}/api/v1/agents/score-history/${chainId}/${tokenId}`,
-      { headers: { accept: "application/json" }, next: { revalidate: 3600 }, signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) },
-    );
-    if (!res.ok) return null;
-    const parsed = ScoreHistorySchema.safeParse(await res.json());
+    const { body } = await apiGet<unknown>(`/agents/score-history/${chainId}/${tokenId}`, {}, 3600);
+    const parsed = ScoreHistorySchema.safeParse(body);
     return parsed.success ? parsed.data : null;
   } catch {
     // A missing trend must not blank the agent page.
@@ -239,8 +350,136 @@ export async function getScoreHistory(
   }
 }
 
+/**
+ * The v5 breakdown behind `total_score`: engagement, service, publisher,
+ * compliance, momentum. One number on a listing is an opinion; five weighted
+ * ones with an explanation each is something a reader can disagree with.
+ */
+export async function getScoreV5(chainId: number, tokenId: string): Promise<ScoreV5 | null> {
+  try {
+    const { body } = await apiGet<unknown>(`/agents/scores/v5/${chainId}/${tokenId}`, {}, 3600);
+    const parsed = ScoreV5Schema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export type TrendingPeriod = "24h" | "7d" | "30d";
+
+/**
+ * What 8004scan's visitors are looking at: `view_count / (hours + 2)^1.5`, by
+ * the API's own description. Attention, not evidence — shown as such.
+ */
+export async function getTrending(
+  period: TrendingPeriod = "24h",
+  opts: { chainId?: number; limit?: number } = {},
+) {
+  const { body, asOf } = await apiGet<Paged>("/agents/trending", {
+    period,
+    chain_id: opts.chainId ?? BSC_MAINNET,
+    limit: opts.limit ?? 10,
+  }, 60);
+  const { agents } = parseAgents(body.items);
+  return { agents, total: typeof body.total === "number" ? body.total : agents.length, asOf };
+}
+
+export type LeaderboardSort =
+  | "total_score"
+  | "quality_score"
+  | "popularity_score"
+  | "activity_score"
+  | "validation_score"
+  | "wallet_score"
+  | "freshness_score";
+
+/** The registry's own ranking, by whichever score dimension is asked for. */
+export async function getLeaderboard(
+  opts: { chainId?: number; limit?: number; sortBy?: LeaderboardSort; period?: "7d" | "30d" | "90d" | "all" } = {},
+) {
+  const { body, asOf } = await apiGet<Paged>("/agents/leaderboard", {
+    chain_id: opts.chainId ?? BSC_MAINNET,
+    limit: opts.limit ?? 20,
+    sort_by: opts.sortBy ?? "total_score",
+    period: opts.period ?? "all",
+  });
+  const { agents } = parseAgents(body.items);
+  return { agents, total: typeof body.total === "number" ? body.total : agents.length, asOf };
+}
+
+/**
+ * On-chain facts about the wallet behind a registration: age, transaction
+ * count, x402 revenue, whether it is a contract. Null when 8004scan has never
+ * indexed the address, which it answers with a 404 rather than an empty row.
+ */
+export async function getWalletMetrics(address: string): Promise<WalletMetrics | null> {
+  try {
+    const { body } = await apiGet<unknown>(`/wallets/${address}/metrics`, {}, 120);
+    const parsed = WalletMetricsSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The owner's on-chain replies to one feedback record — ERC-8004
+ * `appendResponse`. `feedbackId` is the composite the API uses:
+ * `{chain}:{token}:{clientAddress}:{index}`.
+ */
+export async function getFeedbackReplies(feedbackId: string): Promise<FeedbackReply[]> {
+  try {
+    const { body } = await apiGet<Paged>(`/feedbacks/${feedbackId}/replies`, { limit: 100 });
+    if (!Array.isArray(body.items)) return [];
+    return body.items
+      .map((r) => FeedbackReplySchema.safeParse(r))
+      .filter((r) => r.success)
+      .map((r) => r.data);
+  } catch {
+    return [];
+  }
+}
+
+export type Verification =
+  | { queued: true; estimatedCheckAt: string | null }
+  /** 8004scan allows one request an hour per agent; this is the second. */
+  | { queued: false; reason: "rate-limited"; retryAt: string | null }
+  | { queued: false; reason: "refused"; status: number };
+
+/**
+ * Asks 8004scan to re-verify an agent's endpoint domain against its
+ * `.well-known/agent-registration.json`. No auth, one an hour per agent —
+ * the 429 carries the time it may be asked again and is an outcome, not an
+ * error, because the sweep will hit it on every agent it has already asked
+ * about this hour.
+ *
+ * The one registry call Kawal makes that is not a read. It changes nothing
+ * about the agent; it asks the registry to look, which is what the sweep just
+ * did itself.
+ */
+export async function verifyEndpoint(chainId: number, tokenId: string): Promise<Verification> {
+  const path = `/agents/verify-endpoint/${chainId}/${tokenId}`;
+  const res = await fetch(API + path, {
+    method: "POST",
+    headers: headers(),
+    cache: "no-store",
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+  });
+  if (res.status === 429) {
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    const at = typeof body.detail === "string" ? body.detail.match(/\d{4}-\d{2}-\d{2}T[\d:.+]+/)?.[0] : null;
+    return { queued: false, reason: "rate-limited", retryAt: at ?? null };
+  }
+  if (!res.ok) return { queued: false, reason: "refused", status: res.status };
+  const parsed = VerificationRequestSchema.safeParse(await res.json());
+  // A 200 that says `queued: false` has not been seen; if it ever arrives it
+  // is a refusal with a friendlier status, and is filed as one.
+  if (parsed.success && !parsed.data.queued) return { queued: false, reason: "refused", status: res.status };
+  return { queued: true, estimatedCheckAt: parsed.success ? parsed.data.estimated_check_at : null };
+}
+
 export async function getStats() {
-  const body = await get<unknown>("/stats");
+  const { body } = await get<unknown>("/stats");
   return ScanStatsSchema.parse(body.data) satisfies ScanStats;
 }
 

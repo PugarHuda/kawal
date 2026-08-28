@@ -20,7 +20,8 @@
 import { formatEther } from "viem";
 import { signerFromPrivateKey, createPrivateKeySigner } from "@altananetwork/sdk";
 import { clientFor, explorerTx, explorerAddress, sessionFromSeat } from "../lib/altana.ts";
-import { preempt, UnsafeMandateError } from "../lib/mandate.ts";
+import { preempt, narrowingFactor, preemptReason, HEALTH_FLOOR, UnsafeMandateError } from "../lib/mandate.ts";
+import { readHealth, effectiveHealthFactor, describeHealth } from "../app/mandate/health.ts";
 import { chainName } from "../lib/chains.ts";
 import { publicClientFor, cycleCost } from "../lib/rpc.ts";
 import {
@@ -32,10 +33,6 @@ import {
   SESSION_FILE,
   type LedgerSeat,
 } from "../lib/vault.ts";
-
-/** How far the allocator's cap is cut. Matches what /mandate renders. */
-const FACTOR = 0.25;
-const REASON = "health factor fell below the 1.40 floor";
 
 const send = process.argv.includes("--send");
 
@@ -58,6 +55,25 @@ if (!caller || !target) {
 
 const chainId = target.chainId;
 const rpc = publicClientFor(chainId);
+
+// The cut is read off the wallet's position, not typed in. The first version
+// of this script carried `FACTOR = 0.25` and a reason string, which made it a
+// demonstration of the mechanism rather than of the rule; `/mandate` reads
+// the same venues through the same function, so the page and the script
+// cannot disagree about whether there is anything to recall.
+const reading = await readHealth(chainId, target.walletAddress);
+for (const line of describeHealth(reading)) console.log(`  ${line}`);
+const healthFactor = effectiveHealthFactor(reading);
+const FACTOR = healthFactor === null ? null : narrowingFactor(healthFactor);
+if (healthFactor === null || FACTOR === null) {
+  console.log(
+    healthFactor === null
+      ? "\nNo debt on either venue: nothing to protect, nothing to preempt."
+      : `\nHealth factor ${healthFactor.toFixed(2)} is at or above the ${HEALTH_FLOOR.toFixed(2)} floor: no cut.`,
+  );
+  process.exit(0);
+}
+const REASON = preemptReason(healthFactor);
 
 // Rebuild the plan shapes `preempt` expects from what was actually granted.
 const plans = [caller, target].map((s) => ({
@@ -89,6 +105,13 @@ const before = BigInt(target.spendLimit);
 const after = cut.narrowed.spend?.[0]?.limit;
 if (after === undefined) {
   console.error("Refused: the narrowed session carries no spend cap, which is a wildcard.");
+  process.exit(1);
+}
+if (after === 0n) {
+  // At the liquidation line the rule recalls everything. A session with a
+  // zero cap is not a narrower seat, it is a dead one paid for at the
+  // registration fee; revoke outright from the control room instead.
+  console.error("Refused: the rule recalls the whole cap at this health factor. Revoke the seat rather than re-grant it at zero.");
   process.exit(1);
 }
 
@@ -187,7 +210,10 @@ const session = await client.grantSession({
 // it. That survived only because JSON.stringify drops undefined values — any
 // reader asking `"revokedAt" in seat` would have seen the new seat as already
 // revoked.
-const { revokedAt: _wasRevokedAt, revokeTx: _wasRevokeTx, revokeError: _wasError, ...carried } = target;
+const carried: LedgerSeat = { ...target };
+delete carried.revokedAt;
+delete carried.revokeTx;
+delete carried.revokeError;
 
 const replacement: LedgerSeat = {
   ...carried,

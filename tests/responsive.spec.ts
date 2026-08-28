@@ -26,6 +26,14 @@ const PAGES = [
   // The seller-side page: its own layout, its own probe fan-out.
   ["owner", "/owner?address=0xda977767452c5dd021624511f14df67b6c9c2c1b"],
   ["advantage", "/advantage"],
+  // The unfiltered manifest is the widest listing; the cover sheet carries
+  // the stamp that steps down on a phone; the descriptor agent renders an
+  // install command no browser will wrap on its own; an owner with nothing
+  // registered gets the empty sheet.
+  ["all agents", "/agents"],
+  ["descriptor agent", "/agents/56/124748"],
+  ["owner with no agents", "/owner?address=0x000000000000000000000000000000000000dEaD"],
+  ["compare empty", "/compare"],
 ] as const;
 
 for (const [label, path] of PAGES) {

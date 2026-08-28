@@ -43,9 +43,31 @@ const securityHeaders = [
   },
 ];
 
+/**
+ * The machine-facing routes are read by clients on other origins: an MCP
+ * client running in a browser, a directory's scanner, an A2A agent fetching
+ * the card. They carry no cookies and take no key, so there is nothing an
+ * origin could be granted that it does not already have, and "*" is the
+ * honest value. The exposed header is the one the MCP transport echoes; the
+ * allowed ones are the mirrored request headers the 2026-07-28 revision
+ * requires clients to send.
+ */
+const corsHeaders = [
+  { key: "Access-Control-Allow-Origin", value: "*" },
+  { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" },
+  { key: "Access-Control-Allow-Headers", value: "Content-Type, Accept, Authorization, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id, Last-Event-ID" },
+  { key: "Access-Control-Expose-Headers", value: "MCP-Protocol-Version" },
+  { key: "Access-Control-Max-Age", value: "86400" },
+];
+
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/api/mcp", headers: corsHeaders },
+      { source: "/api/a2a", headers: corsHeaders },
+      { source: "/.well-known/:path*", headers: corsHeaders },
+    ];
   },
   async rewrites() {
     return [
@@ -57,6 +79,9 @@ const nextConfig: NextConfig = {
       // The ERC-8004 registration document, at the path other registrations
       // on BSC use for theirs ("Domain proof" points here on their hosts).
       { source: "/.well-known/agent-registration.json", destination: "/api/agent-registration" },
+      // The MCP server card directories scan for. It is the endpoint's own
+      // GET description, so the card is built from the tool list it serves.
+      { source: "/.well-known/mcp/server-card.json", destination: "/api/mcp" },
     ];
   },
 };

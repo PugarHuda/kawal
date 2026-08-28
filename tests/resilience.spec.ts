@@ -78,7 +78,7 @@ test("the health endpoint exercises its dependencies rather than pinging itself"
 
   const body = await res.json();
   expect(body.status).toBe("ok");
-  expect(body.probes).toHaveLength(3);
+  expect(body.probes).toHaveLength(4);
 
   // Each probe has to have done real work. A registry check that returns a
   // constant would satisfy a shape assertion and tell an operator nothing.

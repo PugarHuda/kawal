@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { take, groupOf, LIMITS } from "./lib/ratelimit";
+import { takeDurable, groupOf, LIMITS } from "./lib/ratelimit";
 
 /**
  * A Content-Security-Policy with a fresh nonce on every request.
@@ -25,15 +25,19 @@ import { take, groupOf, LIMITS } from "./lib/ratelimit";
  *   `'unsafe-eval'` in development only — React uses `eval` to rebuild server
  *   stack traces in the browser. Production never gets it.
  */
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Before anything else, for the routes that fetch on a caller's behalf. A
   // 429 needs no nonce and no policy: it carries no script and no page.
+  //
+  // The bucket lives in the shared database when there is one: Proxy runs on
+  // the Node runtime in Next 16, so the libSQL client works here, and Vercel
+  // runs more than one instance, so a per-process bucket was N ceilings.
   const group = groupOf(request.nextUrl.pathname);
   if (group) {
     // The first forwarded address is the caller; the rest are proxies. With
     // no forwarding header there is one caller, whoever is on the socket.
     const caller = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "direct";
-    const decision = take(`${group}:${caller}`, LIMITS[group]);
+    const decision = await takeDurable(`${group}:${caller}`, LIMITS[group]);
     if (!decision.ok) {
       return NextResponse.json(
         { error: "rate limited", retryAfterSeconds: decision.retryAfterSeconds },

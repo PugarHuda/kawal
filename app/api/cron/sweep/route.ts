@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { CATEGORIES } from "@/lib/taxonomy";
-import { retrieveCategory } from "@/lib/catalog";
-import { getAgent } from "@/lib/scan";
+import { retrieveCategory, browse } from "@/lib/catalog";
+import { getAgent, verifyEndpoint, type Verification } from "@/lib/scan";
 import { proveAgent } from "@/lib/probe";
+import { recordSweep } from "@/lib/uptime";
+import { guardedFetch, readCapped } from "@/lib/ssrf";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
 
@@ -13,13 +15,23 @@ import { BSC_MAINNET } from "@/lib/chains";
  * "probes are made when the site is used rather than on a schedule, so the
  * sample is not evenly spaced in time." That was true. A history that only
  * grows when a visitor happens to open a page measures the visitors as much
- * as the agents. This route is what Vercel Cron calls, and it removes the
- * defect rather than restating it.
+ * as the agents. This route is what Vercel Cron calls, every six hours, and
+ * it removes the defect rather than restating it.
  *
  * Bounded like the listing probe is: at most `PER_RUN` agents, at most
  * `CONCURRENCY` in flight, the listing's shorter timeout. The bound rotates —
- * which agents go first depends on the hour — so a daily run covers the
- * roster over a few days rather than the same head of it every time.
+ * which agents go first depends on the hour — so successive runs cover the
+ * roster over a day rather than the same head of it every time.
+ *
+ * Two pools feed it: every category listing, and the top of the unfiltered
+ * roster. The second is what a visitor sees first under "All", and it was
+ * being probed only when a visitor chose one.
+ *
+ * After an agent answers, 8004scan is asked to re-verify its endpoint
+ * domain — but only when the agent serves the `agent-registration.json` the
+ * verification looks for, since asking otherwise burns the one request an
+ * hour the registry allows on a check that cannot pass. The registry's 429
+ * for an agent already asked about is an outcome to record, not an error.
  *
  * Authenticated with the secret Vercel sends its cron requests with. Without
  * it this is a public button that makes Kawal dial the whole roster, and the
@@ -33,6 +45,33 @@ export const maxDuration = 300;
 const PER_RUN = 40;
 const CONCURRENCY = 4;
 const PROBE_TIMEOUT_MS = 8_000;
+/** A registration document is small and static; a host that takes longer is not serving one. */
+const DOC_TIMEOUT_MS = 5_000;
+
+type Verified = "queued" | "rate-limited" | "refused" | "no-registration-doc" | null;
+
+/**
+ * Whether the endpoint's origin serves the ERC-8004 registration document
+ * 8004scan's verifier will look for. One guarded GET, read-only, capped.
+ */
+async function servesRegistrationDoc(endpoint: string): Promise<boolean> {
+  try {
+    const origin = new URL(endpoint).origin;
+    const res = await guardedFetch(`${origin}/.well-known/agent-registration.json`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(DOC_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const body = JSON.parse(await readCapped(res, 256_000)) as unknown;
+    return typeof body === "object" && body !== null;
+  } catch {
+    return false;
+  }
+}
+
+function outcome(v: Verification): Verified {
+  return v.queued ? "queued" : v.reason;
+}
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -49,9 +88,14 @@ export async function GET(request: Request) {
   const seen = new Set<string>();
   const targets: Array<{ chainId: number; tokenId: string; name: string }> = [];
 
-  for (const category of CATEGORIES) {
-    const result = await retrieveCategory(category, { chainId: BSC_MAINNET });
-    for (const l of result.listings) {
+  const pools = [
+    ...CATEGORIES.map((c) => retrieveCategory(c, { chainId: BSC_MAINNET }).then((r) => r.listings)),
+    // The roster head throws on a dead registry where the category retrieval
+    // settles; with no registry there is nothing to sweep, not a failure.
+    browse({ chainId: BSC_MAINNET, limit: 60 }).then((r) => r.listings).catch(() => []),
+  ];
+  for (const listings of await Promise.all(pools)) {
+    for (const l of listings) {
       const ref = `${l.agent.chain_id}:${l.agent.token_id}`;
       if (seen.has(ref)) continue;
       seen.add(ref);
@@ -67,30 +111,40 @@ export async function GET(request: Request) {
   const batch = [...targets.slice(offset), ...targets.slice(0, offset)].slice(0, PER_RUN);
 
   const results = await mapLimit(batch, CONCURRENCY, async (t) => {
+    const row = { tokenId: t.tokenId, name: t.name, probed: false, answered: null as boolean | null, protocol: null as string | null, verified: null as Verified };
     try {
       const detail = await getAgent(t.chainId, t.tokenId);
       const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
-      return {
-        tokenId: t.tokenId,
-        name: t.name,
-        probed: proof !== null,
-        answered: proof?.answered ?? null,
-        protocol: proof?.protocol ?? null,
-      };
+      if (!proof) return row;
+      row.probed = true;
+      row.answered = proof.answered;
+      row.protocol = proof.protocol;
+      if (proof.answered) {
+        row.verified = (await servesRegistrationDoc(proof.endpoint))
+          ? outcome(await verifyEndpoint(t.chainId, t.tokenId).catch((): Verification => ({ queued: false, reason: "refused", status: 0 })))
+          : "no-registration-doc";
+      }
+      return row;
     } catch {
-      return { tokenId: t.tokenId, name: t.name, probed: false, answered: null, protocol: null };
+      return row;
     }
   });
 
   const probed = results.filter((r) => r.probed);
+  const run = {
+    ranAt: new Date(started).toISOString(),
+    probed: probed.length,
+    answered: probed.filter((r) => r.answered === true).length,
+    verified: results.filter((r) => r.verified === "queued").length,
+  };
+  await recordSweep(run);
+
   return NextResponse.json(
     {
-      ranAt: new Date(started).toISOString(),
+      ...run,
       ms: Date.now() - started,
       eligible: targets.length,
       offset,
-      probed: probed.length,
-      answered: probed.filter((r) => r.answered === true).length,
       results,
     },
     { headers: { "cache-control": "no-store" } },

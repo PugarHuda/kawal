@@ -72,6 +72,14 @@ export default defineConfig({
       use: { ...devices["Pixel 7"] },
       testMatch: /responsive\.spec\.ts/,
     },
+    {
+      // 412px is the other common phone width (Pixel 6/7 Pro, most Galaxy
+      // models) and sits on the wrong side of a few breakpoints the 393px
+      // Pixel 7 never reaches.
+      name: "mobile-412",
+      use: { ...devices["Pixel 7"], viewport: { width: 412, height: 915 } },
+      testMatch: /responsive\.spec\.ts/,
+    },
   ],
 
   webServer: [
@@ -94,6 +102,10 @@ export default defineConfig({
         // here, so the suite exercises the local file stores and never writes
         // test rows into the database the deployed site reads.
         TURSO_DATABASE_URL: "",
+        // Two hundred tests from one address would trip the production
+        // ceiling on /api/*; the outage server below keeps the real one so
+        // the 429 test still means something.
+        KAWAL_RATE_SCALE: "20",
       },
     },
     {

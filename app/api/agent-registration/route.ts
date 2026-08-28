@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { originOf } from "@/lib/origin";
-import { TOOLS, SERVER_VERSION } from "@/lib/server.mcp";
+import { TOOLS, SERVER_VERSION, PROTOCOL_VERSION, SUPPORTED_VERSIONS } from "@/lib/server.mcp";
 import { payTo, PRICE_WEI } from "@/lib/x402.terms";
 import { formatEther } from "viem";
 
@@ -50,13 +50,18 @@ export async function GET(request: Request) {
     services: [
       {
         name: "mcp",
-        description: `Model Context Protocol, streamable HTTP. ${TOOLS.length} tools: ${TOOLS.map((t) => t.name).join(", ")}.`,
+        description:
+          `Model Context Protocol, streamable HTTP, revisions ${SUPPORTED_VERSIONS.join(", ")}. ` +
+          `${TOOLS.length} tools: ${TOOLS.map((t) => t.name).join(", ")}. Resources and one prompt.`,
         endpoint: `${origin}/api/mcp`,
-        version: "2025-06-18",
+        // The revision a handshake gets when it asks for none: the same
+        // constant the server answers with, so the document cannot say one
+        // thing and the endpoint another.
+        version: PROTOCOL_VERSION,
       },
       {
         name: "a2a",
-        description: "A2A 0.3 JSON-RPC. Send a data part naming a skill, or plain text with a token id in it.",
+        description: "A2A 0.3 JSON-RPC, message/send and message/stream (SSE). Send a data part naming a skill, or plain text with a token id in it.",
         endpoint: `${origin}/.well-known/agent-card.json`,
         version: "0.3.0",
       },

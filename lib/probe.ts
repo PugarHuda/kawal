@@ -12,9 +12,9 @@
  * to speak the protocol.
  */
 
-import { McpClient } from "./mcp.ts";
+import { McpClient, NONEXISTENT_TOOL, errorsCleanly } from "./mcp.ts";
 import { probeA2a as fetchA2a, a2aAnswered, rpcOutcomeLabel, type RpcOutcome } from "./a2a.ts";
-import { guardedFetch, readCapped, MAX_RESPONSE_BYTES } from "./ssrf.ts";
+import { guardedFetch, readCapped, BlockedUrlError, MAX_RESPONSE_BYTES } from "./ssrf.ts";
 import { memo } from "./memo.ts";
 import { recordProbe } from "./uptime.ts";
 
@@ -54,7 +54,7 @@ export type ServiceDescriptor = {
 export type EndpointProof = {
   endpoint: string;
   /** Which protocol this endpoint was probed as. The registry declared it. */
-  protocol: "mcp" | "a2a";
+  protocol: "mcp" | "a2a" | "oasf";
   /** Something answered at this URL. */
   reachable: boolean;
   /**
@@ -93,6 +93,20 @@ export type EndpointProof = {
   latencyMs: number;
   error: string | null;
   checkedAt: string;
+  /**
+   * MCP only. Whether the server refused a call to a tool that cannot exist
+   * with a JSON-RPC error or an `isError` result, rather than a 500 or a
+   * hang. Says nothing about whether the real tools work — Kawal still never
+   * runs one — but a server that falls over on an unknown name will fall over
+   * on a caller's typo, and that is worth knowing before granting it a seat.
+   * Null when not asked.
+   */
+  errorsCleanly?: boolean | null;
+  /** A2A only. `agent/getAuthenticatedExtendedCard` answered as JSON-RPC. */
+  extendedCard?: boolean | null;
+  /** A2A only. Read off the card's capabilities block; null when it has none. */
+  streaming?: boolean | null;
+  pushNotifications?: boolean | null;
 };
 
 /** Tools listed on a page. Enough to judge an agent, short of a directory. */
@@ -169,34 +183,40 @@ const FORGES = new Set(["github.com", "www.github.com", "gitlab.com", "codeberg.
  * failed probe, and inventing a third category for it would be the guessing
  * this function exists to avoid.
  */
-async function describeUncallable(
-  endpoint: string,
-  failed: EndpointProof,
-): Promise<EndpointProof> {
+/**
+ * A forge URL read as a source repository. Costs no request: the answer is in
+ * the URL. Null when the URL is not one.
+ */
+function forgeDescriptor(endpoint: string, failed: EndpointProof): EndpointProof | null {
   let url: URL;
   try {
     url = new URL(endpoint);
   } catch {
-    return failed;
+    return null;
   }
+  if (!FORGES.has(url.hostname.toLowerCase())) return null;
 
-  // Costs no request: the answer is in the URL.
-  if (FORGES.has(url.hostname.toLowerCase())) {
-    const parts = url.pathname.split("/").filter(Boolean);
-    const owner = parts[0];
-    const repo = parts[1];
-    if (owner && repo) {
-      return {
-        ...failed,
-        serverName: `${owner}/${repo}`,
-        descriptor: {
-          kind: "source-repository",
-          transport: null,
-          install: `git clone ${url.origin}/${owner}/${repo}`,
-        },
-      };
-    }
-  }
+  const parts = url.pathname.split("/").filter(Boolean);
+  const owner = parts[0];
+  const repo = parts[1];
+  if (!owner || !repo) return null;
+  return {
+    ...failed,
+    serverName: `${owner}/${repo}`,
+    descriptor: {
+      kind: "source-repository",
+      transport: null,
+      install: `git clone ${url.origin}/${owner}/${repo}`,
+    },
+  };
+}
+
+async function describeUncallable(
+  endpoint: string,
+  failed: EndpointProof,
+): Promise<EndpointProof> {
+  const forge = forgeDescriptor(endpoint, failed);
+  if (forge) return forge;
 
   try {
     const res = await guardedFetch(endpoint, {
@@ -328,7 +348,144 @@ async function probeMcpUncached(
     }
   }
 
+  // The one `tools/call` with no effect. Nothing named this exists, so
+  // nothing runs; what comes back is how the server says no, which is the
+  // closest Kawal can get to exercising a stranger's server without
+  // exercising it.
+  proof.errorsCleanly = errorsCleanly(await client.callTool(NONEXISTENT_TOOL, {}));
+
   return proof;
+}
+
+/**
+ * What an OASF endpoint served, once it is known to be JSON.
+ *
+ * Read off the live BSC registrations rather than the AGNTCY specification:
+ * of 331 agents declaring OASF, most point at the specification's own GitHub
+ * repository, one serves a record with `oasf_version` and `name`, and one
+ * serves its A2A agent card. What every real one has in common is a string
+ * `name` for the agent it describes, so that is the bar; a version is read
+ * from whichever field carries it and skills from whichever shape they take.
+ *
+ * Exported so the offline suite can drive it with the shapes read live.
+ */
+export function readOasfRecord(
+  body: unknown,
+): { name: string; version: string | null; skills: Array<{ name: string; description: string | null }> } | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.name !== "string" || b.name.trim() === "") return null;
+
+  const version = ["oasf_version", "schema_version", "version"]
+    .map((k) => b[k])
+    .find((v): v is string => typeof v === "string") ?? null;
+
+  const skills = (Array.isArray(b.skills) ? b.skills : [])
+    .map((raw): { name: string; description: string | null } | null => {
+      if (typeof raw === "string") return raw ? { name: raw, description: null } : null;
+      if (typeof raw !== "object" || raw === null) return null;
+      const r = raw as Record<string, unknown>;
+      const name = typeof r.name === "string" ? r.name : typeof r.id === "string" ? r.id : null;
+      return name ? { name, description: typeof r.description === "string" ? r.description : null } : null;
+    })
+    .filter((x): x is { name: string; description: string | null } => x !== null);
+
+  return { name: b.name, version, skills };
+}
+
+/** A record is a short document; anything approaching a megabyte is not one. */
+const OASF_BYTES = 256_000;
+
+/**
+ * Dials an OASF endpoint: a guarded GET that must answer with a record.
+ *
+ * OASF has no handshake — the endpoint *is* the document — so the only bar
+ * available is "served JSON describing an agent", which is lower than an MCP
+ * initialize and said so in the tier: an OASF-only agent can be hireable
+ * only once this has actually answered, never on the declaration alone.
+ */
+export function probeOasf(endpoint: string, opts: { timeoutMs?: number } = {}): Promise<EndpointProof> {
+  return memo(`probe:${endpoint}`, PROOF_TTL_MS, async () => {
+    const proof = await probeOasfUncached(endpoint, opts);
+    // Same rule as MCP: a repository is not a server, and measuring its
+    // uptime would publish a 0% record for software that is running fine.
+    if (!proof.descriptor) await recordProbe(proof);
+    return proof;
+  });
+}
+
+async function probeOasfUncached(endpoint: string, opts: { timeoutMs?: number } = {}): Promise<EndpointProof> {
+  const base: EndpointProof = {
+    endpoint,
+    protocol: "oasf",
+    reachable: false,
+    answered: false,
+    isMcp: false,
+    a2a: null,
+    serverName: null,
+    protocolVersion: null,
+    toolCount: null,
+    tools: [],
+    descriptor: null,
+    latencyMs: 0,
+    error: null,
+    checkedAt: new Date().toISOString(),
+  };
+  if (!/^https?:\/\//i.test(endpoint)) return { ...base, error: "not an http(s) URL" };
+
+  // Most OASF declarations on BSC point at github.com/agntcy/oasf — the
+  // specification, not the agent. A repository answers HTML (or JSON, asked
+  // nicely), and calling that an agent answering would be the prober
+  // over-claiming. It is a published route, recorded as one.
+  const forge = forgeDescriptor(endpoint, base);
+  if (forge) return forge;
+
+  const started = performance.now();
+  try {
+    const res = await guardedFetch(endpoint, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
+    });
+    const latencyMs = Math.round(performance.now() - started);
+    const text = await readCapped(res, OASF_BYTES);
+    if (!res.ok) {
+      return { ...base, reachable: true, latencyMs, error: `HTTP ${res.status}: ${text.slice(0, 160)}` };
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return { ...base, reachable: true, latencyMs, error: "answered, but not with JSON" };
+    }
+    const record = readOasfRecord(body);
+    if (!record) {
+      return { ...base, reachable: true, latencyMs, error: "answered JSON, but not a record naming an agent" };
+    }
+
+    return {
+      ...base,
+      reachable: true,
+      answered: true,
+      serverName: record.name,
+      protocolVersion: record.version,
+      toolCount: record.skills.length,
+      tools: record.skills
+        .slice(0, MAX_TOOLS_SHOWN)
+        .map((sk) => readTool({ name: sk.name, description: sk.description ?? undefined }))
+        .filter((t): t is ProbedTool => t !== null),
+      latencyMs,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      ...base,
+      latencyMs: Math.round(performance.now() - started),
+      // A blocked URL is a refusal, not a transport failure, and the page
+      // renders the two differently.
+      error: e instanceof BlockedUrlError ? `blocked: ${message}` : message,
+    };
+  }
 }
 
 /** The endpoint shape 8004scan publishes under an agent's `services`. */
@@ -341,7 +498,7 @@ export type DeclaredService = {
 /** Pulls a declared endpoint out of an agent's services, by protocol key. */
 function endpointOf(
   services: Record<string, DeclaredService> | null | undefined,
-  key: "mcp" | "a2a",
+  key: "mcp" | "a2a" | "oasf",
 ): string | null {
   const svc = services?.[key];
   return typeof svc?.endpoint === "string" ? svc.endpoint : null;
@@ -379,6 +536,9 @@ export function probeA2aEndpoint(
       },
       serverName: p.card?.name ?? null,
       protocolVersion: p.card?.protocolVersion ?? null,
+      extendedCard: p.extendedCard,
+      streaming: p.card?.streaming ?? null,
+      pushNotifications: p.card?.pushNotifications ?? null,
       toolCount: p.card ? p.card.skills.length : null,
       tools: (p.card?.skills ?? [])
         .slice(0, MAX_TOOLS_SHOWN)
@@ -414,5 +574,8 @@ export function proveAgent(
   if (mcp) return probeMcp(mcp, opts);
   const a2a = endpointOf(agent.services, "a2a");
   if (a2a) return probeA2aEndpoint(a2a, opts);
+  // Last, because it proves least: a document served, not a server spoken to.
+  const oasf = endpointOf(agent.services, "oasf");
+  if (oasf) return probeOasf(oasf, opts);
   return Promise.resolve(null);
 }

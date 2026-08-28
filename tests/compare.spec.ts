@@ -100,7 +100,7 @@ test("score trend distinguishes a tracked agent from an untracked one", async ({
   // twice.
   await page.goto("/agents/56/131");
   await expect(page.getByRole("heading", { name: "Which way it is going" })).toBeVisible();
-  await expect(page.getByText(/readings/)).toBeVisible();
+  await expect(page.getByText(/\d+ readings/)).toBeVisible();
   // The sparkline is drawn server-side, so the path must be in the markup with
   // real coordinates. Asserted on the attribute rather than visibility: a
   // perfectly flat score is a zero-height box, which Playwright calls hidden
@@ -152,13 +152,16 @@ test("an endpoint proven silent is downgraded, whatever the registry says", asyn
   // the endpoint repeatedly and never reached it.
   await page.goto("/agents/56/46501");
 
-  const record = page.getByText(/of \d+ calls? answered/);
+  const record = page.getByText(/of \d+ calls? answered/).first();
   test.skip((await record.count()) === 0, "no probe history on this machine yet");
 
   const text = await record.innerText();
   test.skip(!text.startsWith("0 of"), "this endpoint has answered at least once here");
 
-  await expect(page.getByText("Does not answer")).toBeVisible();
+  // The stamp prints its Indonesian face; the English tier rides along for
+  // screen readers, so it is in the DOM without being visible.
+  await expect(page.getByText("Ditolak").first()).toBeVisible();
+  await expect(page.getByText("Does not answer").first()).toBeAttached();
   await expect(page.getByRole("heading", { name: "Can you hire it" })).toBeVisible();
   // The claim it contradicts must still be visible: the registry said MCP.
   // Two elements say so — the signal detail and the registration row — so

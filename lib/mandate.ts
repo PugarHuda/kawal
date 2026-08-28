@@ -420,6 +420,58 @@ export function planMandate(
     .sort((a, b) => b.priority - a.priority);
 }
 
+/**
+ * The planner's settlement token and its ceiling, shared with the grant
+ * action so the seats it registers are the seats the page showed.
+ */
+
+/** USDT on BSC, the token every planned cap is denominated in. */
+export const USDT_BSC: Address = "0x55d398326f99059fF775485246999027B3197955";
+const USDT_DECIMALS = 18n;
+
+/**
+ * Above this the planner stops meaning anything, and `Math.round(x * 100)`
+ * leaves the range where a double still represents whole numbers exactly
+ * (2^53 / 100). Past that point `BigInt(...)` either throws on Infinity or
+ * silently rounds — both worse than refusing.
+ */
+export const MAX_PLANNER_CAPITAL = 1e12;
+
+/** USDT as typed into the form, to raw token units. */
+export function usdtToRaw(usdt: number): bigint {
+  // ponytail: cents are the smallest unit anyone types into this form.
+  return (BigInt(Math.round(usdt * 100)) * 10n ** USDT_DECIMALS) / 100n;
+}
+
+/**
+ * The risk officer's rule, in numbers.
+ *
+ * A lending position with a health factor below `HEALTH_FLOOR` is one the
+ * allocator must stop adding to; at `LIQUIDATION_LINE` the venue takes it.
+ * The narrowing factor runs linearly between the two: at the floor the cap
+ * is untouched, halfway down it is halved, at the line it is fully recalled.
+ * `/mandate` and `scripts/preempt.ts` both read these, so the page cannot
+ * describe a cut the script would not make.
+ */
+export const HEALTH_FLOOR = 1.4;
+export const LIQUIDATION_LINE = 1.0;
+
+/**
+ * How much of the allocator's cap survives at this health factor, or null
+ * when the factor is at or above the floor and there is nothing to recall.
+ * Two decimals, because `preempt` scales by basis points and a factor with
+ * more precision than that would be false precision on a page.
+ */
+export function narrowingFactor(healthFactor: number): number | null {
+  if (!Number.isFinite(healthFactor) || healthFactor >= HEALTH_FLOOR) return null;
+  const raw = (healthFactor - LIQUIDATION_LINE) / (HEALTH_FLOOR - LIQUIDATION_LINE);
+  return Math.max(0, Math.min(0.99, Math.round(raw * 100) / 100));
+}
+
+export function preemptReason(healthFactor: number): string {
+  return `health factor ${healthFactor.toFixed(2)} fell below the ${HEALTH_FLOOR.toFixed(2)} floor`;
+}
+
 export type Preemption = {
   /** Seat whose authority is being cut. */
   target: CategoryId;

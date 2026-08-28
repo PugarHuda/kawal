@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStats } from "@/lib/scan";
 import { loadLedger, isLive, hasAdminKey } from "@/lib/sessions";
-import { uptimeFor } from "@/lib/uptime";
+import { uptimeFor, lastSweep } from "@/lib/uptime";
 import { isRemote } from "@/lib/db";
 
 /**
@@ -48,6 +48,13 @@ export async function GET() {
       const bsc = stats.chain_stats.find((c) => c.chain_id === 56);
       if (!bsc) throw new Error("8004scan answered but reported no BSC chain");
       return `${bsc.total_agents.toLocaleString()} agents indexed on BSC`;
+    }),
+
+    timed("sweep", async () => {
+      const run = await lastSweep();
+      // A fresh instance has no run yet; that is a fact, not a failure.
+      if (!run) return "no scheduled sweep has run on this instance";
+      return `${run.answered} of ${run.probed} answered, ${run.verified} handed to 8004scan, at ${run.ranAt}`;
     }),
 
     timed("ledger", async () => {

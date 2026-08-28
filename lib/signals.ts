@@ -15,7 +15,7 @@
  * why, not just how much.
  */
 
-import type { ScanAgent } from "./scan.ts";
+import type { ScanAgent, RiskFlag } from "./scan.ts";
 import { isTrackRecord, CAPTURED_SHARE, type Reputation } from "./reputation.ts";
 
 export type Tier = "hireable" | "reachable" | "unreachable" | "registered";
@@ -66,6 +66,12 @@ export type Assessment = {
   signals: Signal[];
   /** How many of the listed agents share this exact name + description. */
   duplicates: number;
+  /**
+   * High or critical risk flags 8004scan's Quality Center raised. Zero when
+   * none were raised, and also zero when nobody looked — the `flagged` signal
+   * is only present in the second case, and the difference is kept there.
+   */
+  flagged: number;
 };
 
 const TIER_LABEL: Record<Tier, string> = {
@@ -163,6 +169,21 @@ const CALLABLE_PROTOCOLS = new Set(["MCP", "A2A", "OASF"]);
 export type Payment = { demanded: boolean };
 
 /**
+ * The part of a Quality Center report that `assess` reads.
+ *
+ * Passed in like everything else that came over the network. The flags are
+ * 8004scan's finding, not Kawal's, and the signal says so.
+ */
+export type Quality = { risk_flags: RiskFlag[] };
+
+const SERIOUS = new Set(["high", "critical"]);
+
+/** Which flags are worth failing a signal over. Low and medium are noted, not counted. */
+export function seriousFlags(quality: Quality | null | undefined): RiskFlag[] {
+  return (quality?.risk_flags ?? []).filter((f) => SERIOUS.has(f.severity));
+}
+
+/**
  * What to say about a feedback count, given whether the records were read.
  *
  * Three states, and conflating any two of them is a lie of a different size:
@@ -203,6 +224,7 @@ export function assess(
   observed?: Observed,
   payment?: Payment,
   reputation?: Reputation | null,
+  quality?: Quality | null,
 ): Assessment {
   const protocols = agent.supported_protocols ?? [];
   const interfaces = protocols.filter((p) => CALLABLE_PROTOCOLS.has(p.toUpperCase()));
@@ -252,6 +274,9 @@ export function assess(
           : observed.reachedAnotherWay
             ? `Not an HTTP server — it publishes a route Kawal cannot call for you`
             : `${observed.answered} of ${observed.checks} call${observed.checks === 1 ? "" : "s"} answered`,
+      // The verdict rests on this many calls. Printed so a reader can tell
+      // "answered 1 of 1" from "answered 83 of 85" without doing arithmetic.
+      evidence: observed?.checks,
     },
     {
       /*
@@ -304,6 +329,25 @@ export function assess(
     },
   ];
 
+  // Only when the Quality Center was actually read. A row saying "no flags"
+  // for an agent nobody checked would be the same unearned tick the payable
+  // row used to be.
+  const flags = seriousFlags(quality);
+  if (quality) {
+    const all = quality.risk_flags.length;
+    signals.push({
+      key: "flagged",
+      label: "Risk flags",
+      pass: flags.length === 0,
+      detail:
+        flags.length > 0
+          ? `8004scan raised ${flags.map((f) => `${f.severity}: ${f.title || f.id}`).join("; ")}`
+          : all > 0
+            ? `${all} low or medium flag${all === 1 ? "" : "s"} from 8004scan — none serious`
+            : "No risk flags raised by 8004scan",
+    });
+  }
+
   // Hiring needs both an interface to call and a way to pay for the call.
   // Everything else is quality, not possibility.
   //
@@ -320,22 +364,80 @@ export function assess(
           ? "reachable"
           : "registered";
 
-  return { tier, signals, duplicates };
+  return { tier, signals, duplicates, flagged: flags.length };
 }
 
-/** Ranking within a category: evidence first, popularity a distant second. */
-export function rank(agent: ScanAgent, a: Assessment) {
-  // An endpoint proven silent ranks below one that merely never declared an
-  // interface: the second is honest about having nothing, the first is not.
+/**
+ * What Kawal has measured, offered to `rank` on top of the registry's numbers.
+ *
+ * All optional, because a list response carries none of it and the score has
+ * to be computable from the registry alone. Where any of it is present it
+ * outweighs the registry's own popularity figures, which is the point: the
+ * registry's numbers are claims and these are calls.
+ */
+export type Measured = {
+  observed?: Observed;
+  /** Median answering latency, when there is one. */
+  uptime?: { medianMs: number | null } | null;
+  reputation?: Reputation | null;
+};
+
+/**
+ * Ranking within a category: evidence first, popularity a distant second.
+ *
+ * The score is a sum, so each term can be read off on its own:
+ *
+ *   tier          hireable +1000, reachable +500, registered 0, unreachable -200
+ *                 An endpoint proven silent ranks below one that never
+ *                 declared an interface: the second is honest about having
+ *                 nothing, the first is not.
+ *   duplicates    -400 when the registration has an identical twin
+ *   risk flags    -300 per high or critical flag 8004scan raised
+ *   answered      +300 × (answered ÷ checks), once Kawal has called at least
+ *                 MIN_OBSERVATIONS_TO_OVERRULE times. Skipped for an agent
+ *                 that publishes a non-HTTP route: it was not silent, it was
+ *                 not a server, and neither reading is an uptime figure.
+ *   latency       +0 … +50, linear from a 5 s median down to instant. Small
+ *                 on purpose: speed is a tiebreak, not a reason.
+ *   total_score   × 3, 8004scan's own composite
+ *   health_score  as is, 8004scan's cached health check
+ *   feedbacks     × 2, capped at 50 records — halved when Kawal read the
+ *                 records and two thirds or more came from one address, since
+ *                 a count that one writer produced is not a count of opinions
+ *   stars         capped at 50
+ *
+ * Kawal's own answered-rate term is worth as much as 150 registry feedbacks
+ * because that is the ratio of how much each is trusted here.
+ */
+export function rank(agent: ScanAgent, a: Assessment, measured: Measured = {}) {
   const tierWeight =
     a.tier === "hireable" ? 1000 : a.tier === "reachable" ? 500 : a.tier === "unreachable" ? -200 : 0;
   const dupPenalty = a.duplicates > 1 ? 400 : 0;
+  const flagPenalty = a.flagged * 300;
+
+  const o = measured.observed;
+  const answeredTerm =
+    o && o.checks >= MIN_OBSERVATIONS_TO_OVERRULE && !o.reachedAnotherWay
+      ? (o.answered / o.checks) * 300
+      : 0;
+
+  const median = measured.uptime?.medianMs;
+  const latencyTerm =
+    typeof median === "number" && median >= 0 ? Math.max(0, 50 - median / 100) : 0;
+
+  const r = measured.reputation;
+  const captured = r != null && r.sampled > 0 && r.topRaterShare >= CAPTURED_SHARE;
+  const feedbackTerm = Math.min(agent.total_feedbacks, 50) * (captured ? 1 : 2);
+
   return (
     tierWeight -
-    dupPenalty +
+    dupPenalty -
+    flagPenalty +
+    answeredTerm +
+    latencyTerm +
     agent.total_score * 3 +
     (agent.health_score ?? 0) +
-    Math.min(agent.total_feedbacks, 50) * 2 +
+    feedbackTerm +
     Math.min(agent.star_count, 50)
   );
 }

@@ -31,7 +31,7 @@ import {
 import { VENUES } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { publicClientFor, cycleCost } from "../lib/rpc.ts";
-import { adminKey, hasAdminKey, KEY_FILE, SESSION_FILE } from "../lib/vault.ts";
+import { adminKey, hasAdminKey, withLedgerLock, writeLedger, KEY_FILE, SESSION_FILE } from "../lib/vault.ts";
 
 const NETS = {
   testnet: { chainId: BSC_TESTNET, faucet: "https://testnet.bnbchain.org/faucet-smart" },
@@ -148,7 +148,14 @@ if (granted.length === 0) {
   process.exit(1);
 }
 
-writeFileSync(SESSION_FILE, JSON.stringify(granted, null, 2), { mode: 0o600 });
+// Appended under the ledger lock, like every other writer. This used to
+// replace the file wholesale, which threw away every earlier seat — including
+// revoked ones, whose row is the only record left once KeyStore revocation
+// has done its monotonic work — and raced the control room's own writes.
+withLedgerLock((seats) => {
+  seats.push(...granted);
+  writeLedger(seats);
+});
 console.log(`\n${granted.length}/4 seats granted and registered in KeyStore -> ${SESSION_FILE}`);
 if (failures.length) console.log(`failures:\n  ${failures.join("\n  ")}`);
 

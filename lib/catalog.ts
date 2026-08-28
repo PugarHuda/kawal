@@ -25,17 +25,20 @@ import {
   seriesKey,
   stencilKey,
   type Assessment,
-  type Observed,
+  type Measured,
 } from "./signals.ts";
 
 /**
- * The protocol values 8004scan indexes for agents you can actually call.
+ * The three server-side filters for agents you can actually call, one per
+ * protocol the prober speaks.
  *
- * Case matters: the API's `protocol` filter is exact, and "mcp" silently
- * returns zero rows where "MCP" returns 5,069. A filter that fails by
- * returning nothing is the worst kind — it looks like an empty category.
+ * These go to `/api/v1/agents` as `has_mcp` / `has_a2a` / `has_oasf`, which
+ * filter on the registration actually carrying an endpoint for the protocol
+ * rather than merely naming it. The public path's `protocol=MCP` was the
+ * previous route and still works; the difference is that these are honoured
+ * alongside `search`, and the public path's `has_*` are silently ignored.
  */
-const CALLABLE_PROTOCOLS = ["MCP", "A2A", "OASF"] as const;
+const CALLABLE_FILTERS = [{ hasMcp: true }, { hasA2a: true }, { hasOasf: true }] as const;
 
 
 export type Listing = {
@@ -95,15 +98,18 @@ export function collapseDuplicates(listings: Listing[]): Listing[] {
  */
 export function reassess(
   listings: Listing[],
-  observations: Map<string, { observed?: Observed }>,
+  observations: Map<string, Measured>,
 ): Listing[] {
   return listings
     .map((l) => {
-      const observed = observations.get(l.agent.agent_id)?.observed;
-      if (!observed) return l;
+      const measured = observations.get(l.agent.agent_id);
+      if (!measured?.observed) return l;
 
-      const assessment = assess(l.agent, undefined, observed);
-      return { ...l, assessment, score: rank(l.agent, assessment) };
+      // The latency and reputation readings only reach `rank`: the tier is
+      // about whether the agent can be reached at all, and a slow or
+      // fan-rated agent can still be hired.
+      const assessment = assess(l.agent, undefined, measured.observed, undefined, measured.reputation);
+      return { ...l, assessment, score: rank(l.agent, assessment, measured) };
     })
     .sort((a, b) => b.score - a.score);
 }
@@ -116,6 +122,8 @@ export type CategoryResult = {
   /** Chain-wide match count for this category's strongest probe. */
   chainTotal: number;
   semantic: boolean;
+  /** When the registry stamped the freshest response behind this result. */
+  asOf: string;
 };
 
 /**
@@ -151,6 +159,7 @@ async function retrieveCategoryUncached(
   const byId = new Map<string, ScanAgent>();
   let chainTotal = 0;
   let semantic = false;
+  let asOf = "";
 
   // Two sweeps, because searching the whole roster and searching the callable
   // pool find different things.
@@ -165,14 +174,14 @@ async function retrieveCategoryUncached(
   const results = await Promise.allSettled([
     ...c.probes.map((p) => searchAgents(p, { chainId, limit: perProbe })),
     ...c.probes.flatMap((p) =>
-      CALLABLE_PROTOCOLS.map(async (protocol) => {
-        const { agents, total } = await listAgents({
+      CALLABLE_FILTERS.map(async (filter) => {
+        const { agents, total, asOf } = await listAgents({
           chainId,
-          protocol,
+          ...filter,
           search: p,
           limit: perProbe,
         });
-        return { agents, total, semantic: false };
+        return { agents, total, semantic: false, asOf };
       }),
     ),
   ]);
@@ -181,6 +190,7 @@ async function retrieveCategoryUncached(
     if (r.status !== "fulfilled") continue;
     semantic = semantic || r.value.semantic;
     chainTotal = Math.max(chainTotal, r.value.total);
+    if (r.value.asOf > asOf) asOf = r.value.asOf;
     for (const a of r.value.agents) byId.set(a.agent_id, a);
   }
 
@@ -189,7 +199,7 @@ async function retrieveCategoryUncached(
     (l) => l.classification.category === c.id && l.classification.confidence >= MIN_CONFIDENCE,
   );
 
-  return { category: c, listings, retrieved, chainTotal, semantic };
+  return { category: c, listings, retrieved, chainTotal, semantic, asOf: asOf || new Date().toISOString() };
 }
 
 export async function retrieveAllCategories(chainId = BSC_MAINNET) {
@@ -216,11 +226,11 @@ export async function browse(opts: { chainId?: number; search?: string; limit?: 
   const limit = opts.limit ?? 60;
   const term = opts.search?.trim();
 
-  const { agents, total } = term
+  const { agents, total, asOf } = term
     ? await searchAgents(term, { chainId, limit })
     : await listAgents({ chainId, limit, sortBy: "total_score", sortOrder: "desc" });
   // The unfiltered tab needs the same collapse as a category page: without it
   // "All" is where every minted series reappears in full.
-  return { listings: collapseDuplicates(toListings(agents)), total };
+  return { listings: collapseDuplicates(toListings(agents)), total, asOf };
 }
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { winnerOf, type TaskResult, type Run } from "@/lib/advantage.report";
+import { winnerOf, parseReport, plural, sampleCount, type TaskResult, type Run, type Report } from "@/lib/advantage.report";
 import { Stamp } from "@/components/listing";
 
 /**
@@ -26,8 +26,6 @@ export const metadata = {
     "Three real tasks on BNB Chain, run twice: once by hiring an agent, once by hand. Medians, coverage and cost for both.",
 };
 
-type Report = { generatedAt: string; tasks: TaskResult[] };
-
 /**
  * Reads the last harness run.
  *
@@ -35,18 +33,49 @@ type Report = { generatedAt: string; tasks: TaskResult[] };
  * uptime history are: a relative path follows the process, so a server started
  * from elsewhere would quietly find nothing and render an empty report as
  * though the harness had never won a race. Null rather than a throw when the
- * file is absent — the honest answer there is "no measurements", not a 500.
+ * file is absent or does not parse as a report — the honest answer in both
+ * cases is "no measurements", not a 500.
  */
 function loadReport(): Report | null {
   const configured = process.env.KAWAL_ADVANTAGE_FILE ?? "advantage-output/results.json";
   const path = isAbsolute(configured) ? configured : join(process.cwd(), configured);
 
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Report;
-    return Array.isArray(parsed.tasks) && parsed.tasks.length > 0 ? parsed : null;
+    return parseReport(JSON.parse(readFileSync(path, "utf8")));
   } catch {
     return null;
   }
+}
+
+/**
+ * One sentence per task saying what decided it, read off the numbers.
+ *
+ * The first version of this section was three paragraphs written after one
+ * run — "fourteen vaults", "two of the three" — which the next run would
+ * quietly falsify while the page went on printing them. The rule narrated
+ * here is the one `winnerOf` applies, so the prose cannot disagree with the
+ * marker beside each row.
+ */
+function whatDecided(t: TaskResult): string {
+  const won = winnerOf(t);
+  if (won === "none") {
+    return `${t.title}: no verdict. One path failed on this run, so its numbers describe the attempt rather than the agent.`;
+  }
+  const winner = won === "hired" ? t.hired : t.manual;
+  const loser = won === "hired" ? t.manual : t.hired;
+  const ratio = t.hired.coverage.count / Math.max(t.manual.coverage.count, 1);
+  if (ratio >= 2 || ratio <= 0.5) {
+    return (
+      `${t.title}: ${won === "hired" ? "hiring" : "doing it by hand"} won on ground covered, ` +
+      `${winner.coverage.count.toLocaleString()} ${plural(winner.coverage.count, winner.coverage.unit)} against ` +
+      `${loser.coverage.count.toLocaleString()}. Matching that is many more calls, not one faster one.`
+    );
+  }
+  const same = `both paths returned the same ${plural(2, t.hired.coverage.unit)}, so the clock decided`;
+  const clock = `${winner.ms.toLocaleString()} ms against ${loser.ms.toLocaleString()} ms`;
+  return won === "hired"
+    ? `${t.title}: ${same}. Hiring answered in ${clock}. Same answer, sooner.`
+    : `${t.title}: ${same}. By hand took ${clock}. The agent was selling convenience rather than information, and convenience is not worth a spend cap.`;
 }
 
 export default function AdvantagePage() {
@@ -74,6 +103,8 @@ export default function AdvantagePage() {
 
   const { tasks } = report;
   const hiredWins = tasks.filter((t) => winnerOf(t) === "hired").length;
+  const samples = sampleCount(tasks);
+  const spentUsd = tasks.reduce((sum, t) => sum + t.hired.costUsd + t.manual.costUsd, 0);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
@@ -105,11 +136,12 @@ export default function AdvantagePage() {
             <span className="cap">Cara · method</span>
             <p className="typed mt-2 text-[0.9rem] text-carbon-2">
               Medians over repeated samples, spread shown. Verdicts computed from the timings, never
-              written ahead of the run.
+              written ahead of the run. {samples.toLocaleString()} timed call{samples === 1 ? "" : "s"}{" "}
+              behind the stamp.
             </p>
             <div className="mt-4 self-end">
-              <Stamp ink={hiredWins >= tasks.length / 2 ? "stamp-violet" : "stamp-red"} size="lg" evidence={tasks.length * 30}>
-                {hiredWins} dari {tasks.length}
+              <Stamp ink={hiredWins >= tasks.length / 2 ? "stamp-violet" : "stamp-red"} size="lg" evidence={samples}>
+                <span lang="id">{hiredWins} dari {tasks.length}</span>
               </Stamp>
             </div>
           </div>
@@ -121,26 +153,28 @@ export default function AdvantagePage() {
 
         <section className="border-t-[1.5px] border-rule px-5 py-6">
           <h2 className="heading text-[1.8rem]">What the losses are made of</h2>
-          <p className="typed mt-3 max-w-[64ch] text-[0.92rem] text-carbon-2">
-            Every task the manual path won, it won on the clock — a direct read beats a round trip
-            through somebody else&rsquo;s server, and it always will. On those two tasks both paths came
-            back with the same answer, so the agent was selling convenience rather than information,
-            and convenience is not worth a spend cap.
+          <ul className="mt-3 max-w-[64ch] space-y-3">
+            {tasks.map((t) => (
+              <li key={t.id} className="typed text-[0.92rem] text-carbon-2">
+                {whatDecided(t)}
+              </li>
+            ))}
+          </ul>
+          <p className="typed mt-4 max-w-[64ch] text-[0.92rem] text-carbon-2">
+            A direct read beats a round trip through somebody else&rsquo;s server on the clock, and it
+            always will. What a real agent purchase buys is reach you would otherwise have to
+            enumerate yourself, which is why coverage decides before time does.
           </p>
           <p className="typed mt-3 max-w-[64ch] text-[0.92rem] text-carbon-2">
-            The task hiring won, it won on ground covered: fourteen vaults across several protocols
-            against one. Matching that by hand is not one faster call, it is many more calls plus
-            knowing which protocols to ask in the first place. That is the shape of a real agent
-            purchase — not speed, but reach you would otherwise have to enumerate yourself.
-          </p>
-          <p className="typed mt-3 max-w-[64ch] text-[0.92rem] text-carbon-2">
-            Worth noting what the cost column says: nothing was charged for any of it. All three
-            agents are registered <code className="font-bold">x402_supported</code> on 8004scan and not
-            one issued a payment challenge, which is why{" "}
+            What the cost column says:{" "}
+            {spentUsd === 0
+              ? "nothing was charged for any of it; no path issued a payment challenge."
+              : `$${spentUsd.toFixed(2)} left a wallet across every run.`}{" "}
             <Link href="/agents" className="underline">
-              the agent pages
+              The agent pages
             </Link>{" "}
-            report that flag as a claim rather than a price.
+            report an <code className="font-bold">x402_supported</code> flag as a claim rather than a
+            price for the same reason.
           </p>
         </section>
 

@@ -11,6 +11,8 @@ import { observedTotals } from "@/lib/uptime";
  * probe history are read with the same tolerance as the form itself —
  * absent, the card still prints the sheet.
  */
+// The count is live, so the card is rendered on request rather than at build.
+export const dynamic = "force-dynamic";
 export const alt = "Kawal — Form K-1, the cover sheet";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -135,17 +137,25 @@ export default async function Image() {
                   right: 28,
                   bottom: 36,
                   display: "flex",
-                  padding: "10px 22px",
-                  border: "5px double #4a2a7d",
-                  color: "#4a2a7d",
-                  fontFamily: form,
-                  fontSize: 40,
-                  letterSpacing: 4,
+                  padding: 3,
+                  border: "2px solid #4a2a7d",
                   transform: "rotate(-8deg)",
                   opacity: 0.9,
                 }}
               >
-                TELAH DIPERIKSA
+                <div
+                  style={{
+                    display: "flex",
+                    padding: "8px 20px",
+                    border: "2px solid #4a2a7d",
+                    color: "#4a2a7d",
+                    fontFamily: form,
+                    fontSize: 40,
+                    letterSpacing: 4,
+                  }}
+                >
+                  TELAH DIPERIKSA
+                </div>
               </div>
             </div>
           </div>

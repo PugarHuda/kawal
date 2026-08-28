@@ -1,8 +1,12 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { browse, retrieveCategory, reassess } from "@/lib/catalog";
 import { categoryById, CATEGORIES } from "@/lib/taxonomy";
 import { ListingRow, seatColor, Stamp, Legend } from "@/components/listing";
+import { CompareSubmit } from "@/components/compare-submit";
+import { BlankRows } from "@/components/blank-rows";
 import { probeListings } from "@/lib/liveness";
+import { MAX_COLUMNS } from "@/lib/compare";
 import type { Listing } from "@/lib/catalog";
 
 /**
@@ -13,7 +17,12 @@ import type { Listing } from "@/lib/catalog";
  * retrieved, what survived, what is stamped hireable; and the rows are the
  * agents, each ruled in its seat's ink with the stamp Kawal pressed after
  * calling it.
+ *
+ * Rendered per request: the CSP nonce is minted per request, and the rows
+ * are re-ranked by calls Kawal makes at request time.
  */
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ searchParams }: PageProps<"/agents">) {
   const params = await searchParams;
   const category = typeof params.category === "string" ? categoryById(params.category) : undefined;
@@ -63,25 +72,6 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
     failed = true;
   }
 
-  // Call the hireable endpoints ourselves before anyone decides. Bounded to a
-  // handful and memoised, so this costs one burst and nothing thereafter.
-  const proofs = await probeListings(listings);
-
-  // Rows Kawal has called are re-scored against what answered, then re-ranked.
-  // An agent the registry calls hireable that has never answered must not keep
-  // the top of a page it is wrong about.
-  listings = reassess(listings, proofs);
-
-  // The listing ranks by evidence, so the first few rows are already the
-  // shortlist a buyer would build by hand. Handing them straight to the
-  // comparison saves the step that judging in isolation makes people skip.
-  const shortlist = listings.slice(0, 3);
-  const compareCount = shortlist.length;
-  const compareHref =
-    compareCount >= 2
-      ? `/compare?ids=${shortlist.map((l) => `${l.agent.chain_id}:${l.agent.token_id}`).join(",")}`
-      : null;
-
   return (
     <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
       {/* Index tabs along the top edge of the book. */}
@@ -110,16 +100,17 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
             <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2">{heading}</h1>
             <p className="typed mt-3 max-w-[62ch] text-carbon-2">{subheading}</p>
 
-            {/* The search line, typed into the form itself. */}
+            {/* The search line, typed into the form itself. The caption is
+                the instruction; the placeholder only shows the shape. */}
             {!category && (
-              <form method="get" className="mt-5 flex max-w-lg gap-2">
+              <form method="get" className="mt-5 flex max-w-lg items-end gap-2">
                 <label className="flex-1">
-                  <span className="cap sr-only">Search the roster</span>
+                  <span className="cap mb-1 block">Search the roster · describe the job in plain words</span>
                   <input
                     type="search"
                     name="q"
                     defaultValue={q}
-                    placeholder="describe the job — e.g. watch my lending position"
+                    placeholder="e.g. watch my lending position"
                     className="field w-full"
                   />
                 </label>
@@ -127,14 +118,6 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
                   Search
                 </button>
               </form>
-            )}
-
-            {compareHref && (
-              <p className="mt-5">
-                <Link href={compareHref} className="counterfoil counterfoil--quiet">
-                  Compare the {compareCount} strongest side by side →
-                </Link>
-              </p>
             )}
           </div>
 
@@ -162,9 +145,10 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
               <span className="cap">Cara · how this list is made</span>
               <p className="typed mt-2 text-[0.9rem] text-carbon-2">
                 Duplicate registrations are collapsed — roughly two thirds of the newest arrivals are
-                copies of a template — and every agent Kawal has called carries the stamp it earned.
-                Search goes through the registry&rsquo;s vector index, so a problem described in plain
-                words finds agents that never mention it by name.
+                copies of a template (sampled 2026-08-26, <code>npm run roster</code>) — and every agent
+                Kawal has called carries the stamp it earned. Search goes through the registry&rsquo;s
+                vector index, so a problem described in plain words finds agents that never mention it
+                by name.
               </p>
             </div>
           )}
@@ -181,26 +165,87 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
             category has to be supplied, not indexed.
           </p>
         ) : (
-          <div className="border-t-[1.5px] border-rule px-5">
-            {listings.map((l) => (
-              <ListingRow key={l.agent.agent_id} listing={l} proof={proofs.get(l.agent.agent_id)?.proof} />
-            ))}
-          </div>
+          // The header is on the wire while the endpoints are being called.
+          // The rows wait for the calls rather than streaming around them:
+          // they are re-ranked by what answered, and rows that reorder under
+          // a reader are worse than rows that arrive a moment later.
+          <Suspense
+            fallback={
+              <div className="border-t-[1.5px] border-rule">
+                <p className="cap px-5 pt-3">Calling the declared endpoints…</p>
+                <BlankRows count={Math.min(listings.length, 6)} />
+              </div>
+            }
+          >
+            <Manifest listings={listings} />
+          </Suspense>
         )}
       </section>
 
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat>Telah diperiksa</Stamp>, means: "declares an interface and Kawal reached it, or the registry's claim stands unchecked" },
-            { mark: <Stamp ink="stamp-blue" size="sm" flat>Diterima</Stamp>, means: "something answered, not in the declared protocol" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat>Ditolak</Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat lang="id">Telah diperiksa</Stamp>, means: "declares an interface and Kawal reached it, or the registry's claim stands unchecked" },
+            { mark: <Stamp ink="stamp-blue" size="sm" flat lang="id">Diterima</Stamp>, means: "something answered, not in the declared protocol" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat lang="id">Ditolak</Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat lang="id">Belum diperiksa</Stamp>, means: "declares nothing to call" },
             { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule bg-carbon" />, means: "signal holds" },
             { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule" />, means: "signal fails or is unverified" },
+            { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule bg-stamp-violet" />, means: "called just now, answered in its protocol" },
+            { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule bg-stamp-red" />, means: "called just now, did not answer" },
           ]}
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * The rows, once Kawal has called the endpoints that can be called.
+ *
+ * Bounded to a handful and memoised, so this costs one burst and nothing
+ * thereafter. Rows Kawal has called are re-scored against what answered,
+ * then re-ranked: an agent the registry calls hireable that has never
+ * answered must not keep the top of a page it is wrong about.
+ */
+async function Manifest({ listings }: { listings: Listing[] }) {
+  const proofs = await probeListings(listings);
+  const ranked = reassess(listings, proofs);
+
+  // The listing ranks by evidence, so the first few rows are already the
+  // shortlist a buyer would build by hand. Handing them straight to the
+  // comparison saves the step that judging in isolation makes people skip;
+  // the tick boxes are for a shortlist of the reader's own.
+  const shortlist = ranked.slice(0, MAX_COLUMNS);
+  const compareHref =
+    shortlist.length >= 2
+      ? `/compare?ids=${shortlist.map((l) => `${l.agent.chain_id}:${l.agent.token_id}`).join(",")}`
+      : null;
+
+  return (
+    <form method="get" action="/compare" className="border-t-[1.5px] border-rule">
+      <h2 className="sr-only">Listed agents</h2>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b-[1.5px] border-rule px-5 py-3">
+        {compareHref && (
+          <Link href={compareHref} className="counterfoil counterfoil--quiet">
+            Compare the {shortlist.length} strongest side by side →
+          </Link>
+        )}
+        <CompareSubmit max={MAX_COLUMNS} />
+        <span className="cap">tick two or three rows for a comparison of your own</span>
+      </div>
+      <div className="px-5">
+        {ranked.map((l) => (
+          <ListingRow key={l.agent.agent_id} listing={l} probe={proofs.get(l.agent.agent_id)} selectable />
+        ))}
+      </div>
+      {/* A second stub at the foot: the ticking happens on the way down. */}
+      {ranked.length > 4 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t-[1.5px] border-rule px-5 py-3">
+          <CompareSubmit max={MAX_COLUMNS} />
+        </div>
+      )}
+    </form>
   );
 }
 

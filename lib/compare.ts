@@ -1,7 +1,9 @@
 import { getAgent, getQuality, getScoreHistory } from "@/lib/scan";
 import { proveAgent, type EndpointProof } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
-import { classify } from "@/lib/taxonomy";
+import { checkX402Cached, type X402Check } from "@/lib/x402";
+import { getReputationCached, type Reputation } from "@/lib/reputation";
+import { classify, type CategoryId } from "@/lib/taxonomy";
 import { assess, type Assessment } from "@/lib/signals";
 import { categoryLabel, seatColor } from "@/components/listing";
 import type { ScanAgentDetail, AgentQuality, ScoreHistory } from "@/lib/scan";
@@ -24,40 +26,84 @@ export type Column = {
   history: ScoreHistory | null;
   proof: EndpointProof | null;
   uptime: Uptime | null;
+  /** What the server said when asked to charge; null when nothing claimed x402 or nothing could be called. */
+  payment: X402Check | null;
+  /** Who wrote the feedback; null when the records could not be read. */
+  reputation: Reputation | null;
   assessment: Assessment;
+  categoryId: CategoryId | null;
   category: string;
   confidence: number;
+  /** ISO time of the newest thing Kawal did for this column. */
+  checkedAt: string;
 };
 
-/** Parses "56:43129,56:45422" into chain/token pairs, dropping anything odd. */
-export function parseRefs(raw: string | string[] | undefined): Array<{ chainId: number; tokenId: string }> {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (!value) return [];
+export type Ref = { chainId: number; tokenId: string };
+
+export type ParsedRefs = {
+  refs: Ref[];
+  /** Parts that were not `chain:token`, so the form can say so rather than drop them silently. */
+  rejected: number;
+  /** Readable refs past the third, ignored. */
+  truncated: number;
+};
+
+/**
+ * Parses ids into chain/token pairs.
+ *
+ * Takes both spellings a browser produces: `?ids=56:1,56:2` from a typed
+ * address, and `?ids=56:1&ids=56:2` from a form of tick boxes. Nothing odd is
+ * kept, but it is counted — a visitor who mistyped one id deserves to be told
+ * which of their three columns is missing and why.
+ */
+export function parseRefs(raw: string | string[] | undefined): ParsedRefs {
+  const values = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
 
   const seen = new Set<string>();
-  const out: Array<{ chainId: number; tokenId: string }> = [];
-  for (const part of value.split(",")) {
-    const [chain, token] = part.trim().split(":");
+  const refs: Ref[] = [];
+  let rejected = 0;
+  let truncated = 0;
+
+  for (const part of values.flatMap((v) => v.split(","))) {
+    const trimmed = part.trim();
+    if (trimmed === "") continue;
+    const [chain, token, ...rest] = trimmed.split(":");
     const chainId = Number(chain);
-    if (!Number.isInteger(chainId) || chainId <= 0) continue;
-    if (!token || !/^\d+$/.test(token)) continue;
+    if (rest.length > 0 || !Number.isInteger(chainId) || chainId <= 0 || !token || !/^\d+$/.test(token)) {
+      rejected++;
+      continue;
+    }
     const key = `${chainId}:${token}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ chainId, tokenId: token });
-    if (out.length === MAX_COLUMNS) break;
+    if (refs.length === MAX_COLUMNS) {
+      truncated++;
+      continue;
+    }
+    refs.push({ chainId, tokenId: token });
   }
-  return out;
+  return { refs, rejected, truncated };
 }
 
 export async function loadColumn(chainId: number, tokenId: string): Promise<Column | null> {
   const agent = await getAgent(chainId, tokenId).catch(() => null);
   if (!agent) return null;
 
-  const [quality, proof, history] = await Promise.all([
+  const [quality, proof, history, reputation] = await Promise.all([
     getQuality(chainId, tokenId),
     proveAgent(agent),
     getScoreHistory(chainId, tokenId),
+    getReputationCached(chainId, tokenId),
+  ]);
+
+  // Same rule as the inspection sheet: only an agent that claims to charge is
+  // asked to, and only where there is an endpoint to ask.
+  const payment =
+    agent.x402_supported === true && proof?.endpoint ? await checkX402Cached(proof.endpoint) : null;
+
+  const [uptime, observed] = await Promise.all([
+    proof ? uptimeFor(proof.endpoint) : null,
+    observedFor(proof?.endpoint),
   ]);
 
   const classification = classify(agent.name, agent.description);
@@ -66,12 +112,25 @@ export async function loadColumn(chainId: number, tokenId: string): Promise<Colu
     agent,
     quality,
     proof,
-    uptime: proof ? await uptimeFor(proof.endpoint) : null,
+    uptime,
+    payment,
+    reputation,
     history,
-    assessment: assess(agent, undefined, await observedFor(proof?.endpoint)),
+    assessment: assess(
+      agent,
+      undefined,
+      observed && { ...observed, reachedAnotherWay: proof?.descriptor != null },
+      payment ? { demanded: payment.demanded } : undefined,
+      reputation,
+      quality,
+    ),
+    categoryId: classification.category,
     category: categoryLabel(classification.category),
     confidence: classification.confidence,
     color: seatColor(classification.category),
+    checkedAt: [proof?.checkedAt, payment?.checkedAt, reputation?.checkedAt]
+      .filter((t): t is string => typeof t === "string")
+      .sort()
+      .at(-1) ?? new Date().toISOString(),
   };
 }
-

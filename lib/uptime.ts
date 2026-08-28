@@ -72,6 +72,18 @@ async function open(): Promise<Store | null> {
         if (!columns.some((c) => c.name === "protocol")) {
           await store.exec("ALTER TABLE probe ADD COLUMN protocol TEXT NOT NULL DEFAULT 'mcp'");
         }
+
+        // One row per scheduled sweep, in the same store as the probes it
+        // made, so "when did Kawal last look" is answerable from the same
+        // place as "what did it find".
+        await store.exec(`
+          CREATE TABLE IF NOT EXISTS sweep (
+            ran_at   INTEGER NOT NULL,
+            probed   INTEGER NOT NULL,
+            answered INTEGER NOT NULL,
+            verified INTEGER NOT NULL
+          )
+        `);
         return store;
       } catch {
         return null;
@@ -111,6 +123,56 @@ export async function recordProbe(proof: EndpointProof): Promise<void> {
   }
 }
 
+export type SweepRun = {
+  ranAt: string;
+  /** Agents whose declared endpoint was actually dialled. */
+  probed: number;
+  /** Of those, how many answered in their declared protocol. */
+  answered: number;
+  /** How many 8004scan accepted a re-verification request for. */
+  verified: number;
+};
+
+/** Writes one sweep's tally. Silent on failure, like every write here. */
+export async function recordSweep(run: SweepRun): Promise<void> {
+  const store = await open();
+  if (!store) return;
+  try {
+    await store.run("INSERT INTO sweep (ran_at, probed, answered, verified) VALUES (?, ?, ?, ?)", [
+      Math.floor(new Date(run.ranAt).getTime() / 1000),
+      run.probed,
+      run.answered,
+      run.verified,
+    ]);
+    await store.run("DELETE FROM sweep WHERE ran_at < ?", [Math.floor(Date.now() / 1000) - RETAIN_DAYS * 86_400]);
+  } catch {
+    // A lost tally costs one line on the health page, never the sweep.
+  }
+}
+
+/**
+ * The most recent scheduled sweep, or null when none has run — which on a
+ * fresh deployment is the honest answer and worth printing as such.
+ */
+export async function lastSweep(): Promise<SweepRun | null> {
+  const store = await open();
+  if (!store) return null;
+  try {
+    const row = await store.get<{ ran_at: number; probed: number; answered: number; verified: number }>(
+      "SELECT ran_at, probed, answered, verified FROM sweep ORDER BY ran_at DESC LIMIT 1",
+    );
+    if (!row) return null;
+    return {
+      ranAt: new Date(Number(row.ran_at) * 1000).toISOString(),
+      probed: Number(row.probed),
+      answered: Number(row.answered),
+      verified: Number(row.verified),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export type Uptime = {
   checks: number;
   answered: number;
@@ -121,6 +183,8 @@ export type Uptime = {
   medianMs: number | null;
   /** Slowest answering check, so a bad tail is visible behind a good median. */
   worstMs: number | null;
+  /** Whether the newest check answered: the cell the tally strip outlines. */
+  lastAnswered: boolean;
 };
 
 /**
@@ -162,6 +226,11 @@ export async function uptimeFor(endpoint: string): Promise<Uptime | null> {
       )
     ).map((r) => Number(r.latency_ms));
 
+    const newest = await store.get<{ is_mcp: number }>(
+      "SELECT is_mcp FROM probe WHERE endpoint = ? ORDER BY checked_at DESC, rowid DESC LIMIT 1",
+      [endpoint],
+    );
+
     const mid = latencies.length >> 1;
     const medianMs =
       latencies.length === 0
@@ -177,6 +246,7 @@ export async function uptimeFor(endpoint: string): Promise<Uptime | null> {
       lastCheckedAt: Number(row.last_checked_at ?? 0),
       medianMs,
       worstMs: latencies[latencies.length - 1] ?? null,
+      lastAnswered: Number(newest?.is_mcp ?? 0) === 1,
     };
   } catch {
     return null;

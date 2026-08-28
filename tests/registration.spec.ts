@@ -25,12 +25,24 @@ test("the registration document declares only what answers", async ({ request, b
   expect(byName.a2a).toBe(`${baseURL}/.well-known/agent-card.json`);
   expect(byName.web).toBe(baseURL);
 
-  // Dial what it declares. The MCP endpoint must complete the handshake…
+  // Dial what it declares. The MCP endpoint must complete the handshake, in
+  // the revision the document names for it…
   const mcp = await request.post(byName.mcp, {
     headers: { "content-type": "application/json" },
     data: { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
   });
-  expect((await mcp.json()).result.serverInfo.name).toBe("kawal");
+  const handshake = (await mcp.json()).result;
+  expect(handshake.serverInfo.name).toBe("kawal");
+  const mcpService = doc.services.find((s: { name: string }) => s.name === "mcp");
+  expect(handshake.protocolVersion).toBe(mcpService.version);
+  // …and list exactly the tools the document counts.
+  const listed = await request.post(byName.mcp, {
+    headers: { "content-type": "application/json" },
+    data: { jsonrpc: "2.0", id: 2, method: "tools/list" },
+  });
+  const tools = (await listed.json()).result.tools as Array<{ name: string }>;
+  expect(mcpService.description).toContain(`${tools.length} tools`);
+  for (const t of tools) expect(mcpService.description).toContain(t.name);
 
   // …and the A2A card must name a JSON-RPC endpoint that answers.
   const card = await (await request.get(byName.a2a)).json();

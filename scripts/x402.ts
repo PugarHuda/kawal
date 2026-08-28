@@ -9,6 +9,11 @@
  *   npm run x402            sample 200 registrations
  *   npm run x402 -- 400     sample more
  *
+ * Two places a claim is made, both counted. The registry flag is one; an A2A
+ * agent card's `capabilities.x402` is the other, and it was invisible while
+ * this sweep only read `services.mcp` — which also skipped every A2A-only
+ * agent, 46 of the 114 Kawal lists, however they were flagged.
+ *
  * Only endpoints that already answer are counted as tested. An agent whose
  * endpoint is dead tells us nothing about x402 either way, and folding those
  * into the denominator would understate the problem.
@@ -17,6 +22,8 @@
 import { listAgents, getAgent } from "../lib/scan.ts";
 import { mapLimit } from "../lib/concurrency.ts";
 import { checkX402, networkName } from "../lib/x402.ts";
+import { proveAgent } from "../lib/probe.ts";
+import { probeA2a } from "../lib/a2a.ts";
 
 /*
  * A negative result is only worth reporting if the instrument works.
@@ -45,7 +52,8 @@ console.log(`               the reader works, so a zero below is a finding, not 
 const sample = Number(process.argv[2] ?? 200);
 const pages = Math.max(1, Math.ceil(sample / 50));
 
-const claimants: { name: string; tokenId: string }[] = [];
+type Candidate = { name: string; tokenId: string; flagged: boolean; a2a: boolean };
+const candidates: Candidate[] = [];
 let scanned = 0;
 let total = 0;
 
@@ -54,22 +62,40 @@ for (let page = 1; page <= pages; page++) {
   if (page === 1) total = res.total;
   scanned += res.agents.length;
   for (const a of res.agents) {
-    if (a.x402_supported === true) claimants.push({ name: a.name, tokenId: String(a.token_id) });
+    const a2a = a.supported_protocols.some((p) => p.toLowerCase() === "a2a");
+    // Flagged registrations are claimants outright; A2A registrations are
+    // read in case their card claims what the registry did not.
+    if (a.x402_supported === true || a2a) {
+      candidates.push({ name: a.name, tokenId: String(a.token_id), flagged: a.x402_supported === true, a2a });
+    }
   }
 }
 
+const flagged = candidates.filter((c) => c.flagged).length;
 console.log(`registry     : ${total.toLocaleString()} agents on BSC`);
 console.log(`sampled      : ${scanned}`);
-console.log(`claim x402   : ${claimants.length} (${((claimants.length / Math.max(1, scanned)) * 100).toFixed(1)}%)\n`);
+console.log(`claim x402   : ${flagged} by registry flag (${((flagged / Math.max(1, scanned)) * 100).toFixed(1)}%)`);
+console.log(`A2A cards    : ${candidates.filter((c) => c.a2a).length} to read for a card-level claim\n`);
 
-const results = await mapLimit(claimants, 5, async (c) => {
+const results = await mapLimit(candidates, 5, async (c) => {
   const detail = await getAgent(56, c.tokenId).catch(() => null);
-  const endpoint = (detail as { services?: Record<string, { endpoint?: string }> } | null)?.services?.mcp?.endpoint;
-  if (typeof endpoint !== "string") return { ...c, endpoint: null, check: null };
-  return { ...c, endpoint, check: await checkX402(endpoint) };
+  const proof = detail ? await proveAgent(detail).catch(() => null) : null;
+  if (!proof) return { ...c, endpoint: null as string | null, cardClaims: false, check: null };
+
+  // The card is the second place a claim lives. Read only for A2A proofs —
+  // an MCP handshake has no capabilities block to carry one.
+  const cardClaims =
+    proof.protocol === "a2a" ? (await probeA2a(proof.endpoint).catch(() => null))?.card?.declaresX402 === true : false;
+
+  // A payment demand would come from the JSON-RPC endpoint the card names,
+  // not from the card itself, so that is what is asked on an A2A agent.
+  const target = proof.protocol === "a2a" ? (proof.a2a?.rpcUrl ?? proof.endpoint) : proof.endpoint;
+  return { ...c, endpoint: target, cardClaims, check: await checkX402(target) };
 });
 
-const tested = results.filter((r) => r.check !== null && r.check.status > 0);
+const claimants = results.filter((r) => r.flagged || r.cardClaims);
+const byCard = results.filter((r) => r.cardClaims);
+const tested = claimants.filter((r) => r.check !== null && r.check.status > 0);
 const paying = tested.filter((r) => r.check!.demanded);
 
 for (const r of paying) {
@@ -77,7 +103,9 @@ for (const r of paying) {
   console.log(`  CHARGES  ${r.name.slice(0, 34).padEnd(34)} ${a ? `${a.amount} of ${a.asset.slice(0, 10)}… on ${networkName(a.network)}` : ""}`);
 }
 
-console.log(`\nendpoints that answered at all : ${tested.length} of ${claimants.length} claimants`);
+console.log(`cards claiming x402            : ${byCard.length} (${byCard.filter((r) => !r.flagged).length} of them not flagged in the registry)`);
+console.log(`claimants, either source       : ${claimants.length}`);
+console.log(`endpoints that answered at all : ${tested.length} of ${claimants.length} claimants`);
 console.log(`of those, actually charge      : ${paying.length}`);
 console.log(`unbacked claims                : ${tested.length - paying.length}`);
 

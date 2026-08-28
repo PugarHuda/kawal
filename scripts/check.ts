@@ -17,6 +17,8 @@ import {
   stencilKey,
   MIN_OBSERVATIONS_TO_OVERRULE,
 } from "../lib/signals.ts";
+import { errorsCleanly } from "../lib/mcp.ts";
+import { readOasfRecord } from "../lib/probe.ts";
 import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
@@ -26,7 +28,7 @@ import { diagnose, failureLabel } from "../lib/failure.ts";
 import { challenge, PRICE_WEI, NETWORK } from "../lib/x402.terms.ts";
 import { readAgentCard, a2aAnswered } from "../lib/a2a.ts";
 import { agentCard, handleA2a } from "../lib/server.a2a.ts";
-import { take, groupOf, resetForTests } from "../lib/ratelimit.ts";
+import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex, isAddress, getAddress } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
@@ -68,6 +70,19 @@ function agent(over: Partial<ScanAgent> = {}): ScanAgent {
     updated_at: "2026-08-15T00:00:00Z",
     ...over,
   };
+}
+
+/** A reputation reading with `n` records, `share` of them from one address. */
+function summariseFor(n: number, share: number) {
+  const top = Math.round(n * share);
+  return summarise(
+    Array.from({ length: n }, (_, i) => ({
+      value: "100",
+      user_address: i < top ? "0xAAA" : `0x${i.toString(16).padStart(3, "0")}`,
+    })),
+    n,
+    "t",
+  );
 }
 
 // --- taxonomy -------------------------------------------------------------
@@ -269,6 +284,77 @@ const honest = agent({ token_id: "9", name: "Honest", supported_protocols: [] })
 assert.ok(
   rank(honest, assess(honest)) > rank(declared, assess(declared, undefined, silent)),
   "a false claim must cost more than an absent one",
+);
+
+// --- Kawal's own measurements reach the ranking ------------------------------
+//
+// `rank` scored from the registry alone, so an agent Kawal had called eighty
+// times and reached eighty times sat level with one it had never dialled. The
+// terms are documented on `rank`; these pin the direction of each.
+
+const proven = { checks: 20, answered: 20 };
+const shaky = { checks: 20, answered: 10 };
+assert.ok(
+  rank(declared, assess(declared, undefined, proven), { observed: proven }) >
+    rank(declared, assess(declared, undefined, shaky), { observed: shaky }),
+  "an endpoint that always answers outranks one that answers half the time",
+);
+assert.equal(
+  rank(declared, assess(declared, undefined, proven), { observed: { checks: 2, answered: 2 } }),
+  rank(declared, assess(declared, undefined, proven)),
+  "below the observation floor the answered term is zero, not a guess",
+);
+assert.equal(
+  rank(declared, assess(declared, undefined, described), { observed: described }),
+  rank(declared, assess(declared, undefined, described)),
+  "a published non-HTTP route earns no uptime credit either way",
+);
+assert.ok(
+  rank(declared, assess(declared), { uptime: { medianMs: 200 } }) >
+    rank(declared, assess(declared), { uptime: { medianMs: 4_000 } }),
+  "a faster median is worth a little",
+);
+assert.ok(
+  rank(declared, assess(declared), { uptime: { medianMs: 200 } }) - rank(declared, assess(declared)) <= 50,
+  "and only a little",
+);
+const fanRated = agent({ total_feedbacks: 40 });
+const oneFan = summariseFor(40, 0.9);
+const manyFans = summariseFor(40, 0.3);
+assert.ok(
+  rank(fanRated, assess(fanRated), { reputation: manyFans }) >
+    rank(fanRated, assess(fanRated), { reputation: oneFan }),
+  "forty records from one address count for half of forty from many",
+);
+
+// 8004scan's risk flags. High and critical fail the signal and cost rank;
+// low and medium are noted and cost nothing.
+const flag = (severity: "low" | "medium" | "high" | "critical") => ({
+  id: `f-${severity}`,
+  severity,
+  category: "security",
+  title: `${severity} flag`,
+  description: "",
+  source: "8004scan",
+});
+const clean = assess(declared, undefined, undefined, undefined, undefined, { risk_flags: [] });
+const noted = assess(declared, undefined, undefined, undefined, undefined, { risk_flags: [flag("medium")] });
+const serious = assess(declared, undefined, undefined, undefined, undefined, { risk_flags: [flag("high"), flag("critical")] });
+assert.equal(assess(declared).signals.find((s) => s.key === "flagged"), undefined, "unread, no flag row is shown");
+assert.equal(clean.signals.find((s) => s.key === "flagged")?.pass, true);
+assert.equal(noted.signals.find((s) => s.key === "flagged")?.pass, true, "a medium flag is noted, not failed");
+assert.match(noted.signals.find((s) => s.key === "flagged")!.detail, /1 low or medium flag/);
+assert.equal(serious.signals.find((s) => s.key === "flagged")?.pass, false);
+assert.equal(serious.flagged, 2);
+assert.ok(rank(declared, clean) > rank(declared, serious), "serious flags cost rank");
+assert.equal(rank(declared, clean), rank(declared, noted), "mild ones do not");
+assert.equal(serious.tier, "hireable", "flags inform the ranking, not the tier");
+
+// The observed signal carries its evidence count for the stamp.
+assert.equal(
+  assess(declared, undefined, proven).signals.find((s) => s.key === "observed")?.evidence,
+  20,
+  "the observed row says how many calls it rests on",
 );
 
 // A minted series varies the edition number in the name; a stencilled batch
@@ -1262,8 +1348,11 @@ assert.equal(notified.body, null, "and answered with nothing at all");
 
 // Unknown methods and unknown tools are told apart: one is a protocol fault,
 // the other is a question about something that does not exist.
-const unknownMethod = await rpc("resources/list");
+const unknownMethod = await rpc("kawal/nonsense");
 assert.equal(envelope(unknownMethod).error?.code, -32601);
+// resources/list is a real method now: the static documents an agent reads once.
+const resources = envelope(await rpc("resources/list")).result as { resources: Array<{ uri: string }> };
+assert.ok(resources.resources.some((r) => r.uri === "kawal://taxonomy"), "the taxonomy is a readable resource");
 
 const unknownTool = await rpc("tools/call", { name: "drop_tables", arguments: {} });
 assert.equal(envelope(unknownTool).error?.code, -32601, "an unknown tool is not found");
@@ -1324,15 +1413,21 @@ assert.equal(down.transient, true, "an origin error may pass later");
 
 assert.equal(diagnose("HTTP 405: ")!.failure, "refusing", "a 4xx that is not 404 is a refusal");
 assert.equal(diagnose("HTTP 410: gone")!.failure, "delisted", "410 is as final as 404");
-assert.equal(diagnose("timed out after 6000ms")!.failure, "refusing");
+// Three spellings of one event, all named the same and given their deadline
+// where the message carries one — a page used to print the raw text.
+assert.equal(diagnose("timed out after 6000ms")!.failure, "timeout");
 assert.equal(diagnose("timed out after 6000ms")!.transient, true);
+assert.match(diagnose("timed out after 6000ms")!.summary, /within 6 s/);
+assert.equal(diagnose("The operation was aborted due to timeout")!.failure, "timeout", "a TimeoutError is a timeout");
+assert.equal(diagnose("This operation was aborted")!.failure, "timeout", "and so is a bare AbortError");
+assert.match(diagnose("This operation was aborted")!.summary, /before the deadline/, "with no figure to quote");
 assert.equal(diagnose("blocked: refusing 127.0.0.1: loopback 127.0.0.0/8")!.failure, "blocked");
 
 // Anything unrecognised must say so rather than be filed under a guess.
 const odd = diagnose("the socket did something unusual")!;
 assert.equal(odd.failure, "unknown");
 assert.equal(odd.raw, "the socket did something unusual", "and the original text is always carried");
-for (const f of ["gone", "delisted", "down", "refusing", "blocked", "unknown"] as const) {
+for (const f of ["gone", "delisted", "down", "refusing", "timeout", "blocked", "unknown"] as const) {
   assert.ok(failureLabel(f).length > 0, `${f} has a label a person can read`);
 }
 
@@ -1463,7 +1558,7 @@ const a2aBody = (r: { body: unknown }) => (r.body ?? {}) as RpcBody;
 assert.equal((await handleA2a({ jsonrpc: "2.0", method: "message/send" })).status, 202, "a notification gets no body");
 assert.equal((await handleA2a("nope")).status, 400);
 assert.equal(a2aBody(await a2aRpc("tasks/get", { id: "kawal-liveness-probe" })).error?.code, -32001, "the harmless question gets the answer the spec names");
-assert.equal(a2aBody(await a2aRpc("message/stream", {})).error?.code, -32004, "streaming is refused with UnsupportedOperation, as the card says");
+assert.equal(a2aBody(await a2aRpc("message/stream", {})).error?.code, -32602, "a stream with no message is an invalid-params fault, not an unsupported operation: streaming is real now");
 assert.equal(a2aBody(await a2aRpc("agent/getAuthenticatedExtendedCard")).error?.code, -32007);
 assert.equal(a2aBody(await a2aRpc("tasks/pushNotificationConfig/set", {})).error?.code, -32004);
 assert.equal(a2aBody(await a2aRpc("nonsense/method")).error?.code, -32601);
@@ -1515,8 +1610,45 @@ assert.equal(groupOf("/api/mcp"), "api");
 assert.equal(groupOf("/api/a2a"), "api");
 assert.equal(groupOf("/api/report"), "api");
 assert.equal(groupOf("/owner"), "owner");
-assert.equal(groupOf("/agents/56/1"), null, "pages that fetch only memoised data are not limited");
+assert.equal(groupOf("/agents/56/1"), "page", "an agent page dials an endpoint, so it is limited");
+assert.equal(groupOf("/compare"), "page", "and so is a comparison");
+assert.equal(groupOf("/agents"), null, "the listing reads memoised data and is not");
 assert.equal(groupOf("/api/health"), null, "and neither is the health check a monitor polls");
+// Without a shared database the durable path is the in-memory bucket, so
+// the two must agree exactly — the tests above already pinned the arithmetic.
+assert.equal(process.env.TURSO_DATABASE_URL, undefined, "this check runs without a shared database");
 resetForTests();
+assert.equal((await takeDurable("d", limit, t0)).ok, true);
+assert.equal((await takeDurable("d", limit, t0)).ok, true);
+assert.equal((await takeDurable("d", limit, t0)).ok, true);
+assert.equal((await takeDurable("d", limit, t0)).ok, false, "the durable path is the same bucket locally");
+resetForTests();
+
+/* ------------------------------------------------ probe deepening ---
+ *
+ * The MCP probe now asks for a tool that cannot exist and records how the
+ * server says no; the OASF probe reads whatever the endpoint serves. Both
+ * readers are pure, so the shapes seen live are pinned here.
+ */
+
+assert.equal(errorsCleanly({ ok: false, ms: 1, status: 200, error: "Unknown tool", errorCode: -32602 }), true);
+assert.equal(errorsCleanly({ ok: false, ms: 1, status: 200, error: "Method not found", errorCode: -32601 }), true);
+assert.equal(errorsCleanly({ ok: true, ms: 1, status: 200, result: { isError: true, content: [] } }), true, "an isError result is a clean refusal");
+assert.equal(errorsCleanly({ ok: true, ms: 1, status: 200, result: { content: [{ type: "text", text: "ran" }] } }), false, "a server that ran a tool that does not exist did not refuse");
+assert.equal(errorsCleanly({ ok: false, ms: 1, status: 500, error: "HTTP 500: boom" }), false, "a 500 is falling over");
+assert.equal(errorsCleanly({ ok: false, ms: 1, status: 0, error: "timed out after 6000ms" }), false, "a hang is not a refusal");
+
+// Read live off BSC: an OASF record, an A2A card served as one, and things
+// that are neither.
+const oasfRecord = readOasfRecord({ oasf_version: "1.0.0", agent_id: "48995", name: "Synergix", protocols: { a2a: "enabled" } });
+assert.equal(oasfRecord?.name, "Synergix");
+assert.equal(oasfRecord?.version, "1.0.0", "the OASF version field wins");
+assert.equal(oasfRecord?.skills.length, 0);
+const cardAsOasf = readOasfRecord({ name: "ClawdMint", version: "1.2.0", capabilities: { streaming: true }, skills: [{ id: "chat", name: "Chat" }, "echo"] });
+assert.equal(cardAsOasf?.version, "1.2.0");
+assert.deepEqual(cardAsOasf?.skills.map((s) => s.name), ["Chat", "echo"], "skills read as objects or strings");
+assert.equal(readOasfRecord({ skills: [] }), null, "no name, no agent");
+assert.equal(readOasfRecord("Synergix"), null);
+assert.equal(readOasfRecord([{ name: "x" }]), null, "a list is not a record");
 
 console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit");

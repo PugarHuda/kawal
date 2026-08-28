@@ -32,6 +32,13 @@ export type McpResult = {
   result?: unknown;
   /** JSON-RPC `error`, or a transport failure rendered as one. */
   error?: string;
+  /**
+   * The JSON-RPC error code, when the server sent one. Its presence is the
+   * difference between a server that refused properly and one that fell over:
+   * -32601 and -32602 are the protocol's own words for "no such method" and
+   * "bad params", and a 500 has neither.
+   */
+  errorCode?: number;
 };
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -103,9 +110,15 @@ export class McpClient {
         return { ok: false, ms, status: res.status, error: `HTTP ${res.status}: ${text.slice(0, 160)}` };
       }
 
-      const body = parseBody(text) as { result?: unknown; error?: { message?: string } };
+      const body = parseBody(text) as { result?: unknown; error?: { message?: string; code?: unknown } };
       if (body.error) {
-        return { ok: false, ms, status: res.status, error: body.error.message ?? "JSON-RPC error" };
+        return {
+          ok: false,
+          ms,
+          status: res.status,
+          error: body.error.message ?? "JSON-RPC error",
+          errorCode: typeof body.error.code === "number" ? body.error.code : undefined,
+        };
       }
       return { ok: true, ms, status: res.status, result: body.result };
     } catch (e) {
@@ -142,6 +155,33 @@ export class McpClient {
   callTool(name: string, args: Record<string, unknown>) {
     return this.rpc("tools/call", { name, arguments: args });
   }
+}
+
+/**
+ * A tool name no server has. Calling it is the one `tools/call` with no
+ * effect: nothing can run, so the only thing measured is how the server says
+ * no. Double underscores keep it clear of every naming convention seen in the
+ * wild.
+ */
+export const NONEXISTENT_TOOL = "kawal__nonexistent__tool";
+
+/**
+ * Whether a server refused an impossible call the way the protocol says to.
+ *
+ * True for a JSON-RPC error — -32601 or -32602 are the textbook answers, and
+ * any coded error is at least an envelope — or for a result carrying
+ * `isError`, which is how the MCP SDKs report a tool-level failure. False for
+ * an HTTP 5xx, a timeout or a body that is not JSON-RPC: the server took an
+ * unknown name and fell over, which is what it would do to a caller's typo.
+ */
+export function errorsCleanly(r: McpResult): boolean {
+  if (r.ok) {
+    return (r.result as { isError?: unknown } | undefined)?.isError === true;
+  }
+  if (r.errorCode !== undefined) return true;
+  // A 4xx with a JSON-RPC body still parsed above; anything left with a
+  // status is a transport-level refusal, and status 0 never connected.
+  return false;
 }
 
 /** Pulls the text an MCP tool returned, whichever shape the server used. */

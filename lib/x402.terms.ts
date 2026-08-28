@@ -1,6 +1,8 @@
 import { privateKeyToAccount } from "viem/accounts";
-import { formatEther, type Address } from "viem";
+import { formatEther, formatUnits, type Address } from "viem";
+import { buildChallenge, U_TOKEN, USDT_BSC, type MerchantConfig, type RailConfig } from "@altananetwork/x402-server";
 import { adminKey, hasAdminKey } from "./vault.ts";
+import { BSC_MAINNET } from "./chains.ts";
 
 /**
  * The terms Kawal charges on, and where the money goes.
@@ -18,16 +20,19 @@ import { adminKey, hasAdminKey } from "./vault.ts";
  * unanswered, so this is the counter-example: an endpoint that issues a real
  * payment challenge and, unlike every claimant measured, can actually be paid.
  *
- * Settlement is deliberately the dullest possible mechanism. There is no
- * facilitator, no signature scheme and no allowance: the challenge names an
- * address and an amount, the caller sends a plain BNB transfer, and resends
- * the request carrying the transaction hash. Kawal then reads the chain.
+ * Two ways to pay it, on one challenge:
  *
- * That choice is the honest one available. A facilitator-based flow would mean
- * either running one or trusting somebody else's, and a scheme Kawal cannot
- * verify end to end is exactly the kind of unbacked payment claim this whole
- * module exists to be the opposite of. Reading a receipt on the chain the
- * payment happened on is something anyone can reproduce.
+ *  - The native rail. No facilitator, no signature scheme, no allowance: the
+ *    challenge names an address and an amount, the caller sends a plain BNB
+ *    transfer, and resends carrying the transaction hash. Kawal reads the
+ *    chain. Anyone can reproduce that verification.
+ *  - The Altana rails, on the B402 v2 wire: `eip3009` on $U for BNB Agent
+ *    Studio buyers and `permit2-exact` on USDT for Altana session keys. The
+ *    buyer signs an authorisation, and Kawal itself broadcasts the settlement
+ *    from a gas-only settler key — funds move payer to `payTo` and the
+ *    recipient is bound into the signature. Still no third party: the
+ *    "facilitator" in that scheme is an EOA this instance holds, so these
+ *    rails are advertised only when it is present and funded for gas.
  *
  * Three things it will not do:
  *
@@ -42,11 +47,26 @@ import { adminKey, hasAdminKey } from "./vault.ts";
 /** Atomic units of BNB. 0.0001 BNB, about seven cents at the time of writing. */
 export const PRICE_WEI = 100_000_000_000_000n;
 
+/**
+ * Price on the stablecoin rails, atomic units. USDT and $U both carry 18
+ * decimals on BSC, so one figure serves both.
+ */
+// ponytail: fixed at 0.10 rather than derived from a BNB/USD feed; a price
+// feed is a dependency guarding seven cents. Retune by hand when BNB moves.
+export const PRICE_STABLE_RAW = 100_000_000_000_000_000n;
+
 /** CAIP-2 for BSC mainnet, the namespace the challenge is quoted in. */
 export const NETWORK = "eip155:56";
 
-/** How long a caller has to pay a quote before it should be re-fetched. */
+/** How long a caller has to pay a native quote before it should be re-fetched. Enforced in `settle`. */
 export const QUOTE_TIMEOUT_SECONDS = 900;
+
+/**
+ * Validity window offered on the signed rails. Studio buyers backdate
+ * `validAfter` by 120s and refuse windows over 600s, so 480 is the ceiling
+ * the docs name; 300 is the SDK's default and leaves room under it.
+ */
+export const STABLE_TIMEOUT_SECONDS = 300;
 
 /**
  * Where Kawal takes payment.
@@ -68,17 +88,55 @@ export function payTo(): Address | null {
   }
 }
 
+/**
+ * The rails the Altana SDK settles, bound to the settler that will broadcast.
+ *
+ * `spender` on permit2-exact is the address that calls
+ * `Permit2.permitWitnessTransferFrom`; it is baked into the buyer's signature,
+ * so the settler is part of the terms rather than an implementation detail.
+ */
+export function altanaRails(settler: Address): RailConfig[] {
+  return [
+    { rail: "eip3009", token: U_TOKEN[BSC_MAINNET]! },
+    { rail: "permit2-exact", token: USDT_BSC, spender: settler },
+  ];
+}
+
+export const SERVICE_NAME = "Kawal deep report";
+const DESCRIPTION =
+  "Everything Kawal has on one agent: a live handshake, every probe kept, how it fails when it fails, whether it really charges, and who wrote its feedback.";
+
+/** The SDK's view of the same terms, for its verify/settle primitives. */
+export function merchantConfig(to: Address, settler: Address): MerchantConfig {
+  return {
+    chainId: BSC_MAINNET,
+    payTo: to,
+    price: PRICE_STABLE_RAW,
+    // Clamped to itself: the SDK's floor/ceiling exist for prices read from
+    // config files, and Kawal's is a constant.
+    minPrice: PRICE_STABLE_RAW,
+    maxPrice: PRICE_STABLE_RAW,
+    rails: altanaRails(settler),
+    maxTimeoutSeconds: STABLE_TIMEOUT_SECONDS,
+    description: DESCRIPTION,
+  };
+}
+
+export type Accept = {
+  scheme: string;
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  /** Scheme-specific, as x402 v2 defines it. Absent on the native rail. */
+  extra?: Record<string, string>;
+};
+
 export type Challenge = {
   x402Version: number;
   error: string;
-  accepts: Array<{
-    scheme: string;
-    network: string;
-    asset: string;
-    amount: string;
-    payTo: string;
-    maxTimeoutSeconds: number;
-  }>;
+  accepts: Accept[];
   resource: { serviceName: string; description: string };
 };
 
@@ -90,11 +148,22 @@ export type Challenge = {
  * did not survive `readChallenge`, Kawal could not verify its own endpoint,
  * and a payment claim Kawal cannot check is the thing it refuses to publish
  * about anyone else.
+ *
+ * The native rail is always first. The Altana rails follow only when a
+ * settler is named, which the server decides after checking it can pay gas:
+ * advertising a rail nobody here can settle would be exactly the unbacked
+ * `x402_supported` flag this endpoint exists to be the opposite of.
  */
-export function challenge(to: Address): Challenge {
+export function challenge(to: Address, settler: Address | null = null): Challenge {
+  const stable = settler ? buildChallenge(merchantConfig(to, settler)).accepts : [];
+  const byToken = stable.length
+    ? `, or pay ${formatUnits(PRICE_STABLE_RAW, 18)} ${stable.map((a) => a.extra.name).join(" or ")} on the x402 rails listed, signed as their scheme requires`
+    : "";
   return {
     x402Version: 2,
-    error: `payment required: send ${formatEther(PRICE_WEI)} BNB to ${to} on BNB Smart Chain, then resend with an X-PAYMENT header carrying the transaction hash`,
+    error:
+      `payment required: send ${formatEther(PRICE_WEI)} BNB to ${to} on BNB Smart Chain, then resend with a PAYMENT-SIGNATURE (or X-PAYMENT) header carrying the transaction hash` +
+      byToken,
     accepts: [
       {
         // Native transfer, verified by reading the receipt. Named plainly
@@ -106,11 +175,8 @@ export function challenge(to: Address): Challenge {
         payTo: to,
         maxTimeoutSeconds: QUOTE_TIMEOUT_SECONDS,
       },
+      ...stable,
     ],
-    resource: {
-      serviceName: "Kawal deep report",
-      description:
-        "Everything Kawal has on one agent: a live handshake, every probe kept, how it fails when it fails, whether it really charges, and who wrote its feedback.",
-    },
+    resource: { serviceName: SERVICE_NAME, description: DESCRIPTION },
   };
 }

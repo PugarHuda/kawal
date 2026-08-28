@@ -97,7 +97,9 @@ balance:
 | `npm run wallet:new` | Free. Mints the admin key, prints only the address |
 | `npm run onchain -- mainnet` | ~0.0037 BNB — grants a four-seat mandate and proves the allowlist bites |
 | `npm run preempt` | Dry run by default; `-- --send` costs ~0.00075 BNB |
-| `npm run publish` | Dry run by default; `-- --send` writes Kawal's uptime measurements into the ERC-8004 reputation registry. Gas is estimated per record against the real contract (~0.0000124 BNB each at 0.05 gwei), the balance decides how many go, most-observed first, and what was sent is recorded in `.kawal-published.json` so a re-run does not write the same agent twice in a day |
+| `npm run publish` | Dry run by default; `-- --send` writes Kawal's `uptime` and `responseTime` measurements into the ERC-8004 reputation registry. Gas is estimated per record against the real contract (~0.0000124 BNB each at 0.05 gwei), the balance decides how many go, most-observed first, and what was sent is recorded in `.kawal-published.json` so a re-run does not write the same agent twice in a day. `-- --verify` reads every published record back off the chain and checks it landed as written (11 of 11 do); `-- --revoke <agentId>` retracts one |
+| `npm run pay` | Pays Kawal's own x402 challenge from the wallet and prints the report; `-- --altana` pays through a session key under its cap |
+| `npm run hire` | Simulates (or with `--send`, executes) an ERC-8183 hire against the live commerce contract |
 | `npm run ledger:push` | Copies the seat ledger to the deployed site's database, session keys stripped. Needs `TURSO_DATABASE_URL` |
 | `npm run history:push` | Copies this machine's probe history into the deployed site's database, keyed by endpoint and second so a re-run adds nothing |
 | `npm run register` | Dry run by default; `-- --send` mints Kawal's own ERC-8004 registration (gas only, ~0.00001 BNB). The document must resolve at the deployed origin first |
@@ -159,8 +161,11 @@ interface" claim this project exists to catch.
 Every route that fetches on a caller's behalf sits under a ceiling: sixty in a
 burst then one a second for `/api/mcp`, `/api/a2a` and `/api/report`, tighter
 for `/owner`, which fans out to every agent an address holds. Without it Kawal
-is an amplifier anyone can point at the roster. In memory, per instance — a
-shared store would be a dependency guarding a deployment that does not exist.
+is an amplifier anyone can point at the roster. The buckets live in the same
+libSQL store as the probe history when one is configured — Vercel runs more
+than one instance, and a per-process ceiling is N ceilings — and in memory
+otherwise. `/compare` and the agent sheet, the two pages that fan out to the
+registry, sit under the same ceiling.
 
 The point is the shape. This is a marketplace for agents in an ecosystem where
 the buyers are increasingly agents, and 8004scan publishes MCP tools of its
@@ -178,11 +183,13 @@ schema so it survives the next tool being added.
 
 ## The one thing here that costs money
 
-Kawal found 75 of 200 BSC registrations declaring `x402_supported` and not one
-reachable claimant that ever issues a challenge. Complaining about that and
-then charging for nothing would leave the obvious question unanswered, so
-`/api/report` is the counter-example: ask without paying and it answers 402
-with terms; pay and resend the receipt and it answers with the report.
+Kawal sampled 200 BSC registrations: 46 flag `x402_supported`, 99 of the A2A
+cards could be read and six of those claim x402 in the card (four without the
+registry flag), so 50 claim by either route. 47 of the 50 answered a call. Not
+one issued a payment challenge. Complaining about that and then charging for
+nothing would leave the obvious question unanswered, so `/api/report` is the
+counter-example: ask without paying and it answers 402 with terms; pay and
+resend the receipt and it answers with the report.
 
 ```bash
 curl -i "http://localhost:3000/api/report?tokenId=43129"
@@ -190,18 +197,32 @@ curl -i "http://localhost:3000/api/report?tokenId=43129"
 # payment-required: eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJwYXltZW50IHJlcXVpcmVk…
 ```
 
-Settlement is the dullest mechanism available, on purpose. No facilitator, no
-signature scheme, no allowance — the challenge names an address and an amount,
-the caller sends a plain BNB transfer, and resends with `X-PAYMENT` carrying
-the transaction hash. Kawal reads the receipt off the chain. A facilitator
-flow would mean running one or trusting someone else's, and a scheme Kawal
-cannot verify end to end is exactly the unbacked payment claim this feature
-exists to be the opposite of.
+The first rail is the dullest mechanism available, on purpose: the challenge
+names an address and an amount, the caller sends a plain BNB transfer and
+resends with `PAYMENT-SIGNATURE` (x402 v2; `X-PAYMENT` still works) carrying
+the transaction hash, and Kawal reads the receipt off the chain. The wire
+format is x402 v2 — `payment-required` on the 402, `PAYMENT-RESPONSE` on the
+settled 200, `network: eip155:56`.
 
-Four things it refuses: a hash that is not one, a transaction that paid
-somebody else, one with fewer than three confirmations, and one that has been
-used before. The last matters most — a receipt is a bearer token once it is
-public, so spent hashes are kept and refused on sight.
+Two more rails come from Altana's x402 server SDK: `permit2-exact` in USDT and
+`eip3009` in $U, the token BNB Agent Studio buyers hold. They are advertised
+only when this instance holds a funded settler (`KAWAL_FACILITATOR_KEY`, else
+the admin key) — the SDK's facilitator is a local EOA that submits the
+transfer, and a rail nobody here can settle must not appear in the quote. The
+offline check signs a real permit2 envelope with a session key and verifies it
+through the same code the route uses.
+
+Five things it refuses: a hash that is not one, a transaction that paid
+somebody else, one with fewer than three confirmations, one older than the
+quote's `maxTimeoutSeconds` (a refund or a year-old transfer is not a payment
+for this), and one that has been used before. The last matters most — a
+receipt is a bearer token once it is public, so spent hashes are kept and
+refused on sight.
+
+`npm run pay` closes the loop from the buyer's side: it fetches the challenge,
+pays the native rail from the wallet, and resends; `-- --altana` pays through
+`client.fetchWithX402` with a seat from the ledger, which is what a hired agent
+would do under its cap.
 
 An instance holding no wallet does not charge. It answers 503 and says why,
 rather than quoting an address it cannot spend from.
@@ -228,11 +249,15 @@ the one that estimates rather than reverts.
 
 Every reputation record Kawal wrote carried "probes are made when the site is
 used rather than on a schedule" among its stated defects, and it was true. A
-Vercel Cron now calls `/api/cron/sweep` daily: at most forty agents a run,
-rotating by the hour so successive runs cover the roster, behind the secret
-Vercel sends with the request. No secret configured means no sweep rather
-than an open one — an endpoint that makes Kawal dial the whole roster must
-not run because a variable is missing.
+Vercel Cron now calls `/api/cron/sweep` every six hours: at most forty agents
+a run drawn from the five seats and the sixty strongest on the open roster,
+rotating so successive runs cover it, behind the secret Vercel sends with the
+request. No secret configured means no sweep rather than an open one — an
+endpoint that makes Kawal dial the whole roster must not run because a
+variable is missing. Each run is recorded (`/api/health` reports the last
+one), and an agent that answered and serves its registration document is
+handed to 8004scan's `verify-endpoint`, so the registry's own verified mark
+follows Kawal's call. OASF endpoints are dialled too, not just counted.
 
 ## Is your agent still answering?
 
@@ -354,12 +379,13 @@ cannot honour.
 
 ## What is not here, and why
 
-**x402 payment is not implemented.** Not deferred — there is nothing to pay.
+**No third-party agent has been paid.** Not deferred — there is nobody to pay.
 All three agents used in the advantage report are registered
 `x402_supported: true` and none issues a payment challenge; the one agent found
 that genuinely charges (Sentinels Audit, 0.2 BNB per audit) reports
-`x402_supported: false` and takes a plain native transfer. Building a payer
-with no charger would be a mock.
+`x402_supported: false` and takes a plain native transfer. The payer exists
+(`npm run pay`) and is pointed at the one charger on the chain that is
+verifiable end to end: Kawal.
 
 **`Hireable` means the agent answers, not that it works.** The tier is earned
 by completing an MCP handshake and listing tools. Kawal does not run any of
@@ -383,8 +409,11 @@ So the measurements go into the Reputation registry instead, which is indexed
 and read. Worth recording as a finding: a third of ERC-8004 is currently
 decorative.
 
-**ERC-8183 hiring is not implemented.** It needs escrow funding the wallet does
-not currently hold, and the real cost cannot be quoted without reading
-`disputeWindow()` from a funded client. The market is live — the `buyback&burn`
-agent (#158888) publishes ERC-8183 jobs on BSC — so this is a funding gap, not
-a feasibility one.
+**ERC-8183 hiring is written and unfunded.** `npm run hire -- --provider 0x…
+--task "…" --budget 1` simulates the whole sequence against the live commerce
+contract (`createJob` → `registerJob` → `setBudget` → `approve` → `fund`, via
+`eth_simulateV1`) and prints the $U balance and shortfall; `--send` runs it.
+Four of the five calls simulate clean today; `fund` reverts because the wallet
+holds no $U. The dispute window reads as seven days, the next job id is
+56666, and `--job <id>` reads a live one. `lib/erc8183.ts` is the interface a
+job panel is built on.

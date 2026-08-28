@@ -75,6 +75,26 @@ export type Reputation = {
   /** The busiest address, so a reader can go and look at it. */
   topRater: string | null;
   checkedAt: string;
+  /**
+   * What the busiest address tagged its records, most used first. A wall of
+   * `get top 1 rank >` reads differently from a spread of `uptime` and
+   * `accuracy`, and the count alone cannot show which it is.
+   */
+  topRaterTags: Array<{ tag: string; count: number }>;
+  /** The two most recent written comments, newest first. */
+  recentComments: Array<{ by: string; at: string | null; comment: string; tag: string | null }>;
+  /**
+   * The owner's on-chain answers — ERC-8004 `appendResponse` — across the
+   * sample. An owner who replies to feedback is running the agent; a record
+   * with none tells you nothing either way, so this is shown, not scored.
+   */
+  replies: Array<{ feedbackId: string; by: string; at: string | null; uri: string | null }>;
+};
+
+type FeedbackReplyRow = {
+  responder_address?: string | null;
+  responded_at?: string | null;
+  response_uri?: string | null;
 };
 
 type FeedbackRow = {
@@ -85,6 +105,13 @@ type FeedbackRow = {
   comment?: string | null;
   is_revoked?: boolean | null;
   user_address?: string | null;
+  tag1?: string | null;
+  tag2?: string | null;
+  feedback_id?: string | null;
+  submitted_at?: string | null;
+  created_at?: string | null;
+  /** Present when `include_replies` was asked for: up to ten, embedded. */
+  replies?: { items?: FeedbackReplyRow[] | null } | null;
 };
 
 /**
@@ -145,7 +172,36 @@ export function summarise(rows: FeedbackRow[], total: number, checkedAt: string)
     }
   }
 
+  const tags = new Map<string, number>();
+  const comments: Reputation["recentComments"] = [];
+  const replies: Reputation["replies"] = [];
+  for (const r of rows) {
+    const who = (r.user_address ?? "").toLowerCase();
+    const at = r.submitted_at ?? r.created_at ?? null;
+    if (who === topRater) {
+      for (const t of [r.tag1, r.tag2]) {
+        if (typeof t === "string" && t.trim() !== "") tags.set(t, (tags.get(t) ?? 0) + 1);
+      }
+    }
+    if (typeof r.comment === "string" && r.comment.trim() !== "") {
+      comments.push({ by: who, at, comment: r.comment.trim(), tag: r.tag1 ?? null });
+    }
+    for (const reply of r.replies?.items ?? []) {
+      replies.push({
+        feedbackId: r.feedback_id ?? "",
+        by: (reply.responder_address ?? "").toLowerCase(),
+        at: reply.responded_at ?? null,
+        uri: reply.response_uri ?? null,
+      });
+    }
+  }
+  // Newest first, by the registry's own stamp; rows without one sink.
+  comments.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+
   return {
+    topRaterTags: [...tags].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count),
+    recentComments: comments.slice(0, 2),
+    replies,
     total,
     sampled: rows.length,
     valued,
@@ -177,6 +233,9 @@ export async function getReputation(chainId: number, tokenId: string): Promise<R
   url.searchParams.set("agent_token_id", tokenId);
   url.searchParams.set("limit", String(SAMPLE));
   url.searchParams.set("include_revoked", "true");
+  // Owner responses ride along embedded, up to ten per record; the separate
+  // replies endpoint exists for the eleventh onward, which nothing on BSC has.
+  url.searchParams.set("include_replies", "true");
 
   try {
     const res = await fetch(url, {

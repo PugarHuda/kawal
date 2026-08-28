@@ -33,6 +33,8 @@ export type Failure =
   | "down"
   /** Something is listening and would not complete the exchange. */
   | "refusing"
+  /** The connection was accepted and nothing came back before the deadline. */
+  | "timeout"
   /** Kawal's own guard stopped the call before it left. */
   | "blocked"
   | "unknown";
@@ -118,10 +120,20 @@ export function diagnose(error: string | null | undefined): Diagnosis | null {
     };
   }
 
-  if (/timed out|timeout|aborted/.test(e)) {
+  // Three spellings of one event. The MCP client writes "timed out after
+  // 6000ms"; `AbortSignal.timeout` throws a TimeoutError whose message is
+  // "The operation was aborted due to timeout"; a plain AbortError says
+  // "This operation was aborted". None of them is a sentence a page should
+  // print raw, and the deadline is worth naming when it is known.
+  if (/timed out|timeout|aborted|aborterror|timeouterror/.test(e)) {
+    const ms = e.match(/(\d+)\s*ms/);
+    const s = e.match(/(\d+(?:\.\d+)?)\s*s\b/);
+    const within = ms?.[1] ? `${Math.round(Number(ms[1]) / 1000)} s` : s?.[1] ? `${s[1]} s` : null;
     return {
-      failure: "refusing",
-      summary: "Nothing came back before the deadline. Overloaded, or not answering us specifically.",
+      failure: "timeout",
+      summary: within
+        ? `The host accepted the connection and did not answer within ${within}. Overloaded, or not answering us specifically.`
+        : "The host accepted the connection and did not answer before the deadline. Overloaded, or not answering us specifically.",
       transient: true,
       raw,
     };
@@ -149,6 +161,7 @@ const LABEL: Record<Failure, string> = {
   delisted: "Delisted by its host",
   down: "Down right now",
   refusing: "Not speaking",
+  timeout: "Did not answer in time",
   blocked: "Not dialled",
   unknown: "Failed",
 };

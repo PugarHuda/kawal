@@ -51,6 +51,13 @@ export type AgentCard = {
   preferredTransport: string | null;
   /** Declared in the card's capabilities block, when it is. */
   declaresX402: boolean;
+  /**
+   * The two A2A capabilities a buyer's client has to match. Null when the
+   * card does not say — the specification makes both optional and half the
+   * cards read off BSC omit the block entirely.
+   */
+  streaming: boolean | null;
+  pushNotifications: boolean | null;
   skills: AgentCardSkill[];
   provider: string | null;
 };
@@ -98,6 +105,8 @@ export function readAgentCard(body: unknown): AgentCard | null {
     protocolVersion: typeof b.protocolVersion === "string" ? b.protocolVersion : null,
     preferredTransport: typeof b.preferredTransport === "string" ? b.preferredTransport : null,
     declaresX402: caps.x402 === true,
+    streaming: typeof caps.streaming === "boolean" ? caps.streaming : null,
+    pushNotifications: typeof caps.pushNotifications === "boolean" ? caps.pushNotifications : null,
     skills,
     provider: typeof provider.organization === "string" ? provider.organization : null,
   };
@@ -127,25 +136,36 @@ export type A2aProbe = {
   /** Round trip for the card fetch. */
   latencyMs: number;
   error: string | null;
+  /**
+   * Whether `agent/getAuthenticatedExtendedCard` came back as JSON-RPC — a
+   * card, or the error the spec prescribes for a server that has none. Null
+   * when the server never answered the first question, so the second was not
+   * asked. A server that implements the v0.3 method set answers either way;
+   * one that 500s on a method name it does not know is the finding.
+   *
+   * Optional so the fixtures built before it existed still type: absent
+   * reads as null, not asked.
+   */
+  extendedCard?: boolean | null;
 };
 
 /**
- * The one A2A call with no effect, asked of a URL.
+ * One A2A call with no effect, asked of a URL.
  *
  * Any JSON-RPC envelope counts — an error is as good as a result here, since
  * the question was never meant to be answered, only to be recognised.
  */
-async function askHarmlessly(url: string, timeoutMs: number): Promise<{ rpc: RpcOutcome; status: number }> {
+async function askHarmlessly(
+  url: string,
+  timeoutMs: number,
+  method = "tasks/get",
+  params: Record<string, unknown> = { id: "kawal-liveness-probe" },
+): Promise<{ rpc: RpcOutcome; status: number }> {
   try {
     const res = await guardedFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "kawal",
-        method: "tasks/get",
-        params: { id: "kawal-liveness-probe" },
-      }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: "kawal", method, params }),
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -182,6 +202,7 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
     rpcStatus: 0,
     latencyMs: 0,
     error: null,
+    extendedCard: null,
   };
 
   const started = performance.now();
@@ -215,6 +236,16 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
   const rpcUrl = card?.url ?? endpoint;
   const asked = await askHarmlessly(rpcUrl, timeoutMs);
 
+  // Only of a server that has already shown it speaks JSON-RPC: asking a
+  // silent or gated one a second question learns nothing and costs a second
+  // timeout. The extended card is read-only by definition — it is the public
+  // card plus whatever the server shows an authenticated caller, and Kawal
+  // is not one, so the prescribed answer is an error envelope.
+  const extendedCard =
+    asked.rpc === "answered"
+      ? (await askHarmlessly(rpcUrl, timeoutMs, "agent/getAuthenticatedExtendedCard", {})).rpc === "answered"
+      : null;
+
   let error: string | null = null;
   if (!card && asked.rpc !== "answered") {
     error =
@@ -237,6 +268,7 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
     rpcStatus: asked.status,
     latencyMs,
     error,
+    extendedCard,
   };
 }
 

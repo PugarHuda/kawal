@@ -10,34 +10,72 @@
  * asserted against directly.
  */
 
-export type Run = {
-  path: "hired" | "manual";
-  label: string;
-  ms: number;
-  ok: boolean;
+import { z } from "zod";
+
+/**
+ * The shape of one run, as the harness writes it and the page reads it.
+ *
+ * A schema rather than a type because `results.json` is a file on disk that
+ * anything can edit. The page used to check `tasks.length > 0` and trust the
+ * rest, so a hand-edited file with a missing `coverage` rendered a 500 where
+ * the honest answer is "no measurements".
+ */
+export const RunSchema = z.object({
+  path: z.enum(["hired", "manual"]),
+  label: z.string(),
+  ms: z.number().nonnegative(),
+  ok: z.boolean(),
   /** What came back, verbatim. Long payloads are also written to OUT_DIR. */
-  output: string;
+  output: z.string(),
   /** Fastest-to-slowest of the samples, so the reader can see the noise. */
-  spread: string;
+  spread: z.string(),
   /** Money that actually left a wallet for this run, in USD. */
-  costUsd: number;
+  costUsd: z.number().nonnegative(),
   /**
    * How much of the question this path actually answered. Wall clock alone
    * would score a one-market lookup as beating a fourteen-vault survey.
    */
-  coverage: { count: number; unit: string };
-  note?: string;
-};
+  coverage: z.object({ count: z.number().nonnegative(), unit: z.string() }),
+  /** How many timed calls the median was taken over. Older files omit it. */
+  samples: z.number().int().positive().optional(),
+  note: z.string().optional(),
+});
 
-export type TaskResult = {
-  id: string;
-  title: string;
-  category: string;
-  question: string;
-  hired: Run;
-  manual: Run;
-  verdict: string;
-};
+export const TaskResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  category: z.string(),
+  question: z.string(),
+  hired: RunSchema,
+  manual: RunSchema,
+  verdict: z.string(),
+});
+
+export const ReportSchema = z.object({
+  generatedAt: z.string(),
+  tasks: z.array(TaskResultSchema).min(1),
+});
+
+export type Run = z.infer<typeof RunSchema>;
+export type TaskResult = z.infer<typeof TaskResultSchema>;
+export type Report = z.infer<typeof ReportSchema>;
+
+/** A report, or null when the file does not parse as one. */
+export function parseReport(raw: unknown): Report | null {
+  const result = ReportSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
+
+/**
+ * How many timed calls stand behind the report.
+ *
+ * Counts the samples each run records; a run written before that field
+ * existed counts as the one measurement it is. Used as the ink density of the
+ * verdict stamp, so the number has to be one the file actually contains.
+ */
+export function sampleCount(tasks: TaskResult[]): number {
+  return tasks.reduce((n, t) => n + (t.hired.samples ?? 1) + (t.manual.samples ?? 1), 0);
+}
 
 /** Median of the samples, so one slow round trip cannot set the headline. */
 export function median(xs: number[]): number {

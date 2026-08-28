@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { payTo, challenge, PRICE_WEI, QUOTE_TIMEOUT_SECONDS } from "@/lib/x402.terms";
-import { settle } from "@/lib/settle";
+import { payTo, challenge, PRICE_WEI, QUOTE_TIMEOUT_SECONDS, NETWORK } from "@/lib/x402.terms";
+import { settle, advertisedSettler, type Settlement } from "@/lib/settle";
 import { deepReport } from "@/lib/server.mcp";
 import { SUPPORTED_CHAINS, BSC_MAINNET } from "@/lib/chains";
 
@@ -12,6 +12,12 @@ import { SUPPORTED_CHAINS, BSC_MAINNET } from "@/lib/chains";
  * reachable claimant that ever issues a challenge. This is the counter-example
  * rather than a complaint: ask without paying and it answers 402 with terms;
  * pay and resend the receipt and it answers with the report.
+ *
+ * The wire is x402 v2: the challenge travels base64-encoded in
+ * `PAYMENT-REQUIRED` (and in the body, and summarised in `Www-Authenticate`
+ * for proxies that only read that), the payment arrives in
+ * `PAYMENT-SIGNATURE` — `X-PAYMENT`, the v1 name the Altana SDK still sends,
+ * is read too — and a settled answer carries `PAYMENT-RESPONSE`.
  *
  * A GET is the protocol's own opening move, which matters here for a reason
  * beyond convention: it means Kawal's existing prober can be pointed at this
@@ -29,10 +35,25 @@ function noStore(body: unknown, init: ResponseInit = {}) {
   });
 }
 
+function b64(doc: unknown) {
+  return Buffer.from(JSON.stringify(doc), "utf8").toString("base64");
+}
+
+/** The v2 settlement receipt header: what moved, where, and who paid. */
+function paymentResponse(settled: Settlement & { paid: true }) {
+  return {
+    "payment-response": b64({ success: true, transaction: settled.txHash, network: NETWORK, payer: settled.payer }),
+  };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const tokenId = (url.searchParams.get("tokenId") ?? "").trim();
-  const chainId = Number(url.searchParams.get("chainId") ?? BSC_MAINNET);
+  // Two spellings of the same question: `agent=56:2468`, the form the MCP and
+  // A2A surfaces already use, or `chainId` and `tokenId` apart.
+  const agentRef = (url.searchParams.get("agent") ?? "").trim();
+  const ref = /^(\d+):(\d+)$/.exec(agentRef);
+  const tokenId = ref ? ref[2]! : (url.searchParams.get("tokenId") ?? "").trim();
+  const chainId = ref ? Number(ref[1]) : Number(url.searchParams.get("chainId") ?? BSC_MAINNET);
 
   const to = payTo();
 
@@ -48,9 +69,11 @@ export async function GET(request: Request) {
     );
   }
 
-  const offered = challenge(to);
+  // The signed rails are advertised only while the account that settles them
+  // is here and can pay gas; otherwise the challenge is the native rail alone.
+  const offered = challenge(to, await advertisedSettler().catch(() => null));
 
-  const paying = request.headers.get("x-payment");
+  const paying = request.headers.get("payment-signature") ?? request.headers.get("x-payment");
   if (!paying) {
     return noStore(offered, {
       status: 402,
@@ -58,8 +81,8 @@ export async function GET(request: Request) {
         // Both carriers, the way q402 sends them: a proxy can act on the
         // header without reading a body, and Kawal's own reader tries the
         // header first for that reason.
-        "payment-required": Buffer.from(JSON.stringify(offered), "utf8").toString("base64"),
-        "www-authenticate": `Payment realm="kawal", amount="${PRICE_WEI}", network="eip155:56", timeout="${QUOTE_TIMEOUT_SECONDS}"`,
+        "payment-required": b64(offered),
+        "www-authenticate": `Payment realm="kawal", amount="${PRICE_WEI}", network="${NETWORK}", timeout="${QUOTE_TIMEOUT_SECONDS}"`,
       },
     });
   }
@@ -67,6 +90,9 @@ export async function GET(request: Request) {
   // Arguments are validated before the chain is read: a caller who sent money
   // and asked a malformed question should be told which half was wrong, and
   // should not have their receipt banked for a request that cannot be served.
+  if (agentRef && !ref) {
+    return noStore({ error: "agent must be chainId:tokenId, for example 56:2468", paid: false }, { status: 400 });
+  }
   if (!/^\d+$/.test(tokenId)) {
     return noStore({ error: "tokenId must be a decimal token id", paid: false }, { status: 400 });
   }
@@ -78,20 +104,23 @@ export async function GET(request: Request) {
   if (!settled.paid) {
     // 402 again, with the same terms: the caller is exactly where they were
     // before, and the reason is theirs to act on.
-    return noStore({ ...offered, rejected: settled.reason }, { status: 402 });
+    return noStore(
+      { ...offered, rejected: settled.reason },
+      { status: 402, headers: { "payment-required": b64(offered) } },
+    );
   }
+
+  const payment = {
+    rail: settled.rail,
+    txHash: settled.txHash,
+    payer: settled.payer,
+    amount: settled.amount.toString(),
+    asset: settled.asset,
+  };
 
   try {
     const report = await deepReport(chainId, tokenId);
-    return noStore({
-      paid: true,
-      payment: {
-        txHash: settled.txHash,
-        payer: settled.payer,
-        amountWei: settled.amountWei.toString(),
-      },
-      report,
-    });
+    return noStore({ paid: true, payment, report }, { headers: paymentResponse(settled) });
   } catch (e) {
     // The receipt is spent by now and the report failed. Say so plainly rather
     // than returning a 500 that leaves the payer guessing whether they were
@@ -99,11 +128,11 @@ export async function GET(request: Request) {
     return noStore(
       {
         paid: true,
-        payment: { txHash: settled.txHash },
+        payment,
         error: e instanceof Error ? e.message : String(e),
         note: "Payment was accepted and the report could not be built. This receipt is spent; contact the operator.",
       },
-      { status: 502 },
+      { status: 502, headers: paymentResponse(settled) },
     );
   }
 }

@@ -33,6 +33,70 @@ test("asking without paying returns terms, in both carriers", async ({ request }
   expect(res.headers()["www-authenticate"]).toMatch(/^Payment /);
 });
 
+test("the terms name the timeout the server enforces", async ({ request }) => {
+  const res = await request.get(REPORT);
+  expect(res.status()).toBe(402);
+  const body = await res.json();
+  // `maxTimeoutSeconds` is not decoration: settle() refuses a transfer mined
+  // longer ago than this, measured from the block's own timestamp. The
+  // refusal itself needs a real stale transfer to this wallet to exercise
+  // and there is no way to mint one for a test, so the test holds the
+  // advertised figure to the one the header names.
+  expect(body.accepts[0].maxTimeoutSeconds).toBe(900);
+  expect(res.headers()["www-authenticate"]).toContain('timeout="900"');
+  // The native rail is always first; anything after it is a signed rail on
+  // the B402 v2 wire, and every one of those must say which.
+  expect(body.accepts[0].scheme).toBe("native-transfer");
+  for (const extra of body.accepts.slice(1)) {
+    expect(extra.scheme).toBe("exact");
+    expect(extra.network).toBe("eip155:56");
+    expect(["eip3009", "permit2-exact"]).toContain(extra.extra.assetTransferMethod);
+  }
+});
+
+test("the v2 request carrier is read as well as the v1 one", async ({ request }) => {
+  const res = await request.get(REPORT, { headers: { "payment-signature": "please-let-me-in" } });
+  expect(res.status()).toBe(402);
+  expect((await res.json()).rejected).toMatch(/transaction hash/);
+  // The refusal still carries the terms, so a client that only reads the
+  // header is not left with a bare status.
+  expect(res.headers()["payment-required"]).toBeTruthy();
+});
+
+test("a signed envelope is recognised as one and refused on its merits, not as a bad hash", async ({ request }) => {
+  // A B402 v2 envelope, correctly shaped, signed by nobody. On an instance
+  // with no settler it is refused because the rail is not for sale here; on
+  // one with a settler it is refused by the SDK's verification. Either way
+  // it is 402, the reason is a sentence, and nothing is banked.
+  const zero = "0x" + "00".repeat(20);
+  const envelope = Buffer.from(
+    JSON.stringify({
+      x402Version: 2,
+      scheme: "exact",
+      network: "eip155:56",
+      payload: {
+        signature: "0x" + "00".repeat(65),
+        authorization: { from: zero, to: zero, value: "1", validAfter: "0", validBefore: "1", nonce: "0x" + "00".repeat(32) },
+      },
+    }),
+  ).toString("base64");
+  const res = await request.get(REPORT, { headers: { "payment-signature": envelope } });
+  expect(res.status()).toBe(402);
+  const body = await res.json();
+  expect(typeof body.rejected).toBe("string");
+  expect(body.rejected).not.toMatch(/transaction hash/);
+});
+
+test("an agent can be named as chainId:tokenId", async ({ request }) => {
+  const res = await request.get("/api/report?agent=56:43129");
+  expect(res.status()).toBe(402);
+  expect((await res.json()).accepts[0].payTo).toMatch(/^0x[0-9a-fA-F]{40}$/);
+
+  const bad = await request.get("/api/report?agent=nope", { headers: { "payment-signature": "0x" + "ab".repeat(32) } });
+  expect(bad.status()).toBe(400);
+  expect((await bad.json()).error).toMatch(/chainId:tokenId/);
+});
+
 test("a payment header that is not a transaction hash is refused", async ({ request }) => {
   const res = await request.get(REPORT, { headers: { "x-payment": "please-let-me-in" } });
   expect(res.status()).toBe(402);

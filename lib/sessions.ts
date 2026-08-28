@@ -12,7 +12,7 @@
 
 import "server-only";
 import { signerFromPrivateKey } from "@altananetwork/sdk";
-import { clientFor, sessionFromSeat } from "./altana.ts";
+import { clientFor } from "./altana.ts";
 import {
   adminKey,
   hasAdminKey,
@@ -77,10 +77,15 @@ export async function revokeSeat(publicKey: string): Promise<LedgerSeat | null> 
   let revokeError: string | undefined;
 
   try {
+    // The public key alone, never `sessionFromSeat`. The SDK revokes by
+    // `keccak256(publicKey)` and takes a bare key for exactly this case; the
+    // deployed ledger arrives with `sessionPrivateKey` stripped to "0x" by
+    // `ledger:push`, and rebuilding a signer from that threw before the
+    // revoke was ever sent — the one button the control room exists for.
     const result = await client.revokeSession({
       wallet: { address: seat.walletAddress },
       signer,
-      session: sessionFromSeat(seat),
+      session: seat.publicKey,
       chainId: seat.chainId,
     });
 

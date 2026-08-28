@@ -1,10 +1,13 @@
-import { Fragment } from "react";
+import { Fragment, Suspense } from "react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import {
   getAgent,
   getQuality,
   getScoreHistory,
+  type ScanAgentDetail,
+  type AgentQuality,
   type ServiceHealth,
   type RiskFlag,
   type ScoreHistory,
@@ -15,8 +18,8 @@ import { checkX402Cached, networkName, type X402Check } from "@/lib/x402";
 import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/reputation";
 import { diagnose, failureLabel } from "@/lib/failure";
 import { rpcOutcomeLabel } from "@/lib/a2a";
-import { classify } from "@/lib/taxonomy";
-import { assess, tierLabel } from "@/lib/signals";
+import { classify, type Classification } from "@/lib/taxonomy";
+import { assess, tierLabel, type Assessment } from "@/lib/signals";
 import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/components/listing";
 
 /*
@@ -26,6 +29,11 @@ import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/compo
  * typed into cells and labelled as the registry's; Kawal's own findings are
  * stamped, with the count behind each stamp printed in it and its blind spot
  * printed under it.
+ *
+ * The registry's entries arrive with the sheet. Kawal's own findings — the
+ * call, the payment question, the feedback read — each sit in their own
+ * Suspense boundary and stream in as they finish, so the name and the
+ * description are on screen while a slow endpoint is still being called.
  */
 
 /**
@@ -39,7 +47,9 @@ import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/compo
  *
  * Metadata is generated before the stream opens, so the same lookup here
  * fails the request honestly. The fetch is shared with the page body through
- * the 5-minute cache, so this costs no extra upstream call.
+ * the 5-minute cache, so this costs no extra upstream call. The Suspense
+ * boundaries below do not change this: they open inside the page's own
+ * output, after `notFound()` has had its chance.
  */
 export async function generateMetadata({ params }: PageProps<"/agents/[chainId]/[tokenId]">) {
   const { chainId, tokenId } = await params;
@@ -54,45 +64,50 @@ export async function generateMetadata({ params }: PageProps<"/agents/[chainId]/
   };
 }
 
+/** The promises the streamed sections share. Each upstream is called once. */
+type Findings = {
+  proof: Promise<EndpointProof | null>;
+  uptime: Promise<Uptime | null>;
+  payment: Promise<X402Check | null>;
+  reputation: Promise<Reputation | null>;
+};
+
 export default async function AgentPage({ params }: PageProps<"/agents/[chainId]/[tokenId]">) {
   const { chainId, tokenId } = await params;
 
-  const [agent, quality, history, reputation] = await Promise.all([
+  const [agent, quality, history] = await Promise.all([
     getAgent(Number(chainId), tokenId).catch(() => null),
     getQuality(Number(chainId), tokenId),
     getScoreHistory(Number(chainId), tokenId),
-    // Read here rather than on the listing: this is one request per agent, and
-    // decorating fifty rows nobody has chosen yet would be fifty of them.
-    getReputationCached(Number(chainId), tokenId),
   ]);
   if (!agent) notFound();
 
+  // The nonce the proxy minted for this request, so the JSON-LD block below
+  // passes the same policy as every other script on the page.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   // Knock on the door ourselves. 8004scan's report is a reading from some
   // earlier moment; this one is from now, from here, and it is the only check
-  // that catches a registration whose MCP endpoint is an image file.
-  const proof = await proveAgent(agent);
-
-  // Only asked of agents that claim to charge, and only here — the listing
-  // shows many agents and must not make a second round of requests to other
-  // people's servers to decorate rows nobody has chosen yet.
-  const payment =
-    agent.x402_supported === true && proof?.endpoint ? await checkX402Cached(proof.endpoint) : null;
+  // that catches a registration whose MCP endpoint is an image file. Started
+  // here and awaited inside the boundaries, so the header does not wait on
+  // it; every consumer reads the same promise, so it is one call.
+  const proof = proveAgent(agent).catch(() => null);
+  const findings: Findings = {
+    proof,
+    uptime: proof.then((p) => (p ? uptimeFor(p.endpoint) : null)).catch(() => null),
+    // Only asked of agents that claim to charge, and only here — the listing
+    // shows many agents and must not make a second round of requests to other
+    // people's servers to decorate rows nobody has chosen yet.
+    payment: proof
+      .then((p) => (agent.x402_supported === true && p?.endpoint ? checkX402Cached(p.endpoint) : null))
+      .catch(() => null),
+    // Read here rather than on the listing: this is one request per agent, and
+    // decorating fifty rows nobody has chosen yet would be fifty of them.
+    reputation: getReputationCached(Number(chainId), tokenId).catch(() => null),
+  };
 
   const classification = classify(agent.name, agent.description);
-  // The registry's claim, reconciled with what Kawal has actually seen. An
-  // endpoint called repeatedly and never reached is not hireable, whatever
-  // the registration says — but an agent that published a stdio route or a
-  // repository answered us, so it is not the silent case either.
-  const observed = await observedFor(proof?.endpoint);
-  const assessment = assess(
-    agent,
-    undefined,
-    observed && { ...observed, reachedAnotherWay: proof?.descriptor != null },
-    payment ? { demanded: payment.demanded } : undefined,
-    reputation,
-  );
   const registered = new Date(agent.created_at);
-  const uptime = proof ? await uptimeFor(proof.endpoint) : null;
   const seat = seatColor(classification.category);
 
   return (
@@ -108,7 +123,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
           <span className="cap">Form K-3 · lembar pemeriksaan · inspection sheet</span>
           <span className="serial text-[0.85rem]">No. {agent.chain_id}:{agent.token_id}</span>
-          <span className="cap">Diperiksa · {new Date().toISOString().slice(0, 10)}</span>
+          <Suspense fallback={<span className="cap">Diperiksa · …</span>}>
+            <CheckedAt proof={findings.proof} />
+          </Suspense>
         </div>
 
         {/* ------------------------------------------------- the entry --- */}
@@ -123,49 +140,29 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
             </p>
           </div>
           <div className="col-start-1 mt-4 sm:col-start-2 sm:mt-1 sm:pl-4">
-            <Stamp ink={tierInk(assessment.tier)} evidence={uptime?.checks ?? null} size="lg">
-              {assessment.tier === "hireable"
-                ? "Telah diperiksa"
-                : assessment.tier === "reachable"
-                  ? "Diterima"
-                  : assessment.tier === "unreachable"
-                    ? "Ditolak"
-                    : "Belum diperiksa"}
-            </Stamp>
+            {/* No stamp until the call comes back: a verdict pressed before
+                the evidence is the thing this form exists not to do. */}
+            <Suspense fallback={<span className="cap">Calling the endpoint…</span>}>
+              <HeaderStamp agent={agent} findings={findings} />
+            </Suspense>
           </div>
         </header>
 
-        {/* --------------------------------------------- can you hire it --- */}
-        <section className="border-b-[1.5px] border-rule px-5 py-6">
-          <h2 className="cap">Can you hire it</h2>
-          <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{tierLabel(assessment.tier)}</p>
-          <dl className="cells mt-4 sm:grid-cols-2 lg:grid-cols-3">
-            {assessment.signals.map((s) => (
-              <div key={s.key} className="cell">
-                <dt className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="inline-block h-[9px] w-[9px] border border-rule"
-                    style={{ background: s.pass ? "var(--carbon)" : "transparent" }}
-                  />
-                  <span className="cap !mb-0">{s.label}</span>
-                </dt>
-                <dd className="typed mt-1.5 text-[0.88rem] text-carbon-2">{s.detail}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+        <Suspense fallback={<Pending>Weighing the registration against the call…</Pending>}>
+          <HireSection agent={agent} classification={classification} findings={findings} nonce={nonce} />
+        </Suspense>
 
-        {proof && <LiveProbe proof={proof} uptime={uptime} />}
+        <Suspense fallback={<Pending>Calling the endpoint…</Pending>}>
+          <ProbeSection findings={findings} scan={quality?.endpoint_health ?? null} />
+        </Suspense>
 
-        {payment && <PaymentTerms check={payment} />}
+        <Suspense fallback={null}>
+          <PaymentSection findings={findings} />
+        </Suspense>
 
-        {/* `sampled`, not `total`. A 200 carrying a total and no readable items
-            — a shape change upstream, a truncated response — would otherwise
-            render "every record was written without a mark" about records
-            Kawal never read. Saying nothing is the honest output of reading
-            nothing. */}
-        {reputation && reputation.sampled > 0 && <TrackRecord r={reputation} />}
+        <Suspense fallback={null}>
+          <TrackRecordSection findings={findings} />
+        </Suspense>
 
         {quality?.endpoint_health && (
           <section className="border-b-[1.5px] border-rule px-5 py-6">
@@ -201,30 +198,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
 
         {history && <Trajectory history={history} />}
 
-        {quality && quality.score.dimensions.length > 0 && (
-          <section className="border-b-[1.5px] border-rule px-5 py-6">
-            <h2 className="cap">
-              How 8004scan scores it · {quality.score.total_score.toFixed(2)} total
-              {quality.score.version && ` · v${quality.score.version}`}
-            </h2>
-            <dl className="mt-3 space-y-2">
-              {quality.score.dimensions.map((d) => (
-                <div key={d.key} className="grid grid-cols-[7rem_minmax(0,1fr)_7rem] items-center gap-3">
-                  <dt className="cap !mb-0">{d.label}</dt>
-                  <dd className="h-[10px] border border-rule bg-paper-white">
-                    <span
-                      className="block h-full bg-carbon"
-                      style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }}
-                    />
-                  </dd>
-                  <dd className="typed text-right text-[0.8rem] text-carbon-3">
-                    {d.score.toFixed(1)} × {d.weight}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        )}
+        {quality && quality.score.dimensions.length > 0 && <ScoreBreakdown score={quality.score} />}
 
         <section className="px-5 py-6">
           <h2 className="cap">Registration · the registry&rsquo;s entries</h2>
@@ -247,8 +221,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat>Telah diperiksa</Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat>Ditolak</Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat><span lang="id">Telah diperiksa</span></Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat><span lang="id">Ditolak</span></Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat><span lang="id">Belum diperiksa</span></Stamp>, means: "declares nothing Kawal can call" },
             { mark: <span aria-hidden className="tally"><i className="on" /><i /><i className="new" /></span>, means: "tally strip: punched = answered, blank = silent, outlined = newest" },
           ]}
         />
@@ -257,7 +232,210 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
   );
 }
 
-function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | null }) {
+/** A section's ruled space while its finding is still on the way. */
+function Pending({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6" aria-busy="true">
+      <span className="cap">{children}</span>
+    </section>
+  );
+}
+
+/** The date in the serial strip: when Kawal called, not when the page was built. */
+async function CheckedAt({ proof }: { proof: Promise<EndpointProof | null> }) {
+  const p = await proof;
+  return (
+    <span className="cap">
+      {p ? `Diperiksa · ${p.checkedAt.slice(0, 10)}` : <span lang="id">Belum diperiksa</span>}
+    </span>
+  );
+}
+
+/**
+ * The registry's claim, reconciled with what Kawal has actually seen.
+ *
+ * An endpoint called repeatedly and never reached is not hireable, whatever
+ * the registration says — but an agent that published a stdio route or a
+ * repository answered us, so it is not the silent case either. Both the
+ * header stamp and the hire section need this, and both read the same
+ * promises, so the second call costs nothing upstream.
+ */
+async function assessFrom(agent: ScanAgentDetail, findings: Findings): Promise<Assessment> {
+  const [proof, payment, reputation] = await Promise.all([findings.proof, findings.payment, findings.reputation]);
+  const observed = await observedFor(proof?.endpoint);
+  return assess(
+    agent,
+    undefined,
+    observed && { ...observed, reachedAnotherWay: proof?.descriptor != null },
+    payment ? { demanded: payment.demanded } : undefined,
+    reputation,
+  );
+}
+
+const TIER_FACE = {
+  hireable: "Telah diperiksa",
+  reachable: "Diterima",
+  unreachable: "Ditolak",
+  registered: "Belum diperiksa",
+} as const;
+
+async function HeaderStamp({ agent, findings }: { agent: ScanAgentDetail; findings: Findings }) {
+  const [assessment, uptime] = await Promise.all([assessFrom(agent, findings), findings.uptime]);
+  return (
+    <Stamp ink={tierInk(assessment.tier)} evidence={uptime?.checks ?? null} size="lg">
+      <span lang="id">{TIER_FACE[assessment.tier]}</span>
+    </Stamp>
+  );
+}
+
+/**
+ * The verdict, and where the journey goes from it.
+ *
+ * A form that ends in a verdict and no stub is a dead end. The hire stub
+ * opens the mandate with this seat first and this agent typed into it; it is
+ * only offered when the tier earned it. The compare stub is always there,
+ * because the next honest question after "can I hire it" is "against what".
+ */
+async function HireSection({
+  agent,
+  classification,
+  findings,
+  nonce,
+}: {
+  agent: ScanAgentDetail;
+  classification: Classification;
+  findings: Findings;
+  nonce: string | undefined;
+}) {
+  const [assessment, payment] = await Promise.all([assessFrom(agent, findings), findings.payment]);
+  const ref = `${agent.chain_id}:${agent.token_id}`;
+  const hireable = assessment.tier === "hireable";
+  const hireHref = `/mandate?${classification.category ? `seat=${classification.category}&` : ""}agent=${ref}`;
+
+  // What a machine reader gets: the registration as a SoftwareApplication
+  // and the hire as an Offer, with the price only where the server quoted
+  // one. The tier decides availability, so a stamp Kawal pressed is what the
+  // structured data says too.
+  const quote = payment?.demanded ? payment.accepts[0] : undefined;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: agent.name,
+    description: agent.description?.trim() || undefined,
+    applicationCategory: categoryLabel(classification.category),
+    identifier: agent.agent_id,
+    operatingSystem: "BNB Smart Chain",
+    offers: {
+      "@type": "Offer",
+      availability: hireable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      url: hireHref,
+      ...(quote ? { price: quote.amount, priceCurrency: quote.asset } : {}),
+    },
+  };
+
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      {/* The name and description are a stranger's text. JSON.stringify
+          escapes quotes but not `</script>`, so `<` is written as its escape
+          and the block cannot be closed early by a registration. */}
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+      />
+      <h2 className="cap">Can you hire it</h2>
+      <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{tierLabel(assessment.tier)}</p>
+      <dl className="cells mt-4 sm:grid-cols-2 lg:grid-cols-3">
+        {assessment.signals.map((s) => (
+          <div key={s.key} className="cell">
+            <dt className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="inline-block h-[9px] w-[9px] border border-rule"
+                style={{ background: s.pass ? "var(--carbon)" : "transparent" }}
+              />
+              <span className="cap !mb-0">{s.label}</span>
+            </dt>
+            <dd className="typed mt-1.5 text-[0.88rem] text-carbon-2">{s.detail}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-5 flex flex-wrap items-center gap-3">
+        {hireable && (
+          <Link href={hireHref} className="counterfoil">
+            Hire under a cap →
+          </Link>
+        )}
+        <Link href={`/compare?ids=${ref}`} className="counterfoil counterfoil--quiet">
+          Compare with another
+        </Link>
+        {!hireable && (
+          <span className="stamp-note max-w-[40ch]">
+            No hire stub: a seat is only offered to an agent that answered in its declared protocol.
+          </span>
+        )}
+      </p>
+    </section>
+  );
+}
+
+async function ProbeSection({
+  findings,
+  scan,
+}: {
+  findings: Findings;
+  scan: AgentQuality["endpoint_health"] | null;
+}) {
+  const [proof, uptime] = await Promise.all([findings.proof, findings.uptime]);
+  if (!proof) {
+    // Printed rather than omitted. A form with no "we called it" block reads
+    // as a form Kawal forgot to fill in; this one says why there is nothing
+    // to fill.
+    return (
+      <section className="border-b-[1.5px] border-rule px-5 py-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="cap">We just called it</h2>
+            <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">
+              <span>Nothing to call</span>
+            </p>
+          </div>
+          <Stamp ink="stamp-grey">
+            <span lang="id">Belum diperiksa</span>
+          </Stamp>
+        </div>
+        <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
+          This registration declares no MCP or A2A endpoint, so there was nothing to call.
+        </p>
+      </section>
+    );
+  }
+  return <LiveProbe proof={proof} uptime={uptime} scan={scan} />;
+}
+
+async function PaymentSection({ findings }: { findings: Findings }) {
+  const payment = await findings.payment;
+  return payment ? <PaymentTerms check={payment} /> : null;
+}
+
+async function TrackRecordSection({ findings }: { findings: Findings }) {
+  const reputation = await findings.reputation;
+  // `sampled`, not `total`. A 200 carrying a total and no readable items — a
+  // shape change upstream, a truncated response — would otherwise render
+  // "every record was written without a mark" about records Kawal never
+  // read. Saying nothing is the honest output of reading nothing.
+  return reputation && reputation.sampled > 0 ? <TrackRecord r={reputation} /> : null;
+}
+
+function LiveProbe({
+  proof,
+  uptime,
+  scan,
+}: {
+  proof: EndpointProof;
+  uptime: Uptime | null;
+  scan: AgentQuality["endpoint_health"] | null;
+}) {
   const good = proof.answered;
   const desc = proof.descriptor;
   const a2a = proof.protocol === "a2a";
@@ -294,12 +472,12 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
         <div>
           <h2 className="cap">We just called it</h2>
           <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">
-            {headline}
+            <span>{headline}</span>
             <span className="ml-3 text-[0.85rem] font-normal text-carbon-3">{proof.latencyMs} ms</span>
           </p>
         </div>
         <Stamp ink={ink} evidence={uptime?.checks ?? null}>
-          {stampText}
+          <span lang="id">{stampText}</span>
         </Stamp>
       </div>
 
@@ -359,7 +537,7 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
           than as a category error on our side. */}
       {uptime && uptime.checks > 1 && !desc && (
         <div className="mt-5 flex flex-col gap-3">
-          <Tally answered={uptime.answered} checks={uptime.checks} />
+          <Tally answered={uptime.answered} checks={uptime.checks} newestAnswered={uptime.lastAnswered} />
           <p className="typed text-[0.9rem]">
             <span className="font-bold">
               {uptime.answered} of {uptime.checks}
@@ -385,6 +563,8 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
           </p>
         </div>
       )}
+
+      {scan && !desc && <Agreement proof={proof} uptime={uptime} scan={scan} />}
 
       {proof.tools.length > 0 && (
         <ToolTable tools={proof.tools} total={proof.toolCount ?? 0} unit={a2a ? "skill" : "tool"} />
@@ -415,6 +595,42 @@ function LiveProbe({ proof, uptime }: { proof: EndpointProof; uptime: Uptime | n
 }
 
 /**
+ * Two readings of the same door, side by side.
+ *
+ * 8004scan publishes a cached health check; Kawal has its own calls. When
+ * they agree, a reader has two sources. When they disagree, the difference
+ * is worth more than either: one of the two is stale, and the timestamps say
+ * which. Printed as a sentence with both dates rather than as a verdict.
+ */
+function Agreement({
+  proof,
+  uptime,
+  scan,
+}: {
+  proof: EndpointProof;
+  uptime: Uptime | null;
+  scan: NonNullable<AgentQuality["endpoint_health"]>;
+}) {
+  const scanUp = scan.overall_status === "healthy" ? true : scan.overall_status === "unhealthy" ? false : null;
+  const kawalUp = proof.answered;
+  const scanAt = scan.checked_at ? new Date(scan.checked_at).toISOString().slice(0, 16).replace("T", " ") : null;
+  const kawal = uptime && uptime.checks > 1 ? `${uptime.answered} of ${uptime.checks} calls answered, the latest ${kawalUp ? "answered" : "did not"}` : `the latest call ${kawalUp ? "answered" : "did not answer"}`;
+
+  return (
+    <p className="typed mt-4 max-w-[64ch] text-[0.88rem] text-carbon-2">
+      <span className="cap mr-2">Two readings</span>
+      8004scan read this endpoint as <span className="font-bold">{scan.overall_status}</span>
+      {scanAt && ` at ${scanAt} UTC`}. Kawal&rsquo;s own: {kawal}.{" "}
+      {scanUp === null
+        ? "8004scan's reading is inconclusive, so there is nothing to agree or disagree with."
+        : scanUp === kawalUp
+          ? "The two agree."
+          : `The two disagree; 8004scan's reading is a cached check and Kawal's is from ${proof.checkedAt.replace("T", " ").slice(0, 16)} UTC, so one of them is out of date.`}
+    </p>
+  );
+}
+
+/**
  * What the registration says about payment, next to what the server said.
  *
  * `x402_supported` is a flag a registration sets about itself, and the whole
@@ -432,7 +648,9 @@ function PaymentTerms({ check }: { check: X402Check }) {
           <h2 className="cap">We asked it to charge us</h2>
           <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{charged ? "Quotes a price" : "Claims x402, asked for nothing"}</p>
         </div>
-        <Stamp ink={charged ? "stamp-green" : "stamp-grey"}>{charged ? "Bertarif" : "Tanpa tagihan"}</Stamp>
+        <Stamp ink={charged ? "stamp-green" : "stamp-grey"}>
+          <span lang="id">{charged ? "Bertarif" : "Tanpa tagihan"}</span>
+        </Stamp>
       </div>
 
       <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
@@ -496,7 +714,7 @@ function TrackRecord({ r }: { r: Reputation }) {
           </p>
         </div>
         <Stamp ink={unmarked || captured ? "stamp-grey" : "stamp-violet"} evidence={r.sampled}>
-          {unmarked ? "Kosong" : captured ? "Satu sumber" : "Beberapa sumber"}
+          <span lang="id">{unmarked ? "Kosong" : captured ? "Satu sumber" : "Beberapa sumber"}</span>
         </Stamp>
       </div>
 
@@ -536,7 +754,52 @@ function TrackRecord({ r }: { r: Reputation }) {
             <span className="ml-2 text-carbon-3">{Math.round(r.topRaterShare * 100)}%</span>
           </Row>
         )}
+        {/* What the busiest address wrote under. A wall of one tag is a
+            scheduled prober; a spread of several is a person. */}
+        {r.topRaterTags.length > 0 && (
+          <Row label="Busiest writer's tags">
+            {r.topRaterTags.map((t, i) => (
+              <span key={t.tag}>
+                {i > 0 && ", "}
+                <code>{t.tag}</code> ×{t.count}
+              </span>
+            ))}
+          </Row>
+        )}
+        {/* The owner answering on-chain is the one signal here that cannot
+            be bought from a prober: someone is running this agent. */}
+        <Row label="Owner replies">
+          {r.replies.length === 0
+            ? "none in the sample"
+            : r.replies.map((reply, i) => (
+                <span key={reply.feedbackId}>
+                  {i > 0 && " · "}
+                  {reply.uri ? (
+                    <a href={reply.uri} target="_blank" rel="noreferrer noopener" className="underline">
+                      {reply.by.slice(0, 10)}…
+                    </a>
+                  ) : (
+                    `${reply.by.slice(0, 10)}…`
+                  )}
+                  {reply.at ? ` on ${reply.at.slice(0, 10)}` : ""}
+                </span>
+              ))}
+        </Row>
       </dl>
+
+      {r.recentComments.length > 0 && (
+        <ul className="mt-4 max-w-[64ch] space-y-2">
+          {r.recentComments.map((c, i) => (
+            <li key={`${c.by}-${i}`} className="typed border-l-[1.5px] border-rule-soft pl-3 text-[0.88rem] text-carbon-2">
+              &ldquo;{c.comment.length > 240 ? `${c.comment.slice(0, 240)}…` : c.comment}&rdquo;
+              <span className="block text-[0.78rem] text-carbon-3">
+                {c.by.slice(0, 10)}…{c.at ? ` · ${c.at.slice(0, 10)}` : ""}
+                {c.tag ? ` · ${c.tag}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -587,6 +850,44 @@ function Trajectory({ history }: { history: ScoreHistory }) {
           </p>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * 8004scan's score, dimension by dimension.
+ *
+ * Each bar is one dimension on a 0–100 scale, weighted as the registry
+ * weights it; the scale is printed because a bar with no axis is decoration.
+ * The date is the registry's own `last_scored_at`, not the page's.
+ */
+function ScoreBreakdown({ score }: { score: AgentQuality["score"] }) {
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <h2 className="cap">
+        How 8004scan scores it · {score.total_score.toFixed(2)} total
+        {score.version && ` · v${score.version}`}
+      </h2>
+      <p className="cap mt-1 !text-carbon-2">
+        Each bar 0–100, then × weight
+        {score.last_scored_at && ` · scored ${new Date(score.last_scored_at).toISOString().slice(0, 10)}`}
+      </p>
+      <dl className="mt-3 space-y-3 sm:space-y-2">
+        {score.dimensions.map((d) => (
+          <div key={d.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[7rem_minmax(0,1fr)_7rem]">
+            <dt className="cap !mb-0">{d.label}</dt>
+            {/* Full width under the caption on a phone; the middle column
+                from `sm`. A 7rem caption column left a bar 60px wide at
+                360px, which is a line, not a measurement. */}
+            <dd className="order-last col-span-2 h-[10px] border border-rule bg-paper-white sm:order-none sm:col-span-1" aria-hidden>
+              <span className="block h-full bg-carbon" style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }} />
+            </dd>
+            <dd className="typed text-right text-[0.8rem] text-carbon-3">
+              {d.score.toFixed(1)} × {d.weight}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }
@@ -652,27 +953,32 @@ function ToolTable({ tools, total, unit = "tool" }: { tools: ProbedTool[]; total
         {priced.length > 0 && ` · ${priced.length} declares a price`}
       </h3>
 
-      <ul className="mt-2 border-y-[1.5px] border-rule">
-        {tools.map((t) => (
-          <li key={t.name} className="grid grid-cols-[minmax(0,1fr)] gap-x-4 gap-y-1 border-b border-rule-soft py-2 last:border-b-0 sm:grid-cols-[14rem_auto_minmax(0,1fr)]">
-            <span className="typed text-[0.9rem] font-bold">{t.name}</span>
-            <span>
-              {t.declaredPrice ? (
-                <Stamp ink="stamp-green" size="sm" flat>
-                  declares {t.declaredPrice.amount} {t.declaredPrice.token}
-                </Stamp>
-              ) : t.declaredFree ? (
-                <span className="cap">declares free</span>
-              ) : null}
-            </span>
-            {t.description && (
-              <span className="typed min-w-0 text-[0.85rem] text-carbon-3">
-                {t.description.length > 110 ? `${t.description.slice(0, 110)}…` : t.description}
+      {/* Tool names are whatever the server chose, and some are one
+          unbroken token longer than a phone is wide. Wrapped where they can
+          be, scrolled inside the box where they cannot. */}
+      <div className="overflow-x-auto">
+        <ul className="mt-2 border-y-[1.5px] border-rule">
+          {tools.map((t) => (
+            <li key={t.name} className="grid grid-cols-[minmax(0,1fr)] gap-x-4 gap-y-1 border-b border-rule-soft py-2 last:border-b-0 sm:grid-cols-[14rem_auto_minmax(0,1fr)]">
+              <span className="typed break-all text-[0.9rem] font-bold">{t.name}</span>
+              <span>
+                {t.declaredPrice ? (
+                  <Stamp ink="stamp-green" size="sm" flat>
+                    declares {t.declaredPrice.amount} {t.declaredPrice.token}
+                  </Stamp>
+                ) : t.declaredFree ? (
+                  <span className="cap">declares free</span>
+                ) : null}
               </span>
-            )}
-          </li>
-        ))}
-      </ul>
+              {t.description && (
+                <span className="typed min-w-0 break-words text-[0.85rem] text-carbon-3">
+                  {t.description.length > 110 ? `${t.description.slice(0, 110)}…` : t.description}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {total > tools.length && (
         <p className="cap mt-2">

@@ -13,11 +13,13 @@
  * would be exactly the "declares an interface" claim this project exists to
  * check, and the offline suite asserts the card parses with Kawal's own reader.
  *
- * Every skill is one of the MCP tools. Same code, second door. The one
- * A2A-specific decision is that answers come back as a `Message` rather than
- * a `Task`: every skill completes inside the request, so there is no task to
- * track, and `tasks/get` says so with the error the specification names for
- * it rather than pretending to a task store it does not have.
+ * Every skill is one of the MCP tools. Same code, second door. Two
+ * A2A-specific decisions: `message/send` answers with a `Message` rather than
+ * a `Task`, because every skill completes inside the request and there is
+ * nothing to track; and `message/stream` narrates that same work as the task
+ * events the specification defines, then forgets the task. No task store
+ * exists, so `tasks/get` says so with the error the specification names for
+ * it rather than pretending to one.
  */
 
 import { TOOLS, SERVER_VERSION } from "./server.mcp.ts";
@@ -38,6 +40,14 @@ const TASK_NOT_FOUND = -32001;
 const UNSUPPORTED_OPERATION = -32004;
 const EXTENDED_CARD_NOT_CONFIGURED = -32007;
 
+/** Worked examples for the card, one per skill, in the data-part form. */
+const EXAMPLE_ARGS: Record<string, Json> = {
+  find_agents: { query: "watch my lending position" },
+  agents_by_owner: { owner: "0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92" },
+  compare_agents: { agents: [{ tokenId: "43129" }, { tokenId: "153672" }] },
+  plan_mandate: { capitalUsdt: 10000, days: 30 },
+};
+
 /**
  * The card, for the origin it is served from.
  *
@@ -52,17 +62,28 @@ export function agentCard(origin: string): Json {
       "Evidence about ERC-8004 agents on BNB Smart Chain, gathered by calling them. " +
       "Kawal dials a declared endpoint and reports whether it answered, asks an agent that " +
       "claims x402 whether it really charges, and reads who wrote its feedback. Nothing here " +
-      "repeats a registry claim without saying so. The same skills are served over MCP at /api/mcp.",
+      "repeats a registry claim without saying so. The same skills are served over MCP at /api/mcp. " +
+      "message/stream narrates a skill as task events and the task is gone once the stream closes; " +
+      "there is no authenticated card, the public one is complete.",
     url: `${origin}/api/a2a`,
     provider: { organization: "Kawal", url: origin },
     version: SERVER_VERSION,
     protocolVersion: A2A_PROTOCOL_VERSION,
     preferredTransport: "JSONRPC",
+    // The primary, restated as the specification asks, and the MCP door.
+    // `transport` is an open string in the schema; "MCP" is not an A2A
+    // transport, but the card is the one document an A2A client reads, and
+    // an agent that speaks both should learn about the second door from it.
+    additionalInterfaces: [
+      { url: `${origin}/api/a2a`, transport: "JSONRPC" },
+      { url: `${origin}/api/mcp`, transport: "MCP" },
+    ],
     capabilities: {
-      streaming: false,
+      streaming: true,
       pushNotifications: false,
       stateTransitionHistory: false,
     },
+    supportsAuthenticatedExtendedCard: false,
     defaultInputModes: ["application/json", "text/plain"],
     defaultOutputModes: ["application/json"],
     skills: TOOLS.map((t) => ({
@@ -72,9 +93,7 @@ export function agentCard(origin: string): Json {
       tags: ["erc-8004", "bnb-chain", "verification"],
       inputModes: ["application/json", "text/plain"],
       outputModes: ["application/json"],
-      examples: [
-        JSON.stringify({ skill: t.name, ...(t.name === "find_agents" ? { query: "watch my lending position" } : { tokenId: "43129" }) }),
-      ],
+      examples: [JSON.stringify({ skill: t.name, ...(EXAMPLE_ARGS[t.name] ?? { tokenId: "43129" }) })],
     })),
   };
 }
@@ -120,6 +139,41 @@ class RpcError extends Error {
   }
 }
 
+type Request_ = { skill: string; args: Json; contextId: string | null };
+
+/** The envelope's message, resolved to a skill; throws RpcError for the caller's mistakes. */
+function resolve(params: Json): Request_ {
+  const incoming = (typeof params.message === "object" && params.message !== null ? params.message : null) as Json | null;
+  if (!incoming || !Array.isArray(incoming.parts)) throw new RpcError(INVALID_PARAMS, "params.message.parts is required");
+  const { skill, args } = readRequest(incoming.parts as Part[]);
+  if (!TOOLS.some((t) => t.name === skill)) throw new RpcError(INVALID_PARAMS, `no skill named ${skill}`);
+  return { skill, args, contextId: typeof incoming.contextId === "string" ? incoming.contextId : null };
+}
+
+/** Runs the skill. A refused argument is the caller's; a failure past validation is Kawal's. */
+async function perform(r: Request_): Promise<Json> {
+  const tool = TOOLS.find((t) => t.name === r.skill)!;
+  try {
+    return await tool.run(r.args);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    const theirs = /must be|must not|must hold|no such|not a decimal/i.test(detail);
+    throw new RpcError(theirs ? INVALID_PARAMS : INTERNAL_ERROR, detail.slice(0, 500));
+  }
+}
+
+/** The answer, as parts: the precise form and the readable one. */
+function partsOf(skill: string, result: Json) {
+  return [
+    { kind: "data", data: { skill, result } },
+    { kind: "text", text: JSON.stringify(result) },
+  ];
+}
+
+function now() {
+  return new Date().toISOString();
+}
+
 export type A2aResponse = { status: number; body: Json | null };
 
 /**
@@ -140,25 +194,27 @@ export async function handleA2a(message: unknown): Promise<A2aResponse> {
 
   if (msg.id === undefined || msg.id === null) return { status: 202, body: null };
 
+  const params = (typeof msg.params === "object" && msg.params !== null ? msg.params : {}) as Json;
+
   switch (method) {
     case "message/send":
-      return { status: 200, body: await send(id, (msg.params ?? {}) as Json) };
+      return { status: 200, body: await send(id, params) };
 
     case "message/stream":
-      return {
-        status: 200,
-        body: rpcError(id, UNSUPPORTED_OPERATION, "Kawal answers in one message; streaming is not offered"),
-      };
+      // The HTTP transport serves this method as SSE via `streamA2a`. Reached
+      // directly — the offline suite, or a caller that cannot read a stream —
+      // it answers with the stream's end state: the finished task.
+      return { status: 200, body: await finishedTask(id, params) };
 
     case "tasks/get":
     case "tasks/cancel":
     case "tasks/resubscribe":
-      // Every skill completes inside the request, so no task ever exists to
+      // Every skill completes inside the request, so no task outlives one to
       // be fetched. This is also the harmless question Kawal asks everyone
       // else, and it gets the answer it would expect.
       return {
         status: 200,
-        body: rpcError(id, TASK_NOT_FOUND, "Kawal completes every skill synchronously and keeps no tasks"),
+        body: rpcError(id, TASK_NOT_FOUND, "Kawal completes every skill inside the request and keeps no tasks"),
       };
 
     case "tasks/pushNotificationConfig/set":
@@ -179,23 +235,9 @@ export async function handleA2a(message: unknown): Promise<A2aResponse> {
 }
 
 async function send(id: string | number | null, params: Json): Promise<Json> {
-  const incoming = (typeof params.message === "object" && params.message !== null ? params.message : null) as Json | null;
-  if (!incoming || !Array.isArray(incoming.parts)) {
-    return rpcError(id, INVALID_PARAMS, "params.message.parts is required");
-  }
-
-  let request: { skill: string; args: Json };
   try {
-    request = readRequest(incoming.parts as Part[]);
-  } catch (e) {
-    return e instanceof RpcError ? rpcError(id, e.code, e.message) : rpcError(id, INTERNAL_ERROR, String(e));
-  }
-
-  const tool = TOOLS.find((t) => t.name === request.skill);
-  if (!tool) return rpcError(id, INVALID_PARAMS, `no skill named ${request.skill}`);
-
-  try {
-    const result = await tool.run(request.args);
+    const request = resolve(params);
+    const result = await perform(request);
     return {
       jsonrpc: "2.0",
       id,
@@ -203,19 +245,96 @@ async function send(id: string | number | null, params: Json): Promise<Json> {
         kind: "message",
         role: "agent",
         messageId: crypto.randomUUID(),
-        ...(typeof incoming.contextId === "string" ? { contextId: incoming.contextId } : {}),
-        parts: [
-          { kind: "data", data: { skill: request.skill, result } },
-          { kind: "text", text: JSON.stringify(result) },
-        ],
+        ...(request.contextId ? { contextId: request.contextId } : {}),
+        parts: partsOf(request.skill, result),
       },
     };
   } catch (e) {
-    // A refused argument is the caller's to fix and is reported as such; a
-    // failure past validation is Kawal's and is reported as that.
+    return e instanceof RpcError ? rpcError(id, e.code, e.message) : rpcError(id, INTERNAL_ERROR, String(e));
+  }
+}
+
+async function finishedTask(id: string | number | null, params: Json): Promise<Json> {
+  try {
+    const request = resolve(params);
+    const result = await perform(request);
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        kind: "task",
+        id: crypto.randomUUID(),
+        contextId: request.contextId ?? crypto.randomUUID(),
+        status: { state: "completed", timestamp: now() },
+        artifacts: [{ artifactId: crypto.randomUUID(), name: request.skill, parts: partsOf(request.skill, result) }],
+      },
+    };
+  } catch (e) {
+    return e instanceof RpcError ? rpcError(id, e.code, e.message) : rpcError(id, INTERNAL_ERROR, String(e));
+  }
+}
+
+/**
+ * `message/stream`, as the sequence of events the specification defines.
+ *
+ * Each yielded value is one complete JSON-RPC response for the route to put
+ * on the wire as one SSE `data:` line. The order is the one a client
+ * expects: the task as submitted, a working status, the artifact, and a
+ * completed status marked `final`. A request that cannot even be resolved to
+ * a skill gets a single error response and nothing else, because no task was
+ * ever created for it; a skill that fails after that ends the task as failed.
+ *
+ * The task id is minted for this stream and forgotten with it. `tasks/get`
+ * for it answers TaskNotFound, which is the truth: nothing was kept.
+ */
+export async function* streamA2a(message: unknown): AsyncGenerator<Json> {
+  if (typeof message !== "object" || message === null) {
+    yield rpcError(null, PARSE_ERROR, "expected a JSON-RPC object");
+    return;
+  }
+  const msg = message as Json;
+  const id = (msg.id ?? null) as string | number | null;
+  const params = (typeof msg.params === "object" && msg.params !== null ? msg.params : {}) as Json;
+
+  let request: Request_;
+  try {
+    request = resolve(params);
+  } catch (e) {
+    yield e instanceof RpcError ? rpcError(id, e.code, e.message) : rpcError(id, INTERNAL_ERROR, String(e));
+    return;
+  }
+
+  const taskId = crypto.randomUUID();
+  const contextId = request.contextId ?? crypto.randomUUID();
+  const event = (result: Json) => ({ jsonrpc: "2.0", id, result });
+
+  yield event({ kind: "task", id: taskId, contextId, status: { state: "submitted", timestamp: now() } });
+  yield event({ kind: "status-update", taskId, contextId, status: { state: "working", timestamp: now() }, final: false });
+
+  try {
+    const result = await perform(request);
+    yield event({
+      kind: "artifact-update",
+      taskId,
+      contextId,
+      artifact: { artifactId: crypto.randomUUID(), name: request.skill, parts: partsOf(request.skill, result) },
+      append: false,
+      lastChunk: true,
+    });
+    yield event({ kind: "status-update", taskId, contextId, status: { state: "completed", timestamp: now() }, final: true });
+  } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    const theirs = /must be|must not|no such|not a decimal/i.test(detail);
-    return rpcError(id, theirs ? INVALID_PARAMS : INTERNAL_ERROR, detail.slice(0, 500));
+    yield event({
+      kind: "status-update",
+      taskId,
+      contextId,
+      status: {
+        state: "failed",
+        timestamp: now(),
+        message: { kind: "message", role: "agent", messageId: crypto.randomUUID(), parts: [{ kind: "text", text: detail }] },
+      },
+      final: true,
+    });
   }
 }
 

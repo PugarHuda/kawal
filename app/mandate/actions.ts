@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { revokeSeat, hasAdminKey } from "@/lib/sessions";
+import { signerFromPrivateKey } from "@altananetwork/sdk";
+import { revokeSeat, hasAdminKey, loadLedger } from "@/lib/sessions";
+import { adminKey, mutateLedger } from "@/lib/vault";
+import { clientFor, grantMandate } from "@/lib/altana";
+import { USDT_BSC, MAX_PLANNER_CAPITAL, MAX_DURATION_DAYS, usdtToRaw } from "@/lib/mandate";
+import { BSC_MAINNET } from "@/lib/chains";
 import { assertOperator, unlock, lock } from "@/lib/operator";
 
 /**
@@ -18,22 +23,90 @@ import { assertOperator, unlock, lock } from "@/lib/operator";
  */
 export async function revokeAction(formData: FormData) {
   await assertOperator();
-
-  // An instance can hold the operator token and not the wallet key — a
-  // read-only deployment, or one where the key was never installed. Without
-  // this the button was offered, the operator unlocked, and the click threw
-  // an uncaught MissingAdminKeyError straight into a 500.
-  if (!hasAdminKey()) {
-    throw new Error(
-      "This instance holds no admin key, so it cannot revoke. Sessions can only be revoked where the wallet key lives.",
-    );
-  }
+  requireAdminKey("revoke");
 
   const publicKey = formData.get("publicKey");
   if (typeof publicKey !== "string" || !publicKey) return;
 
   await revokeSeat(publicKey);
   revalidatePath("/mandate");
+}
+
+/**
+ * Grants the planned seats on-chain.
+ *
+ * The same authorisation shape as `revokeAction`, because it spends the same
+ * authority: four KeyStore registrations paid from the admin wallet, each a
+ * session an agent can move money through. The mandate is rebuilt here from
+ * the two numbers the form carries rather than trusted from hidden fields —
+ * `planMandate` inside `grantMandate` is what refuses anything unscoped, so
+ * a POST that skips the page cannot get a wider session than the page shows.
+ *
+ * Written through `mutateLedger` seat by seat as `grantMandate` returns them,
+ * so a partial grant leaves the seats that landed visible in the control
+ * room. Failures are thrown after the write, not instead of it.
+ */
+export async function grantAction(formData: FormData) {
+  await assertOperator();
+  requireAdminKey("grant");
+
+  const capital = Number(formData.get("capital"));
+  const days = Math.round(Number(formData.get("days")));
+  if (!Number.isFinite(capital) || capital <= 0 || capital > MAX_PLANNER_CAPITAL) {
+    throw new Error(`capital must be between 0 and ${MAX_PLANNER_CAPITAL.toLocaleString("en-US")} USDT`);
+  }
+  if (!Number.isFinite(days) || days <= 0 || days > MAX_DURATION_DAYS) {
+    throw new Error(`duration must be between 1 and ${MAX_DURATION_DAYS} days`);
+  }
+
+  const chainId = BSC_MAINNET;
+  const adminSigner = signerFromPrivateKey(adminKey());
+  const client = clientFor(chainId);
+  // The wallet the existing seats were granted from, when there is one; the
+  // admin signer's own smart account otherwise. Two wallets on one ledger
+  // would be two control rooms on one page.
+  const existing = (await loadLedger()).find((s) => s.chainId === chainId);
+  const wallet = existing ? { address: existing.walletAddress } : await client.createWallet({ signer: adminSigner });
+
+  const { granted, failures } = await grantMandate({
+    client,
+    wallet,
+    adminSigner,
+    mandate: {
+      chainId,
+      capital: usdtToRaw(capital),
+      token: USDT_BSC,
+      durationDays: days,
+      now: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  if (granted.length > 0) {
+    await mutateLedger((seats) => {
+      seats.push(...granted);
+    });
+  }
+  revalidatePath("/mandate");
+
+  if (failures.length > 0) {
+    throw new Error(
+      `${granted.length} of ${granted.length + failures.length} seats granted; the rest did not land: ${failures.join("; ")}`,
+    );
+  }
+}
+
+/**
+ * An instance can hold the operator token and not the wallet key — a
+ * read-only deployment, or one where the key was never installed. Without
+ * this the button was offered, the operator unlocked, and the click threw an
+ * uncaught MissingAdminKeyError straight into a 500.
+ */
+function requireAdminKey(verb: "revoke" | "grant") {
+  if (!hasAdminKey()) {
+    throw new Error(
+      `This instance holds no admin key, so it cannot ${verb}. Sessions can only be ${verb === "grant" ? "granted" : "revoked"} where the wallet key lives.`,
+    );
+  }
 }
 
 /** Exchanges the operator token for a session cookie. */

@@ -1,8 +1,12 @@
 /**
- * Writes Kawal's uptime measurements into the ERC-8004 reputation registry.
+ * Writes Kawal's uptime measurements into the ERC-8004 reputation registry,
+ * reads them back, and takes one back when it must.
  *
- * Run: npm run publish              dry run — builds every record, sends none
- *      npm run publish -- --send    signs and broadcasts on BSC mainnet
+ * Run: npm run publish                    dry run — builds every record, sends none
+ *      npm run publish -- --send          signs and broadcasts on BSC mainnet
+ *      npm run publish -- --verify        re-reads every record this machine wrote off the chain
+ *      npm run publish -- --revoke <id>   dry run of revoking Kawal's records about one agent
+ *      npm run publish -- --revoke <id> --send
  *
  * Dry by default, like `npm run preempt`, because this is the only script here
  * that leaves something permanent on a public registry with Kawal's name on
@@ -17,12 +21,13 @@
  * not a position worth holding.
  *
  * Every record carries its method and the defects of that method, which is
- * what separates this from adding to the noise.
+ * what separates this from adding to the noise. Two rows per agent, under the
+ * tags EIP-8004 suggests: `uptime` and `responseTime`.
  */
 
 export {};
 
-import { formatEther } from "viem";
+import { decodeFunctionData, formatEther, keccak256, toHex, type Hex } from "viem";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { CATEGORIES } from "../lib/taxonomy.ts";
@@ -36,12 +41,22 @@ import { explorerTx } from "../lib/altana.ts";
 import { BSC_MAINNET } from "../lib/chains.ts";
 import {
   buildFeedback,
+  buildResponseTime,
+  buildRevoke,
+  findOwnRecord,
+  getSummary,
+  readFeedback,
+  registryFor,
+  FEEDBACK_ABI,
   MIN_OBSERVATIONS_TO_PUBLISH,
   KNOWN_DEFECTS,
   type Measurement,
 } from "../lib/feedback.ts";
 
 const SEND = process.argv.includes("--send");
+const VERIFY = process.argv.includes("--verify");
+const revokeAt = process.argv.indexOf("--revoke");
+const REVOKE = revokeAt > -1 ? (process.argv[revokeAt + 1] ?? "") : null;
 const CHAIN = BSC_MAINNET;
 
 /**
@@ -53,10 +68,14 @@ const CHAIN = BSC_MAINNET;
  */
 const PUBLISHED_FILE = ".kawal-published.json";
 const REPUBLISH_AFTER_MS = 24 * 3_600_000;
-type Published = Record<string, { txHash: string; at: string; checks: number }>;
+type Published = Record<
+  string,
+  { txHash: string; at: string; checks: number; responseTimeTx?: string; revokedTx?: string[] }
+>;
 const published: Published = existsSync(PUBLISHED_FILE)
   ? (JSON.parse(readFileSync(PUBLISHED_FILE, "utf8")) as Published)
   : {};
+const save = () => writeFileSync(PUBLISHED_FILE, JSON.stringify(published, null, 2));
 const recent = (agentId: string) => {
   const p = published[agentId];
   return p !== undefined && Date.now() - Date.parse(p.at) < REPUBLISH_AFTER_MS;
@@ -71,8 +90,126 @@ const recent = (agentId: string) => {
  */
 const GAS_HEADROOM = 110n;
 
+const rpc = publicClientFor(CHAIN);
+// The estimate is simulated from the address that will send, when the key is
+// here to derive it from; a dry run on a machine without the key simulates
+// from the wallet the README names, which is the same address.
+const from = hasAdminKey()
+  ? privateKeyToAccount(adminKey()).address
+  : ("0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92" as const);
+
 console.log(`Kawal → ERC-8004 reputation registry, BSC mainnet`);
-console.log(SEND ? "MODE: sending\n" : "MODE: dry run (add -- --send to broadcast)\n");
+console.log(VERIFY ? "MODE: verify\n" : REVOKE !== null ? (SEND ? "MODE: revoking\n" : "MODE: revoke dry run\n") : SEND ? "MODE: sending\n" : "MODE: dry run (add -- --send to broadcast)\n");
+
+/**
+ * What one of Kawal's transactions wrote, decoded off the chain rather than
+ * off the file: the calldata is the record, and the file only remembers the
+ * hash that carried it.
+ */
+async function written(txHash: Hex) {
+  const [tx, receipt] = await Promise.all([rpc.getTransaction({ hash: txHash }), rpc.getTransactionReceipt({ hash: txHash })]);
+  const decoded = decodeFunctionData({ abi: FEEDBACK_ABI, data: tx.input });
+  if (decoded.functionName !== "giveFeedback") throw new Error(`${txHash} is a ${decoded.functionName} call, not giveFeedback`);
+  const [agentId, value, valueDecimals, tag1, tag2, endpoint, uri, hash] = decoded.args;
+  const payload = Buffer.from(uri.replace(/^data:application\/json;base64,/, ""), "base64").toString("utf8");
+  return {
+    ok: receipt.status === "success" && (tx.to ?? "").toLowerCase() === registryFor(CHAIN).toLowerCase(),
+    from: tx.from,
+    agentId,
+    value,
+    valueDecimals,
+    tag1,
+    tag2,
+    endpoint,
+    hashMatches: keccak256(toHex(payload)) === hash,
+  };
+}
+
+// --- verify: every record the file says was sent, re-read from the chain ----
+
+if (VERIFY) {
+  let landed = 0;
+  let total = 0;
+  for (const [agentId, p] of Object.entries(published)) {
+    const hashes = [p.txHash, p.responseTimeTx].filter((h): h is string => typeof h === "string");
+    for (const h of hashes) {
+      total++;
+      try {
+        const w = await written(h as Hex);
+        const onChain = await findOwnRecord(CHAIN, w.agentId, w.from, { tag1: w.tag1, tag2: w.tag2, value: w.value });
+        const summary = await getSummary(CHAIN, w.agentId, [w.from], w.tag1, "");
+        const asWritten = w.ok && w.hashMatches && onChain !== null && !onChain.record.isRevoked && onChain.record.valueDecimals === w.valueDecimals;
+        if (asWritten) landed++;
+        console.log(`  ${asWritten ? "OK     " : "PROBLEM"} agent ${agentId} ${w.tag1.padEnd(12)} ${w.value.toString().padStart(6)} (dec ${w.valueDecimals}) ${w.tag2.padEnd(4)}`);
+        console.log(`          tx ${h.slice(0, 18)}… ${w.ok ? "succeeded at the registry" : "did NOT succeed at the registry"}; payload hash ${w.hashMatches ? "matches" : "MISMATCH"}`);
+        console.log(`          on-chain ${onChain ? `index ${onChain.index}, ${onChain.record.isRevoked ? "REVOKED" : "live"}` : "NOT FOUND under this writer"}; registry summary for ${w.tag1}: ${summary.count} record(s) from this writer`);
+      } catch (e) {
+        console.log(`  PROBLEM agent ${agentId} tx ${h.slice(0, 18)}…: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+      }
+    }
+  }
+  console.log(`\n${landed} of ${total} record(s) are on-chain exactly as written.\n`);
+  process.exit(landed === total ? 0 : 1);
+}
+
+// --- revoke: take back Kawal's rows about one agent ---------------------------
+
+if (REVOKE !== null) {
+  const p = published[REVOKE];
+  if (!/^\d+$/.test(REVOKE) || !p) {
+    console.error(`No record of a publication about agent ${JSON.stringify(REVOKE)} in ${PUBLISHED_FILE}. Nothing to revoke.\n`);
+    process.exit(1);
+  }
+  const hashes = [p.txHash, p.responseTimeTx].filter((h): h is string => typeof h === "string");
+  const gasPrice = await rpc.getGasPrice();
+  const balance = await rpc.getBalance({ address: from });
+  const todo: Array<{ index: bigint; tag1: string; data: Hex; to: `0x${string}`; gas: bigint }> = [];
+  for (const h of hashes) {
+    const w = await written(h as Hex);
+    const onChain = await findOwnRecord(CHAIN, w.agentId, w.from, { tag1: w.tag1, tag2: w.tag2, value: w.value });
+    if (!onChain) {
+      console.log(`  ${w.tag1}: not found on-chain under ${w.from}; nothing to revoke`);
+      continue;
+    }
+    if (onChain.record.isRevoked) {
+      console.log(`  ${w.tag1}: index ${onChain.index} is already revoked`);
+      continue;
+    }
+    const call = buildRevoke(CHAIN, w.agentId, onChain.index);
+    const gas = ((await rpc.estimateGas({ account: from, to: call.to, data: call.data })) * GAS_HEADROOM) / 100n;
+    todo.push({ index: onChain.index, tag1: w.tag1, ...call, gas });
+    console.log(`  ${w.tag1}: index ${onChain.index}, revokeFeedback estimates ${gas} gas, ${formatEther(gas * gasPrice)} BNB`);
+  }
+  const cost = todo.reduce((n, t) => n + t.gas * gasPrice, 0n);
+  console.log(`\nwriter       ${from}\nbalance      ${formatEther(balance)} BNB\ncost         ${formatEther(cost)} BNB for ${todo.length} revocation(s)`);
+  if (todo.length === 0) process.exit(0);
+  if (balance < cost) {
+    console.error(`\nShort by ${formatEther(cost - balance)} BNB. Top up the wallet and run again.\n`);
+    process.exit(1);
+  }
+  if (!SEND) {
+    console.log(`\nDry run. The registry accepts these calls; nothing was sent. Add -- --send to revoke.\n`);
+    process.exit(0);
+  }
+  if (!hasAdminKey()) {
+    console.error(`\nNo admin key. Put one in ${KEY_FILE} or set KAWAL_ADMIN_KEY.\n`);
+    process.exit(1);
+  }
+  const account = privateKeyToAccount(adminKey());
+  const { createWalletClient, http } = await import("viem");
+  const { bsc } = await import("viem/chains");
+  const wallet = createWalletClient({ account, chain: bsc, transport: http() });
+  for (const t of todo) {
+    const hash = await wallet.sendTransaction({ to: t.to, data: t.data, gas: t.gas });
+    console.log(`  ${t.tag1} -> ${explorerTx(CHAIN, hash) ?? hash}`);
+    const receipt = await rpc.waitForTransactionReceipt({ hash });
+    const after = await readFeedback(CHAIN, BigInt(REVOKE), account.address, t.index);
+    console.log(`     ${receipt.status}; the registry now reads index ${t.index} as ${after?.isRevoked ? "revoked" : "STILL LIVE"}`);
+    (p.revokedTx ??= []).push(hash);
+    save();
+  }
+  process.exit(0);
+}
 
 // --- find the agents Kawal has actually measured ---------------------------
 //
@@ -91,7 +228,7 @@ for (const category of CATEGORIES) {
     seen.add(ref);
 
     let endpoint: string | null = null;
-    let protocol: "mcp" | "a2a" = "mcp";
+    let protocol: Measurement["protocol"] = "mcp";
     try {
       const detail = await getAgent(listing.agent.chain_id, listing.agent.token_id);
       const proof = await proveAgent(detail);
@@ -139,10 +276,13 @@ const at = new Date();
 // inconsistent measurement rather than encoding it, and a single refusal must
 // cost that one record rather than the whole run — these are independent
 // writes about different agents, not a cycle.
-const records: Array<{ m: (typeof measurements)[number]; record: ReturnType<typeof buildFeedback> }> = [];
+type Kind = "uptime" | "responseTime";
+const records: Array<{ m: (typeof measurements)[number]; kind: Kind; record: ReturnType<typeof buildFeedback> }> = [];
 for (const m of due) {
   try {
-    records.push({ m, record: buildFeedback(m, at) });
+    records.push({ m, kind: "uptime", record: buildFeedback(m, at) });
+    const rt = buildResponseTime(m, at);
+    if (rt) records.push({ m, kind: "responseTime", record: rt });
   } catch (e) {
     console.error(`  skipping ${m.name} (${m.agentId}): ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -154,10 +294,11 @@ if (records.length === 0) {
 }
 
 console.log(`${records.length} record(s) to write:\n`);
-for (const { m, record } of records) {
-  console.log(`  ${m.name}`);
+for (const { m, kind, record } of records) {
+  console.log(`  ${m.name} — ${kind}`);
   console.log(`    agent      ${m.agentId}`);
-  console.log(`    uptime     ${record.percent.toFixed(2)}%  (${m.answered} of ${m.checks} probes)`);
+  if (kind === "uptime") console.log(`    uptime     ${record.percent.toFixed(2)}%  (${m.answered} of ${m.checks} probes)`);
+  else console.log(`    median     ${record.value} ms  (over ${m.answered} answering probes)`);
   console.log(`    endpoint   ${m.endpoint}`);
   console.log(`    hash       ${record.hash}`);
   console.log(`    calldata   ${(record.data.length - 2) / 2} bytes`);
@@ -172,14 +313,7 @@ for (const d of KNOWN_DEFECTS) console.log(`  · ${d}`);
 // calldata is one the contract accepts — a malformed record fails here, on
 // nobody's money. Records that cannot be estimated are dropped by name.
 
-const rpc = publicClientFor(CHAIN);
 const gasPrice = await rpc.getGasPrice();
-// The estimate is simulated from the address that will send, when the key is
-// here to derive it from; a dry run on a machine without the key simulates
-// from the wallet the README names, which is the same address.
-const from = hasAdminKey()
-  ? privateKeyToAccount(adminKey()).address
-  : ("0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92" as const);
 
 const priced: Array<(typeof records)[number] & { gas: bigint; cost: bigint }> = [];
 for (const r of records) {
@@ -187,13 +321,14 @@ for (const r of records) {
     const gas = ((await rpc.estimateGas({ account: from, to: r.record.to, data: r.record.data, value: 0n })) * GAS_HEADROOM) / 100n;
     priced.push({ ...r, gas, cost: gas * gasPrice });
   } catch (e) {
-    console.error(`  cannot estimate ${r.m.name} (${r.m.agentId}): ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+    console.error(`  cannot estimate ${r.m.name} ${r.kind} (${r.m.agentId}): ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
   }
 }
 
-// Most-observed first: a record backed by 91 probes says more than one backed
-// by 11, so if the balance covers only some, it covers the best ones.
-priced.sort((a, b) => b.m.checks - a.m.checks);
+// Most-observed first, uptime before its response time: a record backed by
+// 91 probes says more than one backed by 11, so if the balance covers only
+// some, it covers the best ones.
+priced.sort((a, b) => b.m.checks - a.m.checks || (a.kind === "uptime" ? -1 : 1));
 const needed = priced.reduce((n, r) => n + r.cost, 0n);
 
 const balance = await rpc.getBalance({ address: from });
@@ -221,10 +356,10 @@ if (affordable.length === 0) {
   process.exit(1);
 }
 console.log(`\n${SEND ? "sending" : "would send"} ${affordable.length} of ${priced.length}, most-observed first:`);
-for (const r of affordable) console.log(`  ${r.m.name} (${r.m.agentId}) — ${r.m.checks} probes, ${formatEther(r.cost)} BNB`);
+for (const r of affordable) console.log(`  ${r.m.name} ${r.kind} (${r.m.agentId}) — ${r.m.checks} probes, ${formatEther(r.cost)} BNB`);
 if (deferred.length > 0) {
   console.log(`\nnot covered by the balance:`);
-  for (const r of deferred) console.log(`  ${r.m.name} (${r.m.agentId}) — ${r.m.checks} probes`);
+  for (const r of deferred) console.log(`  ${r.m.name} ${r.kind} (${r.m.agentId}) — ${r.m.checks} probes`);
   console.log(`Top up ${formatEther(needed - balance)} BNB and run again. What was sent is recorded in ${PUBLISHED_FILE} and not repeated for a day.`);
 }
 
@@ -254,20 +389,24 @@ const wallet = createWalletClient({ account, chain: bsc, transport: http() });
 let nonce = await rpc.getTransactionCount({ address: account.address, blockTag: "pending" });
 
 console.log();
-for (const { m, record, gas } of affordable) {
+for (const { m, kind, record, gas } of affordable) {
   try {
     const hash = await wallet.sendTransaction({ to: record.to, data: record.data, value: 0n, gas, nonce });
-    console.log(`  ${m.name} -> ${explorerTx(CHAIN, hash) ?? hash}`);
+    console.log(`  ${m.name} ${kind} -> ${explorerTx(CHAIN, hash) ?? hash}`);
     await rpc.waitForTransactionReceipt({ hash });
     nonce += 1;
     // Written after each receipt rather than at the end, so a run that dies
     // halfway still knows what it sent.
-    published[m.agentId] = { txHash: hash, at: new Date().toISOString(), checks: m.checks };
-    writeFileSync(PUBLISHED_FILE, JSON.stringify(published, null, 2));
+    if (kind === "uptime") {
+      published[m.agentId] = { ...published[m.agentId], txHash: hash, at: new Date().toISOString(), checks: m.checks };
+    } else {
+      published[m.agentId] = { txHash: published[m.agentId]?.txHash ?? hash, at: new Date().toISOString(), checks: m.checks, ...published[m.agentId], responseTimeTx: hash };
+    }
+    save();
   } catch (e) {
     // One rejected record must not abandon the rest: they are independent
     // writes about different agents, not a cycle that breaks halfway.
-    console.error(`  ${m.name} FAILED: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+    console.error(`  ${m.name} ${kind} FAILED: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
     // Whatever went wrong, the count kept here may now be off by one in
     // either direction. The chain's pending count is the truth.
     nonce = await rpc.getTransactionCount({ address: account.address, blockTag: "pending" });
@@ -275,4 +414,5 @@ for (const { m, record, gas } of affordable) {
 }
 
 console.log(`\nWritten. 8004scan indexes this registry, so the records appear`);
-console.log(`beside every other one rather than sitting on-chain unread.\n`);
+console.log(`beside every other one rather than sitting on-chain unread.`);
+console.log(`Re-read them with \`npm run publish -- --verify\`.\n`);
