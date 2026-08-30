@@ -49,14 +49,6 @@ export function tierInk(tier: Tier): "stamp-violet" | "stamp-blue" | "stamp-red"
   }
 }
 
-/** The face of each tier stamp, as the die is cut. The legend explains these words. */
-const TIER_FACE: Record<Tier, string> = {
-  hireable: "Telah diperiksa",
-  reachable: "Diterima",
-  unreachable: "Ditolak",
-  registered: "Belum diperiksa",
-};
-
 /**
  * The least ink a stamp prints with.
  *
@@ -73,7 +65,6 @@ const BASE_INK = 0.62;
  * darker with more. Ten probes press at about two thirds, ninety at full,
  * none at the base density. `flat` removes the angle for stamps that sit
  * inside a table cell, where a rotated block would collide with the rule.
- * `lang` marks a face cut in Indonesian so a screen reader says it right.
  */
 export function Stamp({
   ink,
@@ -82,7 +73,6 @@ export function Stamp({
   flat = false,
   children,
   className = "",
-  lang,
 }: {
   ink: "stamp-violet" | "stamp-blue" | "stamp-red" | "stamp-grey" | "stamp-green";
   size?: "sm" | "md" | "lg";
@@ -90,7 +80,6 @@ export function Stamp({
   flat?: boolean;
   children: React.ReactNode;
   className?: string;
-  lang?: string;
 }) {
   // A small stamp is 11px type: at base ink it drops under AA contrast, so
   // the density rule applies from md up and the small faces print full.
@@ -104,7 +93,6 @@ export function Stamp({
     <span
       className={`stamp ${ink} ${size === "lg" ? "stamp--lg" : size === "sm" ? "stamp--sm" : ""} ${flat ? "stamp--flat" : ""} ${className}`}
       style={{ ["--ink" as string]: density }}
-      lang={lang}
     >
       {children}
     </span>
@@ -114,9 +102,10 @@ export function Stamp({
 /**
  * The tier as the stamp it earned.
  *
- * The face is the Indonesian die the legend explains; the English tier is
- * beside it for a screen reader and for anything that reads the page as text.
- * One copy each, so "Hireable" resolves once.
+ * The face is `tierLabel`, the one place a tier is put into words. It used to
+ * be a separate die cut in Indonesian with the English tier hidden beside it
+ * for screen readers, which meant two vocabularies to keep in step and a
+ * stamp that read differently by eye than as text. One name now, said once.
  */
 export function TierStamp({
   tier,
@@ -130,12 +119,9 @@ export function TierStamp({
   flat?: boolean;
 }) {
   return (
-    <>
-      <Stamp ink={tierInk(tier)} size={size} evidence={evidence} flat={flat} lang="id">
-        {TIER_FACE[tier]}
-      </Stamp>
-      <span className="sr-only">{tierLabel(tier)}</span>
-    </>
+    <Stamp ink={tierInk(tier)} size={size} evidence={evidence} flat={flat}>
+      {tierLabel(tier)}
+    </Stamp>
   );
 }
 
@@ -215,7 +201,7 @@ export function Cell({
 export function Legend({ items }: { items: Array<{ mark: React.ReactNode; means: string }> }) {
   return (
     <section className="legend" aria-label="Legend">
-      <span className="cap">Keterangan · key</span>
+      <span className="cap">Key</span>
       <dl className="contents">
         {items.map((it, i) => (
           <div key={i} className="inline-flex items-center gap-2">
@@ -321,7 +307,7 @@ export function ListingRow({
         {selectable && (
           <label className="cap inline-flex cursor-pointer items-center gap-2">
             <input type="checkbox" name="ids" value={ref} defaultChecked={checked} className="h-4 w-4 cursor-pointer" />
-            <span lang="id">Bandingkan</span> · compare
+            Compare
           </label>
         )}
       </div>

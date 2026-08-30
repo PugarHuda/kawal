@@ -69,7 +69,7 @@ test("garbage parameters fall back to defaults", async ({ page }) => {
  */
 test("the ERC-8183 market is read off the kernel, and the empty job panel is honest", async ({ page }) => {
   await page.goto("/mandate");
-  const market = page.locator("section").filter({ hasText: "Pasar ERC-8183" });
+  const market = page.locator("section").filter({ hasText: "ERC-8183 market" });
   await expect(market).toBeVisible();
   await expect(market.getByText(/next job id \d+ · read \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/)).toBeVisible();
 
@@ -108,10 +108,10 @@ test("lending seats print today's venue rates with the block they were read at",
   // Scoped to the seats: the legend at the foot of the form carries the same
   // caption as its key entry, and counting that as a seat would make this
   // pass for the wrong reason.
-  const lines = page.locator(".manifest-row dt", { hasText: "Bunga hari ini" });
+  const lines = page.locator(".manifest-row dt", { hasText: "Today’s rates" });
   // Risk officer and Allocator both lend; the market maker and trader do not.
   await expect(lines).toHaveCount(2);
-  await expect(page.locator('section[aria-label="Legend"] dt', { hasText: "Bunga hari ini" })).toHaveCount(1);
+  await expect(page.locator('section[aria-label="Legend"] dt', { hasText: "Today’s rates" })).toHaveCount(1);
 
   const allocator = page.locator(".manifest-row", { hasText: "Allocator" });
   await expect(allocator.getByText(/Venus vUSDT: supply \d+\.\d{2}% · borrow \d+\.\d{2}% APR/)).toBeVisible();
@@ -121,7 +121,7 @@ test("lending seats print today's venue rates with the block they were read at",
   ).toBeVisible();
 
   const trader = page.locator(".manifest-row", { hasText: "Execution trader" });
-  await expect(trader.getByText("Bunga hari ini")).toHaveCount(0);
+  await expect(trader.getByText("Today’s rates")).toHaveCount(0);
 });
 
 /**

@@ -33,7 +33,7 @@ import { marketSummary, uHeld, buyerAddress, formatU, ERC8183_ADDRESSES, type Ma
  * Form K-5: the mandate.
  *
  * A spend cap is the product's whole value, so on this form it is the box
- * every other line points at: "TIDAK MELEBIHI · not to exceed", typed in the
+ * every other line points at: "NOT TO EXCEED", typed in the
  * seat's own ink. Sessions that exist on-chain are a separate, stamped sheet
  * above the planner; everything below the fold is a plan and says so.
  */
@@ -198,12 +198,12 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-5 · surat mandat · the mandate</span>
+          <span className="cap">Form K-5 · the mandate</span>
           <span className="serial text-[0.85rem]">Chain {BSC_MAINNET} · USDT</span>
         </div>
 
         <header className="px-5 py-6">
-          <span className="cap">Keterangan · what this form grants</span>
+          <span className="cap">Key · what this form grants</span>
           <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2 max-w-[24ch]">
             Four seats, four sessions, none of them able to reach the others.
           </h1>
@@ -290,7 +290,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
                 )}
               </div>
               <Stamp ink={unexpected ? "stamp-red" : "stamp-grey"}>
-                <span lang="id">{unexpected ? "Gagal" : "Ditolak"}</span>
+                {unexpected ? "Failed" : "Refused"}
               </Stamp>
             </div>
           </div>
@@ -362,8 +362,8 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
           items={[
             { mark: <Stamp ink="stamp-violet" size="sm" flat>Live</Stamp>, means: "registered in the Altana KeyStore and not yet expired or revoked" },
             { mark: <Stamp ink="stamp-red" size="sm" flat>Revoked</Stamp>, means: "destroyed on-chain; KeyStore revocation cannot be undone" },
-            { mark: <span className="serial text-[0.8rem]" lang="id">Tidak melebihi</span>, means: "the spend cap: what the seat may spend per day, never a deposit" },
-            { mark: <span className="serial text-[0.8rem]" lang="id">Bunga hari ini</span>, means: "what the seat's lending venues pay and charge for USDT, read from the chain as the page was built" },
+            { mark: <span className="serial text-[0.8rem]">Not to exceed</span>, means: "the spend cap: what the seat may spend per day, never a deposit" },
+            { mark: <span className="serial text-[0.8rem]">Today&rsquo;s rates</span>, means: "what the seat's lending venues pay and charge for USDT, read from the chain as the page was built" },
             { mark: <span className="cap">$U</span>, means: "United Stables, the coin the ERC-8183 kernel escrows a job's budget in; one $U is one dollar of budget" },
           ]}
         />
@@ -443,7 +443,7 @@ function EmptyLedger() {
           </p>
         </div>
         <Stamp ink="stamp-grey" size="lg">
-          <span lang="id">Belum ada</span>
+          None yet
         </Stamp>
       </div>
     </section>
@@ -534,7 +534,7 @@ function LiveSessions({
           )}
         </div>
         <Stamp ink="stamp-violet" size="lg" evidence={seats.length * 20}>
-          <span lang="id">Terdaftar</span>
+          Registered
         </Stamp>
       </div>
 
@@ -564,7 +564,7 @@ function LiveSessions({
                   <p className="heading text-[1.6rem]">
                     {formatEther(BigInt(seat.spendLimit))}
                     <span className="typed ml-2 text-[0.8rem] font-normal tracking-normal text-carbon-3">
-                      BNB / {seat.spendPeriod} · <span lang="id">tidak melebihi</span>
+                      BNB / {seat.spendPeriod} · not to exceed
                     </span>
                   </p>
                 </div>
@@ -844,7 +844,7 @@ function SeatLine({
       <dl className="col-start-2 mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:col-start-3 lg:mt-0">
         {filledBy && (
           <div className="sm:col-span-2">
-            <dt className="cap">Diisi oleh · filled by</dt>
+            <dt className="cap">Filled by</dt>
             <dd className="typed mt-1 text-[0.95rem]">
               <Link href={`/agents/${filledBy.chainId}/${filledBy.tokenId}`} className="underline">
                 {filledBy.name ?? `agent ${filledBy.chainId}:${filledBy.tokenId}`}
@@ -887,7 +887,7 @@ function SeatLine({
       <div className="col-start-2 mt-3 lg:col-start-4 lg:mt-0">
         <div className="inline-block border-[1.5px] border-rule bg-paper-white px-3 py-2" style={{ borderColor: seatColor(plan.category) }}>
           <span className="cap block">
-            <span lang="id">Tidak melebihi</span> · not to exceed
+            Not to exceed
           </span>
           <p className="tnum heading text-[1.7rem]" style={{ color: seatColor(plan.category) }}>
             {fromRaw(limit)}{" "}
@@ -922,7 +922,7 @@ function RatesLine({ rates, venus, aave }: { rates: VenueRates | null; venus: bo
   return (
     <div className="sm:col-span-2">
       <dt className="cap">
-        <span lang="id">Bunga hari ini</span> · today&rsquo;s rates
+        Today&rsquo;s rates
       </dt>
       <dd className="typed mt-1 text-[0.85rem] text-carbon-2">
         {rates === null ? (
@@ -989,7 +989,7 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
   return (
     <div className="sm:col-span-2">
       <dt className="cap">
-        <span lang="id">Sewa lewat ERC-8183</span> · hire on ERC-8183
+        Hire on ERC-8183
       </dt>
       <dd className="mt-1">
         <p className="typed text-[0.85rem] text-carbon-2">
@@ -1055,7 +1055,7 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
       <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
         <div>
           <h2 className="heading text-[1.9rem]">
-            <span lang="id">Pasar ERC-8183</span> · the hiring market
+            ERC-8183 market · the hiring market
           </h2>
           <p className="typed mt-2 max-w-[62ch] text-[0.9rem] text-carbon-2">
             The escrow rail Kawal&rsquo;s A2A sellers are hired on: a buyer funds a job in $U on the AgenticCommerce
@@ -1072,11 +1072,11 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
         </div>
         {market ? (
           <Stamp ink="stamp-violet" size="lg" evidence={market.jobs.length}>
-            <span lang="id">Dibaca</span>
+            Read
           </Stamp>
         ) : (
           <Stamp ink="stamp-grey" size="lg">
-            <span lang="id">Tak terbaca</span>
+            Unreadable
           </Stamp>
         )}
       </div>
@@ -1130,7 +1130,7 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
 
           <div className="border-t-[1.5px] border-rule px-5 py-5">
             <h3 className="cap">
-              <span lang="id">Pekerjaan Kawal</span> · jobs this wallet funded
+              Jobs this wallet funded
             </h3>
             {!buyer ? (
               <p className="stamp-note mt-2 max-w-[62ch]">

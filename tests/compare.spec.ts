@@ -160,7 +160,7 @@ test("an endpoint proven silent is downgraded, whatever the registry says", asyn
 
   // The stamp prints its Indonesian face; the English tier rides along for
   // screen readers, so it is in the DOM without being visible.
-  await expect(page.getByText("Ditolak").first()).toBeVisible();
+  await expect(page.getByText("Does not answer").first()).toBeVisible();
   await expect(page.getByText("Does not answer").first()).toBeAttached();
   await expect(page.getByRole("heading", { name: "Can you hire it" })).toBeVisible();
   // The claim it contradicts must still be visible: the registry said MCP.

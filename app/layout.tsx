@@ -70,7 +70,7 @@ STORY: the visitor reads a form Kawal already filled in about an agent, sees
 the stamp and the count behind it, and tears off the counterfoil to hire
 under a cap.
 FIRST VIEWPORT: Form K-1 full width; serial and date strip; the headline
-typed large at left with a violet TELAH DIPERIKSA stamp crossing the probe
+typed large at left with a violet HIREABLE stamp crossing the probe
 count at right; three typed registry cells; the BROWSE THE MANIFEST
 counterfoil; the legend strip; four seats as manifest lines.
 FORM: Surat Jalan, candidate 7 of 7, seed dc528c41.
@@ -114,7 +114,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-stretch gap-x-8 px-6">
             <Link href="/" className="heading flex items-baseline gap-3 py-3 text-2xl no-underline">
               Kawal
-              <span className="cap hidden sm:inline">Buku manifes · BNB Smart Chain · ERC-8004</span>
+              <span className="cap hidden sm:inline">Manifest book · BNB Smart Chain · ERC-8004</span>
             </Link>
             {/* The book's tabs. The form code is printed beside each name and
                 hidden from the accessible name, so a screen reader hears the

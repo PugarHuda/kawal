@@ -104,7 +104,11 @@ test("a term that matches nothing does not invent a hireable agent", async ({ pa
   // arrive carrying the badge that means Kawal called it and it answered.
   await page.goto("/agents?q=zzzznotarealagentzzzz");
   await expect(page.locator("body")).not.toContainText("Application error");
-  await expect(page.getByText("Hireable")).toHaveCount(0);
+  // Scoped to the rows. The legend at the foot of every form names the same
+  // stamp in order to explain it, and counting that as a badge on a listing
+  // would fail this for the one reason it is not about.
+  await expect(page.locator("article").getByText("Hireable")).toHaveCount(0);
+  await expect(page.locator('section[aria-label="Legend"]').getByText("Hireable")).toHaveCount(1);
 });
 
 test("a problem described in plain words finds an agent that does it", async ({ page }) => {

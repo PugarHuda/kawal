@@ -46,7 +46,7 @@ export default function GlobalError({
         <main className="mx-auto w-full max-w-4xl px-6 py-14">
           <section className="sheet sheet--pink">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-              <span className="cap">Form K-0 · dikembalikan · returned</span>
+              <span className="cap">Form K-0 · returned</span>
               <span className="serial text-[0.85rem]">{error.digest ? `No. ${error.digest}` : "No. —"}</span>
             </div>
             <div className="grid gap-6 px-5 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
@@ -60,8 +60,8 @@ export default function GlobalError({
                   sheet directly.
                 </p>
               </div>
-              <span className="stamp stamp-red stamp--lg" lang="id">
-                Gagal
+              <span className="stamp stamp-red stamp--lg">
+                Failed
               </span>
             </div>
           </section>

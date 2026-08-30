@@ -11,7 +11,7 @@ export default function Loading() {
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
       <div className="sheet" aria-busy="true">
         <div className="flex items-baseline justify-between border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-6 · surat pemilik</span>
+          <span className="cap">Form K-6 · owner sheet</span>
           <span className="cap">Reading the registry…</span>
         </div>
         <div className="px-5 py-6">

@@ -11,5 +11,5 @@ import { BlankSheet } from "@/components/blank-rows";
  * answer honestly.
  */
 export default function Loading() {
-  return <BlankSheet form="Form K-2 · manifes agen" note="Reading the registry…" />;
+  return <BlankSheet form="Form K-2 · agent manifest" note="Reading the registry…" />;
 }

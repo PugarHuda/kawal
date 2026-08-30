@@ -4,7 +4,7 @@ import type { TrendingPeriod } from "@/lib/scan";
 import { categoryLabel, seatColor, TierStamp } from "@/components/listing";
 
 /*
- * Naik daun · moving this week.
+ * Moving this week.
  *
  * The registry's own trending list — attention, by its own definition — with
  * Kawal's stamp beside each line. The order is 8004scan's and the stamp is
@@ -45,7 +45,7 @@ export async function Trending({ inset = false }: { inset?: boolean }) {
   const strip = (
     <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
       <span className="cap">
-        <span lang="id">Naik daun</span> · moving this week
+        Moving this week
       </span>
       <span className="cap">8004scan&rsquo;s trend, {PERIOD} · Kawal&rsquo;s stamp</span>
     </div>

@@ -145,7 +145,7 @@ components:
 
 **Creative North Star: "Surat Jalan" (the escort manifest)**
 
-Every agent is a consignment under escort; the page is the inspection form, and a tier is a stamp Kawal pressed after it called. The lineage is Indonesian escort manifests and customs inspection forms: carbon-copy slips, serial numbers, rubber stamps. The scene is a desk under office light with the form flat on it, so the site is light-only (`color-scheme: light`) and has no dark rendition. Every colour is an ink or a paper stock; there is no UI grey.
+Every agent is a consignment under escort; the page is the inspection form, and a tier is a stamp Kawal pressed after it called. The lineage is Indonesian escort manifests and customs inspection forms — carbon-copy slips, serial numbers, rubber stamps — but the forms are worded in English throughout: the reference is the stationery, not the language. The scene is a desk under office light with the form flat on it, so the site is light-only (`color-scheme: light`) and has no dark rendition. Every colour is an ink or a paper stock; there is no UI grey.
 
 The form grammar is load-bearing, not decoration. The direction's own risk line: "Paper skeuomorphism reads as novelty if the form grammar is decoration rather than data; every ruled cell must hold a real value and every stamp must be a real outcome, or the world collapses into a theme." That rule decided most of the build: a stamp prints darker with more evidence, a stamp's blind spot is printed under it, the probe history is a tally strip rather than a chart, and every form carries a printed legend.
 
@@ -165,11 +165,11 @@ Confirmed anti-references (from the direction contract and `.impeccable/decision
 Paper stocks and inks only; the palette is a stationery cupboard, not a UI scale.
 
 ### Primary
-- **Stamp Violet** (`stamp-violet`): Kawal's own mark, TELAH DIPERIKSA — pressed only where Kawal called and something answered in its declared protocol. Also the focus ring (2px dashed), caret, accent colour, and the outline on the newest tally cell.
-- **Stamp Red** (`stamp-red`): DITOLAK — called, nobody answered. The one verdict Kawal proved rather than read. Also the serial-number ink and the K-0 returned-form stamp.
-- **Stamp Blue** (`stamp-blue`): DITERIMA — something answered, not in the declared way. Also the ruler's edge lines.
-- **Stamp Grey** (`stamp-grey`): BELUM DIPERIKSA — declares nothing to call.
-- **Stamp Green** (`stamp-green`): LUNAS — paid, confirmed (x402).
+- **Stamp Violet** (`stamp-violet`): Kawal's own mark, HIREABLE — pressed only where Kawal called and something answered in its declared protocol. Also the focus ring (2px dashed), caret, accent colour, and the outline on the newest tally cell.
+- **Stamp Red** (`stamp-red`): DOES NOT ANSWER — called, nobody answered. The one verdict Kawal proved rather than read. Also the serial-number ink and the K-0 returned-form stamp.
+- **Stamp Blue** (`stamp-blue`): REACHABLE — something answered, not in the declared way. Also the ruler's edge lines.
+- **Stamp Grey** (`stamp-grey`): REGISTERED ONLY — declares nothing to call.
+- **Stamp Green** (`stamp-green`): CHARGED — quotes a price when asked (x402).
 
 ### Secondary
 The five seat inks rule the manifest lines. A listing row sets `--seat`, and its bottom rule, serial and category caption take that ink.
@@ -211,7 +211,7 @@ The five seat inks rule the manifest lines. A listing row sets `--seat`, and its
 - **Serial** (Courier Prime, 0.06em, Stamp Red): numbering-machine strikes — `No. K1-288290`, token ids, form codes beside tab names.
 
 ### Named Rules
-**The Typed H1 Rule.** Every H1 is typed (Courier Prime 700), and nothing sits above it: no eyebrow, no kicker in the condensed face. The form's own caption strip (`Form K-3 · lembar pemeriksaan · inspection sheet`) is the sheet's header cell inside the sheet's rule, not an eyebrow.
+**The Typed H1 Rule.** Every H1 is typed (Courier Prime 700), and nothing sits above it: no eyebrow, no kicker in the condensed face. The form's own caption strip (`Form K-3 · inspection sheet`) is the sheet's header cell inside the sheet's rule, not an eyebrow.
 
 **The Two Voices Rule.** If it was printed before the form reached the desk, it is Barlow Condensed; if it was entered on the desk, it is Courier Prime. No third face, no system display face.
 
@@ -253,7 +253,7 @@ A rubber stamp: double ring, condensed caps, one angle, ink multiplied into the 
 - **Ink:** one of the five stamp inks via `ink`; `tierInk()` maps hireable → violet, reachable → blue, unreachable → red, otherwise grey.
 - **Density:** `evidence` sets `--ink` per the Ink Density Rule.
 - **Flat:** `flat` removes the rotation and the press animation for stamps inside table cells and the legend, where a rotated block would collide with the rule.
-- **Language:** an Indonesian face carries `lang="id"` so a screen reader pronounces it as Indonesian; `TierStamp` prints the Indonesian face with the English tier in an `sr-only` span. There is no `title` prop — information that only lives in a tooltip is information a phone never shows.
+- **Language:** English throughout, so a stamp reads the same by eye as it does to a screen reader. `TierStamp` prints `tierLabel(tier)` and nothing else: the face used to be a separate Indonesian die with the English tier hidden beside it in an `sr-only` span, which meant two vocabularies to keep in step. There is no `title` prop — information that only lives in a tooltip is information a phone never shows.
 - **Pink copy:** on `.sheet--pink` the stamp inks step darker with the seat inks (grey, red, blue, green), all measured ≥5:1 on the pink.
 - **Note:** a large stamp carries a `.stamp-note` beneath it stating its blind spot ("single vantage point · an endpoint that blocks this prober reads as down").
 
@@ -261,7 +261,7 @@ A rubber stamp: double ring, condensed caps, one angle, ink multiplied into the 
 - **Corner Style:** square, 1.5px Rule border.
 - **Background:** paper-white by default; `--yellow` and `--pink` variants for the second and third copies.
 - **Carbon stack:** `--carbon` draws the yellow and pink copies beneath at 6px / 12px offsets (z-index -1 / -2).
-- **Header strip:** a `.cap` row inside the top rule carrying the form code (`Form K-n · Indonesian name · English name`), serial and date.
+- **Header strip:** a `.cap` row inside the top rule carrying the form code (`Form K-n · what the form is`), serial and date.
 
 ### Cells
 - **Grid:** `.cells` with the 1px gap as rule; each `.cell` holds a `.cap` caption on the first line and a typed value below; `tone` switches the stock to yellow or pink; `span` widens across columns.
@@ -282,7 +282,7 @@ One consignment line on Form K-2. Sets `--seat` from the category; the 1.5px bot
 The probe history as a perforated tally strip: 11px cells with a 1px Rule border on paper-white, 3px gap, punched carbon when the call answered, blank when it did not, the newest outlined 2px violet — on the punched side when the newest call answered, the blank side when it did not, and not drawn at all when that is unknown. Drawn from counts (up to `cap`, default 60, 40 on K-6) with the punched cells distributed proportionally; the strip carries `role="img"` and an `aria-label` of "N of M calls answered". Never a chart.
 
 ### Legend (signature)
-Every form carries its key: a `<section aria-label="Legend">` — a 1px Rule Soft box on paper-white opening with the caption `Keterangan · key`, followed by a `<dl>` pairing each mark in use on that page (a small flat stamp, a punched square) with its typed 0.8rem Carbon 2 meaning. Pass only the entries the page actually uses.
+Every form carries its key: a `<section aria-label="Legend">` — a 1px Rule Soft box on paper-white opening with the caption `Key`, followed by a `<dl>` pairing each mark in use on that page (a small flat stamp, a punched square) with its typed 0.8rem Carbon 2 meaning. Pass only the entries the page actually uses.
 
 ### Serial
 Courier Prime at 0.06em in Stamp Red: the numbering machine's strike. `.serial--seat` takes the row's seat ink instead.
@@ -318,14 +318,14 @@ The site is a book of numbered forms; the code prints in the sheet's caption str
 
 | Code | Route | File | What it is |
 |---|---|---|---|
-| K-0 | 404 | `app/not-found.tsx` | Dikembalikan · returned. A pink sheet with a large red stamp; the four seats offered as a way back; quiet counterfoils to the manifest and the cover sheet. |
-| K-1 | `/` | `app/page.tsx` | Surat jalan agen · cover sheet. Carbon-stacked sheet: serial and date strip; typed H1 at left; the probe count in a yellow cell at right with the violet TELAH DIPERIKSA stamp (density from the count) crossing its last digit and the blind-spot note beneath; three registry cells labelled as the registry's; the BROWSE AGENTS counterfoil plus two quiet stubs; the legend; the four seats as numbered manifest lines under a Form K-2 caption. |
-| K-2 | `/agents` | `app/agents/(list)/page.tsx` | Manifes agen · the manifest. Carbon-stacked sheet with a typed H1 (the seat name when filtered), a filter field with quiet counterfoils (submit, compare), the listing rows, and the legend. |
-| K-3 | `/agents/[chainId]/[tokenId]` | `app/agents/[chainId]/[tokenId]/page.tsx` | Lembar pemeriksaan · inspection sheet for one agent. Carbon-stacked sheet, typed H1 = agent name, the tier stamp, the probe tally strip and history, the legend; a quiet counterfoil back to the manifest. |
-| K-4 | `/compare` | `app/compare/page.tsx` | Perbandingan · the same questions asked of each. Two or three agents as columns on one carbon-stacked sheet; the H1 is the agent names joined by ` · `. The empty state is its own sheet with a stub to the manifest. |
-| K-5 | `/mandate` | `app/mandate/page.tsx` | Surat mandat · the mandate. Carbon-stacked sheet for the H1; a pink sheet for the limits form with a primary counterfoil submit; a yellow sheet for the live mandate with pink quiet counterfoils; the legend. |
-| K-6 | `/owner` | `app/owner/page.tsx` | Surat pemilik · for the other side of the listing. Carbon-stacked sheet, H1 "Is your agent still answering?", a lookup field with a counterfoil, and per-agent tally strips capped at 40. |
-| K-7 | `/advantage` | `app/advantage/page.tsx` | Laporan keunggulan · agent advantage report. Carbon-stacked sheet of measurements; the empty state is a plain sheet with the H1 "No measurements yet." |
+| K-0 | 404 | `app/not-found.tsx` | Returned. A pink sheet with a large red stamp; the four seats offered as a way back; quiet counterfoils to the manifest and the cover sheet. |
+| K-1 | `/` | `app/page.tsx` | Cover sheet. Carbon-stacked sheet: serial and date strip; typed H1 at left; the probe count in a yellow cell at right with the violet HIREABLE stamp (density from the count) crossing its last digit and the blind-spot note beneath; three registry cells labelled as the registry's; the BROWSE AGENTS counterfoil plus two quiet stubs; the legend; the four seats as numbered manifest lines under a Form K-2 caption. |
+| K-2 | `/agents` | `app/agents/(list)/page.tsx` | Agent manifest. Carbon-stacked sheet with a typed H1 (the seat name when filtered), a filter field with quiet counterfoils (submit, compare), the listing rows, and the legend. |
+| K-3 | `/agents/[chainId]/[tokenId]` | `app/agents/[chainId]/[tokenId]/page.tsx` | Inspection sheet for one agent. Carbon-stacked sheet, typed H1 = agent name, the tier stamp, the probe tally strip and history, the legend; a quiet counterfoil back to the manifest. |
+| K-4 | `/compare` | `app/compare/page.tsx` | The same questions asked of each. Two or three agents as columns on one carbon-stacked sheet; the H1 is the agent names joined by ` · `. The empty state is its own sheet with a stub to the manifest. |
+| K-5 | `/mandate` | `app/mandate/page.tsx` | The mandate. Carbon-stacked sheet for the H1; a pink sheet for the limits form with a primary counterfoil submit; a yellow sheet for the live mandate with pink quiet counterfoils; the legend. |
+| K-6 | `/owner` | `app/owner/page.tsx` | Owner sheet, for the other side of the listing. Carbon-stacked sheet, H1 "Is your agent still answering?", a lookup field with a counterfoil, and per-agent tally strips capped at 40. |
+| K-7 | `/advantage` | `app/advantage/page.tsx` | Agent advantage report. Carbon-stacked sheet of measurements; the empty state is a plain sheet with the H1 "No measurements yet." |
 
 ## Provenance
 

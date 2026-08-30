@@ -99,7 +99,7 @@ test("cover sheet to mandate, by Tab, Enter and Space alone", async ({ page }) =
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/mandate\?(seat=\w+&)?agent=56(%3A|:)\d+$/);
 
-  const filledBy = page.locator("dt", { hasText: "Diisi oleh" }).locator("xpath=following-sibling::dd[1]");
+  const filledBy = page.locator("dt", { hasText: "Filled by" }).locator("xpath=following-sibling::dd[1]");
   await expect(filledBy).toBeVisible();
   await expect(filledBy).toContainText(firstName);
 });
@@ -211,7 +211,7 @@ test("the owner sheet prints the wallet's ledger as the registry's accounting", 
   await expect(page.getByText(/registrations? on BSC|No registrations under this address/)).toBeVisible();
 
   await page.waitForLoadState("networkidle");
-  const strip = page.locator('section[aria-label="Dompet · the wallet"]');
+  const strip = page.locator('section[aria-label="The wallet"]');
   test.skip((await strip.count()) === 0, "8004scan has never indexed this wallet");
 
   await expect(strip.getByText("8004scan’s on-chain accounting")).toBeVisible();

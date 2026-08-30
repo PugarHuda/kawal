@@ -4,7 +4,7 @@ import { agentWalletOf } from "@/lib/feedback";
 import { Cell } from "@/components/listing";
 
 /*
- * Dompet · the wallet: what 8004scan has booked against an address on-chain.
+ * The wallet: what 8004scan has booked against an address on-chain.
  *
  * Every payment figure on this site until now was a claim — an x402 flag a
  * registration set about itself, a price a tool wrote in its own
@@ -31,9 +31,9 @@ function kindOf(wallet: WalletMetrics) {
 /** The owner sheet's strip: the whole ledger, six cells wide. */
 export function WalletStrip({ wallet }: { wallet: WalletMetrics }) {
   return (
-    <section aria-label="Dompet · the wallet" className="border-b-[1.5px] border-rule px-5 py-5">
+    <section aria-label="The wallet" className="border-b-[1.5px] border-rule px-5 py-5">
       <h2 className="cap">
-        <span lang="id">Dompet</span> · the wallet · 8004scan&rsquo;s on-chain accounting
+        The wallet · 8004scan&rsquo;s on-chain accounting
       </h2>
       <div className="cells mt-2 sm:grid-cols-3 lg:grid-cols-6">
         <Cell cap="Saldo · balance">{trimEther(wallet.balance)} BNB</Cell>

@@ -89,7 +89,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
 
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-2 · manifes agen · {category ? category.seat : "all seats"}</span>
+          <span className="cap">Form K-2 · agent manifest · {category ? category.seat : "all seats"}</span>
           <span className="serial text-[0.85rem]">
             {category ? `Seat ${category.id.toUpperCase()}` : total !== null ? `Roster ${total.toLocaleString()}` : ""}
           </span>
@@ -97,7 +97,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
 
         <header className="grid gap-px bg-rule lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div className="cell px-5 pt-5 pb-6">
-            <span className="cap">Keterangan · what is listed here</span>
+            <span className="cap">Key · what is listed here</span>
             <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2">{heading}</h1>
             <p className="typed mt-3 max-w-[62ch] text-carbon-2">{subheading}</p>
 
@@ -197,10 +197,10 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat lang="id">Telah diperiksa</Stamp>, means: "declares an interface and Kawal reached it, or the registry's claim stands unchecked" },
-            { mark: <Stamp ink="stamp-blue" size="sm" flat lang="id">Diterima</Stamp>, means: "something answered, not in the declared protocol" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat lang="id">Ditolak</Stamp>, means: "called at least three times, never answered" },
-            { mark: <Stamp ink="stamp-grey" size="sm" flat lang="id">Belum diperiksa</Stamp>, means: "declares nothing to call" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Hireable</Stamp>, means: "declares an interface and Kawal reached it, or the registry's claim stands unchecked" },
+            { mark: <Stamp ink="stamp-blue" size="sm" flat>Reachable</Stamp>, means: "something answered, not in the declared protocol" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Does not answer</Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat>Registered only</Stamp>, means: "declares nothing to call" },
             { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule bg-carbon" />, means: "signal holds" },
             { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule" />, means: "signal fails or is unverified" },
             { mark: <span aria-hidden className="inline-block h-[9px] w-[9px] border border-rule bg-stamp-violet" />, means: "called just now, answered in its protocol" },

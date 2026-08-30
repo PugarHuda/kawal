@@ -21,7 +21,7 @@ import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/repu
 import { diagnose, failureLabel } from "@/lib/failure";
 import { rpcOutcomeLabel } from "@/lib/a2a";
 import { classify, type Classification } from "@/lib/taxonomy";
-import { assess, tierLabel, v5Rows, type Assessment } from "@/lib/signals";
+import { assess, tierLabel, v5Rows, type Assessment, type Tier } from "@/lib/signals";
 import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/components/listing";
 import { AgentWalletRows } from "@/components/wallet";
 
@@ -138,9 +138,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
       <article className="sheet sheet--carbon mt-4">
         {/* Serial strip */}
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-3 · lembar pemeriksaan · inspection sheet</span>
+          <span className="cap">Form K-3 · inspection sheet</span>
           <span className="serial text-[0.85rem]">No. {agent.chain_id}:{agent.token_id}</span>
-          <Suspense fallback={<span className="cap">Diperiksa · …</span>}>
+          <Suspense fallback={<span className="cap">Inspected · …</span>}>
             <CheckedAt proof={findings.proof} />
           </Suspense>
         </div>
@@ -213,9 +213,9 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat><span lang="id">Telah diperiksa</span></Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat><span lang="id">Ditolak</span></Stamp>, means: "called at least three times, never answered" },
-            { mark: <Stamp ink="stamp-grey" size="sm" flat><span lang="id">Belum diperiksa</span></Stamp>, means: "declares nothing Kawal can call" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Hireable</Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Does not answer</Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat>Registered only</Stamp>, means: "declares nothing Kawal can call" },
             { mark: <span aria-hidden className="tally"><i className="on" /><i /><i className="new" /></span>, means: "tally strip: punched = answered, blank = silent, outlined = newest" },
           ]}
         />
@@ -295,7 +295,7 @@ async function CheckedAt({ proof }: { proof: Promise<EndpointProof | null> }) {
   const p = await proof;
   return (
     <span className="cap">
-      {p ? `Diperiksa · ${p.checkedAt.slice(0, 10)}` : <span lang="id">Belum diperiksa</span>}
+      {p ? `Inspected · ${p.checkedAt.slice(0, 10)}` : "Not inspected"}
     </span>
   );
 }
@@ -321,18 +321,11 @@ async function assessFrom(agent: ScanAgentDetail, findings: Findings): Promise<A
   );
 }
 
-const TIER_FACE = {
-  hireable: "Telah diperiksa",
-  reachable: "Diterima",
-  unreachable: "Ditolak",
-  registered: "Belum diperiksa",
-} as const;
-
 async function HeaderStamp({ agent, findings }: { agent: ScanAgentDetail; findings: Findings }) {
   const [assessment, uptime] = await Promise.all([assessFrom(agent, findings), findings.uptime]);
   return (
     <Stamp ink={tierInk(assessment.tier)} evidence={uptime?.checks ?? null} size="lg">
-      <span lang="id">{TIER_FACE[assessment.tier]}</span>
+      {tierLabel(assessment.tier)}
     </Stamp>
   );
 }
@@ -449,9 +442,7 @@ async function ProbeSection({
               <span>Nothing to call</span>
             </p>
           </div>
-          <Stamp ink="stamp-grey">
-            <span lang="id">Belum diperiksa</span>
-          </Stamp>
+          <Stamp ink="stamp-grey">Registered only</Stamp>
         </div>
         <p className="typed mt-3 max-w-[64ch] text-[0.9rem] text-carbon-2">
           This registration declares no MCP or A2A endpoint, so there was nothing to call.
@@ -511,8 +502,10 @@ function LiveProbe({
             : "Responds, but not MCP"
           : "No answer";
 
-  const ink = good ? "stamp-violet" : desc ? "stamp-blue" : proof.reachable ? "stamp-blue" : "stamp-red";
-  const stampText = good ? "Telah diperiksa" : desc ? "Diterima" : proof.reachable ? "Diterima" : "Ditolak";
+  // The same words a tier is stamped with, from the same source: this
+  // verdict is about one call rather than the whole record, but a reader who
+  // has learnt the stamps should not have to learn a second vocabulary.
+  const stampTier: Tier = good ? "hireable" : desc || proof.reachable ? "reachable" : "unreachable";
   const failure = !desc && proof.error ? diagnose(proof.error) : null;
 
   return (
@@ -525,8 +518,8 @@ function LiveProbe({
             <span className="ml-3 text-[0.85rem] font-normal text-carbon-3">{proof.latencyMs} ms</span>
           </p>
         </div>
-        <Stamp ink={ink} evidence={uptime?.checks ?? null}>
-          <span lang="id">{stampText}</span>
+        <Stamp ink={tierInk(stampTier)} evidence={uptime?.checks ?? null}>
+          {tierLabel(stampTier)}
         </Stamp>
       </div>
 
@@ -714,7 +707,7 @@ function PaymentTerms({ check }: { check: X402Check }) {
           <p className="typed mt-2 text-[1.6rem] font-bold leading-tight">{charged ? "Quotes a price" : "Claims x402, asked for nothing"}</p>
         </div>
         <Stamp ink={charged ? "stamp-green" : "stamp-grey"}>
-          <span lang="id">{charged ? "Bertarif" : "Tanpa tagihan"}</span>
+          {charged ? "Charged" : "No charge"}
         </Stamp>
       </div>
 
@@ -779,7 +772,7 @@ function TrackRecord({ r }: { r: Reputation }) {
           </p>
         </div>
         <Stamp ink={unmarked || captured ? "stamp-grey" : "stamp-violet"} evidence={r.sampled}>
-          <span lang="id">{unmarked ? "Kosong" : captured ? "Satu sumber" : "Beberapa sumber"}</span>
+          {unmarked ? "Empty" : captured ? "One source" : "Several sources"}
         </Stamp>
       </div>
 

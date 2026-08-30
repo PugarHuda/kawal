@@ -41,7 +41,7 @@ export default async function Home() {
         {/* Serial and date strip: what a numbering machine and a date stamp
             leave along the top of every sheet. */}
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-1 · Surat jalan agen · cover sheet</span>
+          <span className="cap">Form K-1 · cover sheet</span>
           <Suspense fallback={<span className="serial text-[0.85rem]">No. K1-······</span>}>
             <Serial stats={stats} />
           </Suspense>
@@ -54,7 +54,7 @@ export default async function Home() {
         <div className="relative grid gap-px bg-rule lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           {/* The headline entry, typed large. */}
           <div className="cell px-5 pt-6 pb-7 lg:px-7">
-            <span className="cap">Keterangan · what this form is for</span>
+            <span className="cap">Key · what this form is for</span>
             <h1 className="typed mt-3 max-w-[16ch] text-[2.1rem] font-bold leading-[1.08] text-balance sm:text-[2.9rem] lg:text-[3.4rem]">
               Most agents on BSC cannot be hired.
             </h1>
@@ -94,7 +94,7 @@ export default async function Home() {
               is the only figure on the sheet Kawal did not copy from the
               registry, and the stamp says so. */}
           <div className="cell cell--yellow relative flex flex-col justify-between px-5 pt-6 pb-7 lg:px-7">
-            <span className="cap">Diperiksa oleh · inspected by Kawal itself</span>
+            <span className="cap">Inspected by Kawal itself</span>
             <Suspense fallback={<InspectedBlank />}>
               <Inspected observed={observed} />
             </Suspense>
@@ -111,10 +111,10 @@ export default async function Home() {
       <div className="mt-6">
         <Legend
           items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat lang="id">Telah diperiksa</Stamp>, means: "Kawal called it and it answered in its declared protocol" },
-            { mark: <Stamp ink="stamp-blue" size="sm" flat lang="id">Diterima</Stamp>, means: "something answered, not in the declared way" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat lang="id">Ditolak</Stamp>, means: "called, nobody answered" },
-            { mark: <Stamp ink="stamp-grey" size="sm" flat lang="id">Belum diperiksa</Stamp>, means: "declares nothing to call" },
+            { mark: <Stamp ink="stamp-violet" size="sm" flat>Hireable</Stamp>, means: "Kawal called it and it answered in its declared protocol" },
+            { mark: <Stamp ink="stamp-blue" size="sm" flat>Reachable</Stamp>, means: "something answered, not in the declared way" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat>Does not answer</Stamp>, means: "called, nobody answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat>Registered only</Stamp>, means: "declares nothing to call" },
           ]}
         />
       </div>
@@ -129,8 +129,8 @@ export default async function Home() {
 
         <div className="sheet mt-6">
           <div className="flex items-baseline justify-between gap-6 border-b-[1.5px] border-rule px-5 py-2">
-            <span className="cap">Form K-2 · manifes kursi · the four seats</span>
-            <span className="cap">No. · kursi · tugas · keterangan</span>
+            <span className="cap">Form K-2 · the four seats</span>
+            <span className="cap">No. · seat · task · notes</span>
           </div>
           <ol>
             {CATEGORIES.filter((c) => c.core).map((c, i) => (
@@ -217,7 +217,7 @@ async function Inspected({ observed }: { observed: Promise<Observed | null> }) {
               still needs to read. */}
           <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-1.6rem)] sm:translate-x-[calc(100%-2.2rem)]">
             <Stamp ink="stamp-violet" size="lg" evidence={o.checks}>
-              Telah diperiksa
+              Hireable
             </Stamp>
           </span>
         </p>
@@ -235,9 +235,9 @@ async function Inspected({ observed }: { observed: Promise<Observed | null> }) {
 }
 
 const REGISTRY_CAPS = [
-  "Terdaftar · registered on BSC (8004scan's count)",
-  "Menyatakan antarmuka · interface declarations",
-  "Catatan umpan balik · feedback records per agent",
+  "Registered on BSC (8004scan's count)",
+  "Interface declarations",
+  "Feedback records per agent",
 ] as const;
 
 /**

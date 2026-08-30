@@ -57,7 +57,7 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
     <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-4 · perbandingan · the same questions of each</span>
+          <span className="cap">Form K-4 · the same questions of each</span>
           <span className="serial text-[0.85rem]">No. {columns.map((c) => c.ref).join(" · ")}</span>
         </div>
 
@@ -337,7 +337,7 @@ async function Offer({ notes, carry }: { notes: string[]; carry: string[] }) {
     <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
       <section className="sheet">
         <div className="flex items-baseline justify-between border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-4 · perbandingan · comparison</span>
+          <span className="cap">Form K-4 · comparison</span>
           <span className="serial text-[0.85rem]">No. —</span>
         </div>
         <div className="px-5 py-6">

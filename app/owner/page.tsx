@@ -65,7 +65,7 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-6 · surat pemilik · for the other side of the listing</span>
+          <span className="cap">Form K-6 · owner sheet · for the other side of the listing</span>
           <span className="serial text-[0.85rem]">{address ? `Pemilik ${address.slice(0, 10)}…` : "No. —"}</span>
         </div>
 
@@ -194,7 +194,7 @@ async function Results({ address }: { address: string }) {
           </p>
         </div>
         <Stamp ink="stamp-grey" size="lg">
-          <span lang="id">Kosong</span>
+          Empty
         </Stamp>
         </div>
       </>
@@ -251,7 +251,7 @@ async function Results({ address }: { address: string }) {
           </p>
         </div>
         <Stamp ink={broken.length > 0 ? "stamp-red" : "stamp-violet"} size="lg" evidence={rows.length * 10}>
-          <span lang="id">{broken.length > 0 ? "Perlu perbaikan" : "Semua menjawab"}</span>
+          {broken.length > 0 ? "Needs repair" : "All answered"}
         </Stamp>
       </div>
 

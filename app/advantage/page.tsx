@@ -86,7 +86,7 @@ export default function AdvantagePage() {
       <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-4">
         <section className="sheet">
           <div className="flex items-baseline justify-between border-b-[1.5px] border-rule px-5 py-2">
-            <span className="cap">Form K-7 · laporan keunggulan · agent advantage report</span>
+            <span className="cap">Form K-7 · agent advantage report</span>
             <span className="serial text-[0.85rem]">No. —</span>
           </div>
           <div className="px-5 py-6">
@@ -110,13 +110,13 @@ export default function AdvantagePage() {
     <div className="mx-auto w-full max-w-5xl px-6 pt-8 pb-4">
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Form K-7 · laporan keunggulan · agent advantage report</span>
+          <span className="cap">Form K-7 · agent advantage report</span>
           <span className="serial text-[0.85rem]">Diukur · {report.generatedAt.slice(0, 10)}</span>
         </div>
 
         <header className="grid gap-px bg-rule lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="cell px-5 pt-6 pb-7">
-            <span className="cap">Keterangan · what was measured</span>
+            <span className="cap">Key · what was measured</span>
             <h1 className="typed text-[2rem] font-bold leading-[1.1] text-balance sm:text-[2.6rem] mt-2 max-w-[18ch]">
               Hiring won {hiredWins} of these {tasks.length} tasks.
             </h1>
@@ -141,7 +141,7 @@ export default function AdvantagePage() {
             </p>
             <div className="mt-4 self-end">
               <Stamp ink={hiredWins >= tasks.length / 2 ? "stamp-violet" : "stamp-red"} size="lg" evidence={samples}>
-                <span lang="id">{hiredWins} dari {tasks.length}</span>
+                {hiredWins} of {tasks.length}
               </Stamp>
             </div>
           </div>

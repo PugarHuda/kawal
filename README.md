@@ -311,10 +311,11 @@ function once turned `npm run check` into a network job that rewrote a report.
 
 ## How it looks, and why
 
-The interface is a book of Indonesian escort forms — *surat jalan* — on
-three-part carbon paper: pre-printed captions in a condensed face, entries
-struck on a typewriter, and a rubber stamp Kawal presses after it has called
-an agent. The stamp's ink prints darker the more calls sit behind it. Every
+The interface is a book of escort forms — the lineage is the Indonesian
+*surat jalan* — on three-part carbon paper: pre-printed captions in a
+condensed face, entries struck on a typewriter, and a rubber stamp Kawal
+presses after it has called an agent. The forms are worded in English; what
+is borrowed is the stationery, not the language. The stamp's ink prints darker the more calls sit behind it. Every
 form carries a printed key, and the only buttons are perforated counterfoils.
 
 That is a direction, not a theme, and it has rules. They are written down in
