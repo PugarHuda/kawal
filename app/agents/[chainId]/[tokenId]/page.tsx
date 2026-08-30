@@ -6,11 +6,13 @@ import {
   getAgent,
   getQuality,
   getScoreHistory,
+  getScoreV5,
   type ScanAgentDetail,
   type AgentQuality,
   type ServiceHealth,
   type RiskFlag,
   type ScoreHistory,
+  type ScoreV5,
 } from "@/lib/scan";
 import { proveAgent, type EndpointProof, type ProbedTool } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
@@ -19,8 +21,9 @@ import { getReputationCached, CAPTURED_SHARE, type Reputation } from "@/lib/repu
 import { diagnose, failureLabel } from "@/lib/failure";
 import { rpcOutcomeLabel } from "@/lib/a2a";
 import { classify, type Classification } from "@/lib/taxonomy";
-import { assess, tierLabel, type Assessment } from "@/lib/signals";
+import { assess, tierLabel, v5Rows, type Assessment } from "@/lib/signals";
 import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/components/listing";
+import { AgentWalletRows } from "@/components/wallet";
 
 /*
  * Form K-3: the inspection sheet for one agent.
@@ -64,6 +67,13 @@ export async function generateMetadata({ params }: PageProps<"/agents/[chainId]/
   };
 }
 
+/** The registry's slower readings, one call each, awaited where they are drawn. */
+type RegistryReadings = {
+  quality: Promise<AgentQuality | null>;
+  history: Promise<ScoreHistory | null>;
+  v5: Promise<ScoreV5 | null>;
+};
+
 /** The promises the streamed sections share. Each upstream is called once. */
 type Findings = {
   proof: Promise<EndpointProof | null>;
@@ -75,12 +85,19 @@ type Findings = {
 export default async function AgentPage({ params }: PageProps<"/agents/[chainId]/[tokenId]">) {
   const { chainId, tokenId } = await params;
 
-  const [agent, quality, history] = await Promise.all([
-    getAgent(Number(chainId), tokenId).catch(() => null),
-    getQuality(Number(chainId), tokenId),
-    getScoreHistory(Number(chainId), tokenId),
-  ]);
+  const agent = await getAgent(Number(chainId), tokenId).catch(() => null);
   if (!agent) notFound();
+
+  // The registry's other readings — the health check, the score's history,
+  // its v5 breakdown — are started here and awaited under their own
+  // boundary. The name and the description are what a visitor came for,
+  // and they were waiting on three more registry calls before the largest
+  // paint could happen; measured at 5.4 s on a phone before this split.
+  const registry: RegistryReadings = {
+    quality: getQuality(Number(chainId), tokenId),
+    history: getScoreHistory(Number(chainId), tokenId),
+    v5: getScoreV5(Number(chainId), tokenId),
+  };
 
   // The nonce the proxy minted for this request, so the JSON-LD block below
   // passes the same policy as every other script on the page.
@@ -103,7 +120,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
       .catch(() => null),
     // Read here rather than on the listing: this is one request per agent, and
     // decorating fifty rows nobody has chosen yet would be fifty of them.
-    reputation: getReputationCached(Number(chainId), tokenId).catch(() => null),
+    reputation: getReputationCached(Number(chainId), tokenId, agent).catch(() => null),
   };
 
   const classification = classify(agent.name, agent.description);
@@ -153,7 +170,7 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         </Suspense>
 
         <Suspense fallback={<Pending>Calling the endpoint…</Pending>}>
-          <ProbeSection findings={findings} scan={quality?.endpoint_health ?? null} />
+          <ProbeSection findings={findings} quality={registry.quality} />
         </Suspense>
 
         <Suspense fallback={null}>
@@ -164,7 +181,61 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
           <TrackRecordSection findings={findings} />
         </Suspense>
 
-        {quality?.endpoint_health && (
+        <Suspense fallback={null}>
+          <RegistrySections registry={registry} />
+        </Suspense>
+
+        <section className="px-5 py-6">
+          <h2 className="cap">Registration · the registry&rsquo;s entries</h2>
+          <dl className="cells mt-3 sm:grid-cols-2">
+            <Row label="Identity">{agent.agent_id}</Row>
+            <Row label="Owner">{agent.owner_ens ?? agent.owner_address}</Row>
+            <Row label="Agent wallet">{agent.agent_wallet ?? "not published"}</Row>
+            {/* Which wallet the chain says it is, and what that wallet has
+                actually been paid by 8004scan's on-chain accounting — the
+                first payment evidence on this sheet that is not a claim the
+                registration made. */}
+            <Suspense fallback={null}>
+              <AgentWalletRows chainId={agent.chain_id} tokenId={agent.token_id} indexed={agent.agent_wallet} />
+            </Suspense>
+            <Row label="Registered">{registered.toISOString().slice(0, 10)}</Row>
+            <Row label="Protocols">{agent.supported_protocols.join(", ").toUpperCase() || "none declared"}</Row>
+            <Row label="Reputation">
+              score {agent.total_score.toFixed(2)} · {agent.total_feedbacks} feedbacks · {agent.star_count} stars
+            </Row>
+          </dl>
+          {classification.matched.length > 0 && (
+            <p className="cap mt-4">Classified from: {classification.matched.join(", ")}</p>
+          )}
+        </section>
+      </article>
+
+      <div className="mt-6">
+        <Legend
+          items={[
+            { mark: <Stamp ink="stamp-violet" size="sm" flat><span lang="id">Telah diperiksa</span></Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
+            { mark: <Stamp ink="stamp-red" size="sm" flat><span lang="id">Ditolak</span></Stamp>, means: "called at least three times, never answered" },
+            { mark: <Stamp ink="stamp-grey" size="sm" flat><span lang="id">Belum diperiksa</span></Stamp>, means: "declares nothing Kawal can call" },
+            { mark: <span aria-hidden className="tally"><i className="on" /><i /><i className="new" /></span>, means: "tally strip: punched = answered, blank = silent, outlined = newest" },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The registry's four slower blocks, drawn once all three readings are in.
+ *
+ * One boundary rather than three: the sections sit in a fixed order on the
+ * sheet, and three boundaries resolving in whatever order the registry
+ * answers would have them appear out of sequence under a reader.
+ */
+async function RegistrySections({ registry }: { registry: RegistryReadings }) {
+  const [quality, history, v5] = await Promise.all([registry.quality, registry.history, registry.v5]);
+  return (
+    <>
+      {quality?.endpoint_health && (
           <section className="border-b-[1.5px] border-rule px-5 py-6">
             <h2 className="cap">Is it answering right now · 8004scan&rsquo;s reading</h2>
             <p className="typed mt-2 text-[1.6rem] font-bold capitalize leading-tight">
@@ -198,37 +269,15 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
 
         {history && <Trajectory history={history} />}
 
-        {quality && quality.score.dimensions.length > 0 && <ScoreBreakdown score={quality.score} />}
-
-        <section className="px-5 py-6">
-          <h2 className="cap">Registration · the registry&rsquo;s entries</h2>
-          <dl className="cells mt-3 sm:grid-cols-2">
-            <Row label="Identity">{agent.agent_id}</Row>
-            <Row label="Owner">{agent.owner_ens ?? agent.owner_address}</Row>
-            <Row label="Agent wallet">{agent.agent_wallet ?? "not published"}</Row>
-            <Row label="Registered">{registered.toISOString().slice(0, 10)}</Row>
-            <Row label="Protocols">{agent.supported_protocols.join(", ").toUpperCase() || "none declared"}</Row>
-            <Row label="Reputation">
-              score {agent.total_score.toFixed(2)} · {agent.total_feedbacks} feedbacks · {agent.star_count} stars
-            </Row>
-          </dl>
-          {classification.matched.length > 0 && (
-            <p className="cap mt-4">Classified from: {classification.matched.join(", ")}</p>
-          )}
-        </section>
-      </article>
-
-      <div className="mt-6">
-        <Legend
-          items={[
-            { mark: <Stamp ink="stamp-violet" size="sm" flat><span lang="id">Telah diperiksa</span></Stamp>, means: "Kawal's own mark; the ink prints darker with more probes behind it" },
-            { mark: <Stamp ink="stamp-red" size="sm" flat><span lang="id">Ditolak</span></Stamp>, means: "called at least three times, never answered" },
-            { mark: <Stamp ink="stamp-grey" size="sm" flat><span lang="id">Belum diperiksa</span></Stamp>, means: "declares nothing Kawal can call" },
-            { mark: <span aria-hidden className="tally"><i className="on" /><i /><i className="new" /></span>, means: "tally strip: punched = answered, blank = silent, outlined = newest" },
-          ]}
-        />
-      </div>
-    </div>
+        {/* The v5 breakdown where the registry has one; the Quality
+            Center's older dimensions otherwise. Never both: they are two
+            readings of the same number. */}
+        {v5Rows(v5).length > 0 ? (
+          <ScoreV5Block v5={v5!} />
+        ) : (
+          quality && quality.score.dimensions.length > 0 && <ScoreBreakdown score={quality.score} />
+        )}
+    </>
   );
 }
 
@@ -381,12 +430,12 @@ async function HireSection({
 
 async function ProbeSection({
   findings,
-  scan,
+  quality,
 }: {
   findings: Findings;
-  scan: AgentQuality["endpoint_health"] | null;
+  quality: Promise<AgentQuality | null>;
 }) {
-  const [proof, uptime] = await Promise.all([findings.proof, findings.uptime]);
+  const [proof, uptime, scan] = await Promise.all([findings.proof, findings.uptime, quality.then((q) => q?.endpoint_health ?? null)]);
   if (!proof) {
     // Printed rather than omitted. A form with no "we called it" block reads
     // as a form Kawal forgot to fill in; this one says why there is nothing
@@ -507,6 +556,22 @@ function LiveProbe({
           <Row label="JSON-RPC">
             {rpcOutcomeLabel(proof.a2a.rpc)}
             {proof.a2a.rpcStatus > 0 && <span className="text-carbon-3"> (HTTP {proof.a2a.rpcStatus})</span>}
+          </Row>
+        )}
+        {/* A2A 0.3 lets a card carry a JWS over itself. A card that checks
+            out against the key it names is the agent's own; one that fails
+            is worse than one carrying none. Every BSC card read so far is
+            unsigned, and the line says so rather than leaving the reader to
+            assume a check was made. */}
+        {proof.a2a?.signature != null && (
+          <Row label="Card signed by its wallet">
+            {proof.a2a.signature === "valid"
+              ? "valid — the card's own signature checks out"
+              : proof.a2a.signature === "invalid"
+                ? "invalid — the card carries a signature that does not check out"
+                : proof.a2a.signature === "unsupported"
+                  ? "signed with an algorithm this reader cannot check"
+                  : "unsigned"}
           </Row>
         )}
         {desc?.transport && <Row label="Transport">{desc.transport}</Row>}
@@ -740,6 +805,15 @@ function TrackRecord({ r }: { r: Reputation }) {
         </Row>
         <Row label="Carrying a comment">{r.commented}</Row>
         <Row label="Distinct writers">{r.raters}</Row>
+        {/* The registry lets any address call giveFeedback, the agent's
+            own included. Counted and named, not subtracted: a reader should
+            see that it was done. */}
+        <Row label="Self-rated">
+          {r.selfRated} of {r.sampled} ratings were written by the agent&rsquo;s own wallet, owner or minter
+          {r.selfRaters.length > 0 && (
+            <span className="text-carbon-3"> · {r.selfRaters.map((a) => `${a.slice(0, 10)}…`).join(", ")}</span>
+          )}
+        </Row>
         {r.revoked > 0 && <Row label="Withdrawn">{r.revoked}</Row>}
         {r.topRater && (
           <Row label="Busiest writer">
@@ -855,7 +929,67 @@ function Trajectory({ history }: { history: ScoreHistory }) {
 }
 
 /**
- * 8004scan's score, dimension by dimension.
+ * 8004scan's v5 score, the five weighted parts behind the one number.
+ *
+ * Engagement 30, service 25, publisher 20, compliance 15, momentum 10 — the
+ * weights are the registry's and printed with each part, so a reader can
+ * see that a low momentum costs little and a low engagement costs much.
+ * Each cell carries its own 0-100 scale under the bar, because a bar with
+ * no axis is decoration; the date is the registry's `last_scored_at`.
+ */
+function ScoreV5Block({ v5 }: { v5: ScoreV5 }) {
+  const rows = v5Rows(v5);
+  // The registry publishes its headline separately from the parts, and the
+  // two do not reconcile: 43129 totalled 30.47 against parts of 45.62 on
+  // 2026-08-30, 45381 30.45 against 44.87. Whatever `v5_leaderboard_policy`
+  // does to the headline it does not show its working, so the page prints
+  // both numbers and says they disagree. Silently printing five parts under
+  // a total they do not add up to would leave the arithmetic to the reader
+  // and let them conclude Kawal had got it wrong.
+  const parts = rows.reduce((sum, r) => sum + r.dimension.weighted_score, 0);
+  const reconciles = Math.abs(parts - v5.total_score) < 0.05;
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <h2 className="cap">
+        How 8004scan scores it · {v5.total_score.toFixed(2)} total · v5
+      </h2>
+      <p className="cap mt-1 !text-carbon-2">
+        Each part 0–100, then × weight; the weights sum to 100
+        {!reconciles && rows.length > 0 && ` · the parts come to ${parts.toFixed(2)}, which the registry’s own total does not match`}
+        {v5.last_scored_at && ` · scored ${new Date(v5.last_scored_at).toISOString().replace("T", " ").slice(0, 16)} UTC`}
+      </p>
+      <dl className="cells mt-3 sm:grid-cols-2 lg:grid-cols-5">
+        {rows.map(({ key, label, dimension: d, weightPct }) => (
+          <div key={key} className="cell">
+            <dt className="cap">
+              {label} · {d.score.toFixed(0)} / 100 × {weightPct}
+            </dt>
+            <dd className="typed text-[1.3rem] font-bold leading-tight">
+              {d.weighted_score.toFixed(1)}
+              <span className="ml-2 text-[0.78rem] font-normal text-carbon-3">of {weightPct}</span>
+            </dd>
+            <dd className="mt-2 h-[10px] border border-rule bg-paper-white" aria-hidden>
+              <span className="block h-full bg-carbon" style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }} />
+            </dd>
+            <dd className="cap mt-1 flex justify-between !text-carbon-3" aria-hidden>
+              <span>0</span>
+              <span>100</span>
+            </dd>
+            {d.explanation && (
+              <dd className="typed mt-1.5 text-[0.78rem] text-carbon-3">
+                {d.explanation.length > 140 ? `${d.explanation.slice(0, 140)}…` : d.explanation}
+              </dd>
+            )}
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * 8004scan's older score, dimension by dimension, for agents the registry
+ * has not scored under v5.
  *
  * Each bar is one dimension on a 0–100 scale, weighted as the registry
  * weights it; the scale is printed because a bar with no axis is decoration.

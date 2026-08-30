@@ -23,6 +23,12 @@
  * Every record carries its method and the defects of that method, which is
  * what separates this from adding to the noise. Two rows per agent, under the
  * tags EIP-8004 suggests: `uptime` and `responseTime`.
+ *
+ * The evidence — the JSON the on-chain hash is taken over — is pinned to
+ * IPFS through 8004scan at send time, signed in as Kawal's wallet, and the
+ * record carries `ipfs://{cid}`. The first eleven records carried it inline
+ * as a data: URI; `--verify` reads both kinds back and holds each to the
+ * same hash.
  */
 
 export {};
@@ -32,7 +38,8 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { CATEGORIES } from "../lib/taxonomy.ts";
 import { retrieveCategory } from "../lib/catalog.ts";
-import { getAgent } from "../lib/scan.ts";
+import { getAgent, fetchEvidence } from "../lib/scan.ts";
+import { uploadEvidence } from "../lib/scan.auth.ts";
 import { proveAgent } from "../lib/probe.ts";
 import { uptimeFor } from "../lib/uptime.ts";
 import { publicClientFor } from "../lib/rpc.ts";
@@ -70,7 +77,16 @@ const PUBLISHED_FILE = ".kawal-published.json";
 const REPUBLISH_AFTER_MS = 24 * 3_600_000;
 type Published = Record<
   string,
-  { txHash: string; at: string; checks: number; responseTimeTx?: string; revokedTx?: string[] }
+  {
+    txHash: string;
+    at: string;
+    checks: number;
+    responseTimeTx?: string;
+    revokedTx?: string[];
+    /** `ipfs://{cid}` when the evidence was pinned; absent for the data: URI records. */
+    evidence?: string;
+    responseTimeEvidence?: string;
+  }
 >;
 const published: Published = existsSync(PUBLISHED_FILE)
   ? (JSON.parse(readFileSync(PUBLISHED_FILE, "utf8")) as Published)
@@ -102,6 +118,26 @@ console.log(`Kawal → ERC-8004 reputation registry, BSC mainnet`);
 console.log(VERIFY ? "MODE: verify\n" : REVOKE !== null ? (SEND ? "MODE: revoking\n" : "MODE: revoke dry run\n") : SEND ? "MODE: sending\n" : "MODE: dry run (add -- --send to broadcast)\n");
 
 /**
+ * The payload a record's URI resolves to, whichever way it was carried.
+ *
+ * The first eleven records carry it inline as a data: URI. Later ones name
+ * an IPFS pin, and the bytes there are the gateway's serialisation of the
+ * same object — so the payload is rebuilt with `JSON.stringify`, which is
+ * what the hash was taken over, as the builder's comment explains. Null
+ * when no gateway had the CID: that is the verify failure it looks like.
+ */
+async function evidenceOf(uri: string): Promise<string | null> {
+  if (uri.startsWith("data:application/json;base64,")) {
+    return Buffer.from(uri.slice("data:application/json;base64,".length), "base64").toString("utf8");
+  }
+  if (uri.startsWith("ipfs://")) {
+    const content = await fetchEvidence(uri);
+    return content === null ? null : JSON.stringify(content);
+  }
+  return null;
+}
+
+/**
  * What one of Kawal's transactions wrote, decoded off the chain rather than
  * off the file: the calldata is the record, and the file only remembers the
  * hash that carried it.
@@ -111,7 +147,7 @@ async function written(txHash: Hex) {
   const decoded = decodeFunctionData({ abi: FEEDBACK_ABI, data: tx.input });
   if (decoded.functionName !== "giveFeedback") throw new Error(`${txHash} is a ${decoded.functionName} call, not giveFeedback`);
   const [agentId, value, valueDecimals, tag1, tag2, endpoint, uri, hash] = decoded.args;
-  const payload = Buffer.from(uri.replace(/^data:application\/json;base64,/, ""), "base64").toString("utf8");
+  const payload = await evidenceOf(uri);
   return {
     ok: receipt.status === "success" && (tx.to ?? "").toLowerCase() === registryFor(CHAIN).toLowerCase(),
     from: tx.from,
@@ -121,7 +157,8 @@ async function written(txHash: Hex) {
     tag1,
     tag2,
     endpoint,
-    hashMatches: keccak256(toHex(payload)) === hash,
+    carriedBy: uri.startsWith("ipfs://") ? uri : "data: URI",
+    hashMatches: payload !== null && keccak256(toHex(payload)) === hash,
   };
 }
 
@@ -141,7 +178,7 @@ if (VERIFY) {
         const asWritten = w.ok && w.hashMatches && onChain !== null && !onChain.record.isRevoked && onChain.record.valueDecimals === w.valueDecimals;
         if (asWritten) landed++;
         console.log(`  ${asWritten ? "OK     " : "PROBLEM"} agent ${agentId} ${w.tag1.padEnd(12)} ${w.value.toString().padStart(6)} (dec ${w.valueDecimals}) ${w.tag2.padEnd(4)}`);
-        console.log(`          tx ${h.slice(0, 18)}… ${w.ok ? "succeeded at the registry" : "did NOT succeed at the registry"}; payload hash ${w.hashMatches ? "matches" : "MISMATCH"}`);
+        console.log(`          tx ${h.slice(0, 18)}… ${w.ok ? "succeeded at the registry" : "did NOT succeed at the registry"}; payload hash ${w.hashMatches ? "matches" : "MISMATCH"} (evidence via ${w.carriedBy})`);
         console.log(`          on-chain ${onChain ? `index ${onChain.index}, ${onChain.record.isRevoked ? "REVOKED" : "live"}` : "NOT FOUND under this writer"}; registry summary for ${w.tag1}: ${summary.count} record(s) from this writer`);
       } catch (e) {
         console.log(`  PROBLEM agent ${agentId} tx ${h.slice(0, 18)}…: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
@@ -303,6 +340,12 @@ for (const { m, kind, record } of records) {
   console.log(`    hash       ${record.hash}`);
   console.log(`    calldata   ${(record.data.length - 2) / 2} bytes`);
 }
+// The evidence is pinned to IPFS at send time, not here: 8004scan allows
+// twenty uploads an hour and a dry run that pinned would spend them on
+// records that may never be sent. The data: URI is the same payload and
+// the same hash, so the estimate below is an upper bound — an ipfs:// URI
+// is a quarter of the calldata.
+console.log(`\nEvidence is pinned to IPFS when sent; the data: URI stands in for the estimate.`);
 
 console.log(`\nEvery record carries these stated defects:`);
 for (const d of KNOWN_DEFECTS) console.log(`  · ${d}`);
@@ -389,18 +432,44 @@ const wallet = createWalletClient({ account, chain: bsc, transport: http() });
 let nonce = await rpc.getTransactionCount({ address: account.address, blockTag: "pending" });
 
 console.log();
-for (const { m, kind, record, gas } of affordable) {
+for (const { m, kind, record: built, gas } of affordable) {
   try {
+    // Pin the evidence now and carry the CID instead of the bytes. The
+    // payload and the hash do not move — the record is rebuilt from the
+    // same measurement at the same instant — so what was estimated above is
+    // what is sent, minus most of the calldata. A pin that fails (the
+    // hourly limit, a registry outage) is not a reason to withhold the
+    // measurement: the data: URI carries the identical payload, and which
+    // one went is printed and kept.
+    let record = built;
+    let evidence: string | null = null;
+    try {
+      const pinned = await uploadEvidence(built.payload);
+      const rebuilt = kind === "uptime" ? buildFeedback(m, at, pinned.uri) : buildResponseTime(m, at, pinned.uri);
+      if (rebuilt && rebuilt.hash === built.hash) {
+        record = rebuilt;
+        evidence = pinned.uri;
+      }
+    } catch (e) {
+      console.error(`  ${m.name} ${kind}: could not pin evidence (${e instanceof Error ? e.message.split("\n")[0] : String(e)}); carrying it inline`);
+    }
     const hash = await wallet.sendTransaction({ to: record.to, data: record.data, value: 0n, gas, nonce });
-    console.log(`  ${m.name} ${kind} -> ${explorerTx(CHAIN, hash) ?? hash}`);
+    console.log(`  ${m.name} ${kind} -> ${explorerTx(CHAIN, hash) ?? hash}${evidence ? `  evidence ${evidence}` : ""}`);
     await rpc.waitForTransactionReceipt({ hash });
     nonce += 1;
     // Written after each receipt rather than at the end, so a run that dies
     // halfway still knows what it sent.
     if (kind === "uptime") {
-      published[m.agentId] = { ...published[m.agentId], txHash: hash, at: new Date().toISOString(), checks: m.checks };
+      published[m.agentId] = { ...published[m.agentId], txHash: hash, at: new Date().toISOString(), checks: m.checks, ...(evidence ? { evidence } : {}) };
     } else {
-      published[m.agentId] = { txHash: published[m.agentId]?.txHash ?? hash, at: new Date().toISOString(), checks: m.checks, ...published[m.agentId], responseTimeTx: hash };
+      published[m.agentId] = {
+        txHash: published[m.agentId]?.txHash ?? hash,
+        at: new Date().toISOString(),
+        checks: m.checks,
+        ...published[m.agentId],
+        responseTimeTx: hash,
+        ...(evidence ? { responseTimeEvidence: evidence } : {}),
+      };
     }
     save();
   } catch (e) {

@@ -15,7 +15,7 @@
  * why, not just how much.
  */
 
-import type { ScanAgent, RiskFlag } from "./scan.ts";
+import type { ScanAgent, RiskFlag, ScoreV5, V5Dimension } from "./scan.ts";
 import { isTrackRecord, CAPTURED_SHARE, type Reputation } from "./reputation.ts";
 
 export type Tier = "hireable" | "reachable" | "unreachable" | "registered";
@@ -215,7 +215,13 @@ function trackRecordDetail(agent: ScanAgent, r?: Reputation | null): string {
         : `from ${r.raters} addresses`;
 
   const withdrawn = r.revoked > 0 ? `, ${r.revoked} withdrawn` : "";
-  return `${r.valued} of ${r.sampled} marked, ${who}${withdrawn}`;
+  // The registry refuses self-feedback from the owner, so any hit here came
+  // through a separately set agent wallet — worth naming when it happens.
+  const self =
+    (r.selfRated ?? 0) > 0
+      ? `, ${r.selfRated} written by the agent's own address${r.selfRated === 1 ? "" : "es"}`
+      : "";
+  return `${r.valued} of ${r.sampled} marked, ${who}${self}${withdrawn}`;
 }
 
 export function assess(
@@ -440,4 +446,61 @@ export function rank(agent: ScanAgent, a: Assessment, measured: Measured = {}) {
     feedbackTerm +
     Math.min(agent.star_count, 50)
   );
+}
+
+/*
+ * 8004scan's own score, read as parts rather than as one number. Kept here
+ * beside Kawal's signals because the comparison, the agent sheet and the
+ * MCP tool all print the same five rows, and the offline check loads this
+ * module where it cannot load the page layer.
+ */
+
+/** The five v5 components in the order and weight 8004scan publishes them. */
+export const V5_COMPONENTS = [
+  ["engagement", "Engagement"],
+  ["service", "Service"],
+  ["publisher", "Publisher"],
+  ["compliance", "Compliance"],
+  ["momentum", "Momentum"],
+] as const;
+
+export type V5Row = {
+  key: (typeof V5_COMPONENTS)[number][0];
+  label: string;
+  dimension: V5Dimension;
+  /**
+   * The registry's weight as a share of the whole score, out of 100.
+   *
+   * 8004scan publishes it as a fraction — engagement 0.3, momentum 0.1, the
+   * five summing to 1 — and `weighted_score` is `score × weight`, so the
+   * total lands on a 0-100 scale. Printing the fraction beside a part scored
+   * out of 100 read as a rounding error rather than a share: "6 / 100 × 0.3"
+   * hides that engagement is the heaviest part of the five. As a percentage
+   * the arithmetic is legible on the page — 6/100 of 30 is 1.9 — and the
+   * five weights visibly sum to 100, which is what the caption promises.
+   */
+  weightPct: number;
+};
+
+/**
+ * The scored components, dropping the ones the registry left null.
+ *
+ * Empty for an agent the endpoint answered with its legacy shape, which is
+ * the common case on BSC; a caller with an empty list has nothing to draw.
+ */
+export function v5Rows(v5: ScoreV5 | null | undefined): V5Row[] {
+  if (!v5) return [];
+  return V5_COMPONENTS.flatMap(([key, label]) => {
+    const dimension = v5[key];
+    return dimension ? [{ key, label, dimension, weightPct: Math.round(dimension.weight * 100) }] : [];
+  });
+}
+
+/**
+ * The component holding the score down. On the 0-100 scale, not the
+ * weighted one: a weak momentum at weight 10 is still the thing a reader
+ * would ask about, and the weight is printed beside it.
+ */
+export function weakestV5(v5: ScoreV5 | null | undefined): V5Row | null {
+  return v5Rows(v5).reduce<V5Row | null>((low, row) => (low === null || row.dimension.score < low.dimension.score ? row : low), null);
 }

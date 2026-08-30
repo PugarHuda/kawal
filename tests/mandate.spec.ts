@@ -60,6 +60,88 @@ test("garbage parameters fall back to defaults", async ({ page }) => {
   await expect(page.locator("input[name='days']")).toHaveValue("30");
 });
 
+/**
+ * Bagian C reads the AgenticCommerce kernel by job id. The numbers move
+ * with the market, so the assertions are about shape and honesty: every
+ * cell holds a number, the newest job carries a status the kernel defines,
+ * and the panel for this wallet's jobs says "none" with the next id rather
+ * than showing a job that does not exist.
+ */
+test("the ERC-8183 market is read off the kernel, and the empty job panel is honest", async ({ page }) => {
+  await page.goto("/mandate");
+  const market = page.locator("section").filter({ hasText: "Pasar ERC-8183" });
+  await expect(market).toBeVisible();
+  await expect(market.getByText(/next job id \d+ · read \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/)).toBeVisible();
+
+  for (const cap of ["Jobs in window", "Funded", "Completed", "$U budgeted", "Providers"]) {
+    const cell = market.locator(".cell", { hasText: cap });
+    await expect(cell).toBeVisible();
+    expect((await cell.locator("dd").textContent())?.trim()).toMatch(/^[\d,]+(\.\d+)?$/);
+  }
+
+  // The newest job: an id, a kernel status, a truncated provider, a budget.
+  const newest = market.locator("ol li").first();
+  await expect(newest.locator(".serial")).toHaveText(/^#\d+$/);
+  await expect(newest.getByText(/^(OPEN|FUNDED|SUBMITTED|COMPLETED|REJECTED|EXPIRED)$/)).toBeVisible();
+  await expect(newest.getByText(/provider 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/)).toBeVisible();
+  await expect(market.getByRole("link", { name: /kernel 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} on bscscan/ })).toHaveAttribute(
+    "href",
+    /bscscan\.com\/address\/0xEa4DAa3100A767e86FDed867729ae7446476EBA6/i,
+  );
+
+  // This wallet has funded no job. The panel says so, with the next id,
+  // and prints no job row of its own.
+  const panel = market.locator("div", { hasText: "jobs this wallet funded" }).last();
+  const text = (await panel.textContent()) ?? "";
+  if (/No mandate wallet on this instance/.test(text)) return;
+  expect(text).toMatch(/None\. Wallet 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} is the client on none of the newest \d+ jobs/);
+  expect(text).toMatch(/next job the kernel will number is #\d+/);
+});
+
+/**
+ * Every seat that may call a lending venue prints what that venue pays and
+ * charges today, with the block it was read at. A percentage with no
+ * read-at line would be a number with no provenance.
+ */
+test("lending seats print today's venue rates with the block they were read at", async ({ page }) => {
+  await page.goto("/mandate?capital=10000&days=30");
+  // Scoped to the seats: the legend at the foot of the form carries the same
+  // caption as its key entry, and counting that as a seat would make this
+  // pass for the wrong reason.
+  const lines = page.locator(".manifest-row dt", { hasText: "Bunga hari ini" });
+  // Risk officer and Allocator both lend; the market maker and trader do not.
+  await expect(lines).toHaveCount(2);
+  await expect(page.locator('section[aria-label="Legend"] dt', { hasText: "Bunga hari ini" })).toHaveCount(1);
+
+  const allocator = page.locator(".manifest-row", { hasText: "Allocator" });
+  await expect(allocator.getByText(/Venus vUSDT: supply \d+\.\d{2}% · borrow \d+\.\d{2}% APR/)).toBeVisible();
+  await expect(allocator.getByText(/Aave V3 USDT: supply \d+\.\d{2}% · borrow \d+\.\d{2}% APR/)).toBeVisible();
+  await expect(
+    allocator.getByText(/read at block [\d,]+ · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC · [\d,]+ blocks\/day/),
+  ).toBeVisible();
+
+  const trader = page.locator(".manifest-row", { hasText: "Execution trader" });
+  await expect(trader.getByText("Bunga hari ini")).toHaveCount(0);
+});
+
+/**
+ * The hire stub is drawn on every seat and is pressable on none of them
+ * here: no agent is named for the seat on a bare /mandate, and the wallet
+ * holds no $U. The reason is printed, and it is one of the real ones.
+ */
+test("every seat carries a hire stub that says exactly why it cannot be pressed", async ({ page }) => {
+  await page.goto("/mandate?capital=10000&days=30");
+  await expect(page.getByRole("button", { name: "Hire on ERC-8183" })).toHaveCount(0);
+  const stubs = page.locator('[aria-disabled="true"]', { hasText: "Hire on ERC-8183" });
+  await expect(stubs).toHaveCount(4);
+  await expect(page.getByText(/budget this plan implies/).first()).toBeVisible();
+  const reason = page.getByText(/^Not available: /).first();
+  await expect(reason).toBeVisible();
+  expect(await reason.textContent()).toMatch(
+    /no mandate wallet on this instance|\$U could not be read|no agent is named for this seat|short [\d.]+ \$U until funded/,
+  );
+});
+
 test("the control room shows what the wallet holds beside the caps", async ({ page }) => {
   await page.goto("/mandate");
   const granted = page.getByRole("heading", { name: "Granted on-chain" });

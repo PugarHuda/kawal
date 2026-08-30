@@ -21,6 +21,15 @@
  *   jobStatus(jobId)                                  read-only; the job plus its deliverable URL once submitted
  *   settleJob({ jobId, action?, seat? })              "approve" releases the escrow, "dispute" contests it
  *   claimRefund({ jobId, seat? })                     reclaims escrow after `expiredAt` with nothing delivered
+ *   recentJobs({ limit })                             read-only; the newest N jobs, walked down from the counter
+ *   marketSummary()                                   read-only; those jobs counted by status, budget and provider
+ *   uHeld(address)                                    read-only; the $U an address holds, the coin every budget is in
+ *
+ * The market is read by job id, not by logs. The public dataseed refuses a
+ * `getLogs` over even 5,000 blocks ("Request exceeds defined limit"), and the
+ * kernel numbers jobs from 1 with no gaps, so `jobCounter()` and N calls to
+ * `getJob` are the whole index: sixty jobs took 2.4 s cold at eight in
+ * flight, and the answer is memoised for five minutes.
  *
  * Every write takes an optional ledger seat. Given one, the session key
  * signs — which only works for a seat whose allowlist names the kernel, the
@@ -40,19 +49,23 @@ import {
   hireErc8183Agent,
   settleErc8183Job,
   signerFromPrivateKey,
+  JOB_STATUS,
   type Erc8183Addresses,
   type Erc8183Job,
   type HireAgentResult,
   type ExecuteResult,
+  type JobStatusName,
   type Session,
   type Signer,
 } from "@altananetwork/sdk";
 import { altanaNetwork, clientFor, sessionFromSeat } from "./altana.ts";
 import { BSC_MAINNET } from "./chains.ts";
+import { mapLimit } from "./concurrency.ts";
+import { memo } from "./memo.ts";
 import { publicClientFor } from "./rpc.ts";
-import { adminKey, type LedgerSeat } from "./vault.ts";
+import { adminKey, hasAdminKey, type LedgerSeat } from "./vault.ts";
 
-export { ERC8183_ADDRESSES, JOB_STATUS, type Erc8183Job } from "@altananetwork/sdk";
+export { ERC8183_ADDRESSES, JOB_STATUS, type Erc8183Job, type JobStatusName } from "@altananetwork/sdk";
 
 const ERC20 = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -60,7 +73,13 @@ const ERC20 = parseAbi([
   "function decimals() view returns (uint8)",
 ]);
 const POLICY = parseAbi(["function disputeWindow() view returns (uint64)"]);
-const COMMERCE = parseAbi(["function jobCounter() view returns (uint256)"]);
+const COMMERCE = parseAbi([
+  "function jobCounter() view returns (uint256)",
+  // The SDK's own `getJob` reads through its default RPC (publicnode), which
+  // lib/rpc.ts explains is the one host that answers archive-ish reads with
+  // an error that looks like a revert. Same ABI, Kawal's endpoint.
+  "function getJob(uint256 jobId) view returns ((uint256 id, address client, address provider, address evaluator, string description, uint256 budget, uint256 expiredAt, uint8 status, address hook, uint256 submittedAt, bytes32 deliverable))",
+]);
 
 /** $U carries 18 decimals on both BSC chains. */
 export const U_DECIMALS = 18;
@@ -218,4 +237,88 @@ export async function claimRefund(opts: { jobId: bigint } & Buyer): Promise<Exec
 /** $U, printed for a person. */
 export function formatU(raw: bigint) {
   return `${formatUnits(raw, U_DECIMALS)} $U`;
+}
+
+/** The wallet the admin key would buy from, or null on an instance without one. */
+export function buyerAddress(): Address | null {
+  return hasAdminKey() ? privateKeyToAccount(adminKey()).address : null;
+}
+
+/** $U an address holds, raw. The coin every ERC-8183 budget is escrowed in. */
+export function uHeld(address: Address, chainId = BSC_MAINNET): Promise<bigint> {
+  return publicClientFor(chainId).readContract({
+    address: erc8183Addresses(chainId).paymentToken,
+    abi: ERC20,
+    functionName: "balanceOf",
+    args: [address],
+  });
+}
+
+/* ------------------------------------------------------- the market --- */
+
+/**
+ * A job as the walk reads it. The SDK types `statusName` as always one of
+ * the six; its own implementation falls back to "UNKNOWN" for a status the
+ * enum does not name, and so does this, with the type saying so.
+ */
+export type MarketJob = Omit<Erc8183Job, "statusName"> & { statusName: JobStatusName | "UNKNOWN" };
+
+/** How many of the newest jobs the market window reads by default. */
+export const MARKET_WINDOW = 60;
+const MARKET_TTL_MS = 5 * 60_000;
+/** Reads in flight against the dataseed at once. */
+const READ_LIMIT = 8;
+
+export type RecentJobs = {
+  chainId: number;
+  /** `jobCounter() + 1`: the id the next `createJob` will take. */
+  nextJobId: bigint;
+  /** Newest first. */
+  jobs: MarketJob[];
+  readAt: string;
+};
+
+/** The newest `limit` jobs on the kernel, walked down from the counter. */
+export function recentJobs(opts: { limit?: number; chainId?: number } = {}): Promise<RecentJobs> {
+  const chainId = opts.chainId ?? BSC_MAINNET;
+  // Capped: two hundred reads is the most a page should wait on, memoised or not.
+  const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? MARKET_WINDOW), 200));
+  return memo(`erc8183:recent:${chainId}:${limit}`, MARKET_TTL_MS, async () => {
+    const rpc = publicClientFor(chainId);
+    const commerce = erc8183Addresses(chainId).commerce;
+    const counter = await rpc.readContract({ address: commerce, abi: COMMERCE, functionName: "jobCounter" });
+    const count = counter < BigInt(limit) ? Number(counter) : limit;
+    const ids = Array.from({ length: count }, (_, i) => counter - BigInt(i));
+    const jobs = await mapLimit(ids, READ_LIMIT, async (id): Promise<MarketJob> => {
+      const job = await rpc.readContract({ address: commerce, abi: COMMERCE, functionName: "getJob", args: [id] });
+      return { ...job, statusName: JOB_STATUS[job.status] ?? "UNKNOWN" };
+    });
+    return { chainId, nextJobId: counter + 1n, jobs, readAt: new Date().toISOString() };
+  });
+}
+
+export type MarketSummary = RecentJobs & {
+  byStatus: Record<JobStatusName, number>;
+  /** Sum of every budget in the window, raw $U. */
+  budgetRaw: bigint;
+  /** Distinct sellers in the window. */
+  providers: number;
+};
+
+/** Counts a window of jobs. Pure, so the self-check can pin it. */
+export function summariseMarket(recent: RecentJobs): MarketSummary {
+  const byStatus = Object.fromEntries(JOB_STATUS.map((s) => [s, 0])) as Record<JobStatusName, number>;
+  const providers = new Set<string>();
+  let budgetRaw = 0n;
+  for (const job of recent.jobs) {
+    if (job.statusName !== "UNKNOWN") byStatus[job.statusName] += 1;
+    budgetRaw += job.budget;
+    providers.add(job.provider.toLowerCase());
+  }
+  return { ...recent, byStatus, budgetRaw, providers: providers.size };
+}
+
+/** The market as the newest `limit` jobs describe it. */
+export async function marketSummary(opts: { limit?: number; chainId?: number } = {}): Promise<MarketSummary> {
+  return summariseMarket(await recentJobs(opts));
 }

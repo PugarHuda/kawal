@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import Link from "next/link";
-import { getStats, bscStats, registryAsOf } from "@/lib/scan";
+import { getStats, bscStats, registryAsOf, type ScanStats } from "@/lib/scan";
 import { CATEGORIES } from "@/lib/taxonomy";
 import { seatColor, Stamp, Cell, Legend } from "@/components/listing";
-import { observedTotals } from "@/lib/uptime";
+import { observedTotals, type Observed } from "@/lib/uptime";
+import { Trending } from "@/components/trending";
 
 /**
  * Form K-1: the cover sheet of the book.
@@ -12,26 +14,25 @@ import { observedTotals } from "@/lib/uptime";
  * it cannot be built ahead of time; a prerendered shell shipped with no nonce
  * and every Next script on it was refused — the page rendered and never
  * hydrated, which looks like success from the outside.
+ *
+ * The headline and the counterfoils are static and flush first. Every figure
+ * that has to be fetched — the probe count from the database, the roster
+ * from the registry — sits under its own Suspense boundary and types itself
+ * in when it lands, so a slow registry cannot hold the first paint. Measured
+ * before this split: the largest paint on a phone waited 4.3 s on
+ * `observedTotals()`.
  */
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const [stats, observed] = await Promise.all([getStats().catch(() => null), observedTotals()]);
-  const bsc = stats ? bscStats(stats) : undefined;
-  const asOf = registryAsOf();
+/** The three research figures on the sheet were taken once, by hand, and dated. */
+const SAMPLED = "sampled 2026-08-26";
 
-  const roster = bsc?.total_agents ?? 0;
-  // A sum of per-protocol counts, so an agent declaring MCP and A2A is in it
-  // twice. The registry offers no distinct count, so the cell says
-  // "declarations" rather than "agents" and does not divide by the roster
-  // when there is none.
-  const declarations = bsc ? bsc.mcp_agents + bsc.a2a_agents + bsc.oasf_agents : 0;
-  const declaredShare = roster > 0 ? `${((declarations / roster) * 100).toFixed(1)}%` : "—";
-  const perAgent = bsc && roster > 0 ? (bsc.total_feedbacks / roster).toFixed(3) : "—";
+export default async function Home() {
+  // Started here, awaited inside the boundaries: one call each, shared by
+  // every cell that reads it, and none of them on the critical path.
+  const stats = getStats().catch(() => null);
+  const observed = observedTotals();
   const today = new Date().toISOString().slice(0, 10);
-  // The three research figures below were taken once, by hand, and dated;
-  // the live values beside them move daily. Re-run to refresh.
-  const sampled = "sampled 2026-08-26";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 pt-8 pb-4">
@@ -41,14 +42,13 @@ export default async function Home() {
             leave along the top of every sheet. */}
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b-[1.5px] border-rule px-5 py-2">
           <span className="cap">Form K-1 · Surat jalan agen · cover sheet</span>
-          <span className="serial text-[0.85rem]">
-            No. K1-{String(roster).padStart(6, "0")}
-          </span>
+          <Suspense fallback={<span className="serial text-[0.85rem]">No. K1-······</span>}>
+            <Serial stats={stats} />
+          </Suspense>
           <span className="cap">Tgl · {today}</span>
-          {/* The registry's figures come through a five-minute cache; the
-              date above is when this sheet was printed, this is when the
-              registry last spoke. */}
-          {bsc && asOf && <span className="cap">Registry data as of {asOf.replace("T", " ").slice(0, 16)} UTC</span>}
+          <Suspense fallback={null}>
+            <RegistryAsOf stats={stats} />
+          </Suspense>
         </div>
 
         <div className="relative grid gap-px bg-rule lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
@@ -95,79 +95,16 @@ export default async function Home() {
               registry, and the stamp says so. */}
           <div className="cell cell--yellow relative flex flex-col justify-between px-5 pt-6 pb-7 lg:px-7">
             <span className="cap">Diperiksa oleh · inspected by Kawal itself</span>
-            {observed ? (
-              <>
-                <div className="mt-3">
-                  <p className="typed relative inline-block text-[3rem] font-bold leading-none sm:text-[3.8rem]">
-                    {observed.checks.toLocaleString()}
-                    {/* Pressed over the count's last digit and out into the
-                        margin: it crosses the figure it certifies and nothing
-                        the reader still needs to read. */}
-                    <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-1.6rem)] sm:translate-x-[calc(100%-2.2rem)]">
-                      <Stamp ink="stamp-violet" size="lg" evidence={observed.checks}>
-                        Telah diperiksa
-                      </Stamp>
-                    </span>
-                  </p>
-                  <p className="typed mt-2 text-[0.95rem] text-carbon-2">
-                    calls placed to {observed.endpoints} declared endpoints since{" "}
-                    {new Date(observed.since * 1000).toISOString().slice(0, 10)}
-                  </p>
-                </div>
-                <p className="typed mt-6 max-w-[34ch] text-[0.85rem] text-carbon-2">
-                  <strong className="font-bold text-carbon">{observed.answered}</strong> of those endpoints
-                  answered. The rest are not there, or speak a protocol this prober does not — recorded as
-                  unknown, never counted as a failure.
-                </p>
-                <p className="stamp-note mt-6">
-                  single vantage point · an endpoint that blocks this prober reads as down
-                </p>
-              </>
-            ) : (
-              <p className="typed mt-3 text-carbon-2">
-                No probes on this instance yet. The first visitor to an agent page makes the first call.
-              </p>
-            )}
+            <Suspense fallback={<InspectedBlank />}>
+              <Inspected observed={observed} />
+            </Suspense>
           </div>
         </div>
 
         {/* Three typed cells from the registry, labelled as the registry's. */}
-        {bsc && (
-          <div className="cells border-x-0 border-b-0 sm:grid-cols-3">
-            <Cell cap="Terdaftar · registered on BSC (8004scan's count)">
-              <p className="tnum text-[1.9rem] font-bold leading-tight">{roster.toLocaleString()}</p>
-              <span className="text-[0.85rem] text-carbon-2">
-                {bsc.daily_new_agents.toLocaleString()} more arrived today
-              </span>
-              <span className="stamp-note mt-1 block">
-                62.8% of the newest 600 are copies of a template across 464 owners · {sampled},{" "}
-                <code>npm run roster</code>
-              </span>
-            </Cell>
-            <Cell cap="Menyatakan antarmuka · interface declarations">
-              <p className="text-[1.9rem] font-bold leading-tight">{declaredShare}</p>
-              <span className="text-[0.85rem] text-carbon-2">
-                {declarations.toLocaleString()} declarations chain-wide, where agents expose MCP, A2A or
-                OASF — one declaring two is counted twice
-              </span>
-              <span className="stamp-note mt-1 block">
-                among the newest 600 the share is 38.8% — the register is improving · {sampled},{" "}
-                <code>npm run roster</code>
-              </span>
-            </Cell>
-            <Cell cap="Catatan umpan balik · feedback records per agent">
-              <p className="text-[1.9rem] font-bold leading-tight">{perAgent}</p>
-              <span className="text-[0.85rem] text-carbon-2">
-                {bsc.total_feedbacks.toLocaleString()} records chain-wide — a count of writes, not of
-                opinions
-              </span>
-              <span className="stamp-note mt-1 block">
-                a sample of 1,200 found just 53 addresses behind them · {sampled},{" "}
-                <code>npm run reputation</code>
-              </span>
-            </Cell>
-          </div>
-        )}
+        <Suspense fallback={<RegistryBlank />}>
+          <RegistryCells stats={stats} />
+        </Suspense>
       </section>
 
       {/* ------------------------------------------------------ legend --- */}
@@ -198,12 +135,14 @@ export default async function Home() {
           <ol>
             {CATEGORIES.filter((c) => c.core).map((c, i) => (
               <li key={c.id} className="manifest-row last:border-b-0" style={{ ["--seat" as string]: seatColor(c.id) }}>
-                {/* The whole line is the link, named by its seat heading
-                    alone; the arrow is the printed mark, not a second
+                {/* The whole line is the link and its text is its name:
+                    serial, seat, heading, blurb, in that order. Naming it by
+                    the heading alone made the accessible name shorter than
+                    the visible text, which a screen-reader user cannot
+                    reconcile. The arrow is the printed mark, not a second
                     affordance. */}
                 <Link
                   href={`/agents?category=${c.id}`}
-                  aria-labelledby={`seat-${c.id}`}
                   className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-stretch gap-x-4 no-underline sm:grid-cols-[3rem_11rem_minmax(0,1fr)_auto]"
                 >
                   <span className="serial serial--seat self-center pl-5 text-[0.85rem]">{String(i + 1).padStart(2, "0")}</span>
@@ -219,6 +158,155 @@ export default async function Home() {
           </ol>
         </div>
       </section>
+
+      {/* ------------------------------------------- what is trending --- */}
+      {/* Streamed after the seats: it reads five detail records and the
+          probe history, and the cover sheet must not wait on either. An
+          outage upstream leaves nothing here rather than a notice. */}
+      <Suspense fallback={null}>
+        <Trending />
+      </Suspense>
+    </div>
+  );
+}
+
+/** The numbering machine's strike: the roster count, once the registry says. */
+async function Serial({ stats }: { stats: Promise<ScanStats | null> }) {
+  const s = await stats;
+  const bsc = s ? bscStats(s) : undefined;
+  return <span className="serial text-[0.85rem]">No. K1-{String(bsc?.total_agents ?? 0).padStart(6, "0")}</span>;
+}
+
+/**
+ * The registry's figures come through a five-minute cache; the date in the
+ * strip is when this sheet was printed, this is when the registry last spoke.
+ */
+async function RegistryAsOf({ stats }: { stats: Promise<ScanStats | null> }) {
+  const s = await stats;
+  const asOf = registryAsOf();
+  if (!s || !asOf) return null;
+  return <span className="cap">Registry data as of {asOf.replace("T", " ").slice(0, 16)} UTC</span>;
+}
+
+/** The yellow cell before the count lands: the same lines, the value blank. */
+function InspectedBlank() {
+  return (
+    <div className="mt-3" aria-busy="true">
+      <span className="typed block text-[3rem] font-bold leading-none text-carbon-3 sm:text-[3.8rem]">—</span>
+      <span className="typed mt-2 block text-[0.95rem] text-carbon-2">reading the probe history…</span>
+    </div>
+  );
+}
+
+async function Inspected({ observed }: { observed: Promise<Observed | null> }) {
+  const o = await observed;
+  if (!o) {
+    return (
+      <p className="typed mt-3 text-carbon-2">
+        No probes on this instance yet. The first visitor to an agent page makes the first call.
+      </p>
+    );
+  }
+  return (
+    <>
+      <div className="mt-3">
+        <p className="typed relative inline-block text-[3rem] font-bold leading-none sm:text-[3.8rem]">
+          {o.checks.toLocaleString()}
+          {/* Pressed over the count's last digit and out into the margin:
+              it crosses the figure it certifies and nothing the reader
+              still needs to read. */}
+          <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-1.6rem)] sm:translate-x-[calc(100%-2.2rem)]">
+            <Stamp ink="stamp-violet" size="lg" evidence={o.checks}>
+              Telah diperiksa
+            </Stamp>
+          </span>
+        </p>
+        <p className="typed mt-2 text-[0.95rem] text-carbon-2">
+          calls placed to {o.endpoints} declared endpoints since {new Date(o.since * 1000).toISOString().slice(0, 10)}
+        </p>
+      </div>
+      <p className="typed mt-6 max-w-[34ch] text-[0.85rem] text-carbon-2">
+        <strong className="font-bold text-carbon">{o.answered}</strong> of those endpoints answered. The rest are not
+        there, or speak a protocol this prober does not — recorded as unknown, never counted as a failure.
+      </p>
+      <p className="stamp-note mt-6">single vantage point · an endpoint that blocks this prober reads as down</p>
+    </>
+  );
+}
+
+const REGISTRY_CAPS = [
+  "Terdaftar · registered on BSC (8004scan's count)",
+  "Menyatakan antarmuka · interface declarations",
+  "Catatan umpan balik · feedback records per agent",
+] as const;
+
+/**
+ * The three registry cells with the values not yet typed. A `span`, not the
+ * `p.tnum` the real cell prints: the suite reads the first `p.tnum` on the
+ * page as the roster figure, and a blank one arriving first would be read
+ * instead.
+ */
+function RegistryBlank() {
+  return (
+    <div className="cells border-x-0 border-b-0 sm:grid-cols-3" aria-busy="true">
+      {REGISTRY_CAPS.map((cap) => (
+        <Cell key={cap} cap={cap}>
+          <span className="block text-[1.9rem] font-bold leading-tight text-carbon-3">—</span>
+          <span className="text-[0.85rem] text-carbon-2">reading the registry…</span>
+        </Cell>
+      ))}
+    </div>
+  );
+}
+
+async function RegistryCells({ stats }: { stats: Promise<ScanStats | null> }) {
+  const s = await stats;
+  const bsc = s ? bscStats(s) : undefined;
+  if (!bsc) return null;
+
+  const roster = bsc.total_agents;
+  // A sum of per-protocol counts, so an agent declaring MCP and A2A is in it
+  // twice. The registry offers no distinct count, so the cell says
+  // "declarations" rather than "agents" and does not divide by the roster
+  // when there is none.
+  const declarations = bsc.mcp_agents + bsc.a2a_agents + bsc.oasf_agents;
+  const declaredShare = roster > 0 ? `${((declarations / roster) * 100).toFixed(1)}%` : "—";
+  const perAgent = roster > 0 ? (bsc.total_feedbacks / roster).toFixed(3) : "—";
+
+  return (
+    <div className="cells border-x-0 border-b-0 sm:grid-cols-3">
+      <Cell cap={REGISTRY_CAPS[0]}>
+        <p className="tnum text-[1.9rem] font-bold leading-tight">{roster.toLocaleString()}</p>
+        <span className="text-[0.85rem] text-carbon-2">
+          {bsc.daily_new_agents.toLocaleString()} more arrived today
+        </span>
+        <span className="stamp-note mt-1 block">
+          62.8% of the newest 600 are copies of a template across 464 owners · {SAMPLED},{" "}
+          <code>npm run roster</code>
+        </span>
+      </Cell>
+      <Cell cap={REGISTRY_CAPS[1]}>
+        <p className="text-[1.9rem] font-bold leading-tight">{declaredShare}</p>
+        <span className="text-[0.85rem] text-carbon-2">
+          {declarations.toLocaleString()} declarations chain-wide, where agents expose MCP, A2A or
+          OASF — one declaring two is counted twice
+        </span>
+        <span className="stamp-note mt-1 block">
+          among the newest 600 the share is 38.8% — the register is improving · {SAMPLED},{" "}
+          <code>npm run roster</code>
+        </span>
+      </Cell>
+      <Cell cap={REGISTRY_CAPS[2]}>
+        <p className="text-[1.9rem] font-bold leading-tight">{perAgent}</p>
+        <span className="text-[0.85rem] text-carbon-2">
+          {bsc.total_feedbacks.toLocaleString()} records chain-wide — a count of writes, not of
+          opinions
+        </span>
+        <span className="stamp-note mt-1 block">
+          a sample of 1,200 found just 53 addresses behind them · {SAMPLED},{" "}
+          <code>npm run reputation</code>
+        </span>
+      </Cell>
     </div>
   );
 }

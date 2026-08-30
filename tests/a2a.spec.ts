@@ -121,6 +121,56 @@ test("Kawal's own card is at the well-known path and names a live endpoint", asy
   expect(extended.error.code).toBe(-32007);
 });
 
+/**
+ * RFC 8785 JCS, written a second time here on purpose: the card's signature
+ * is only worth something if a reader who never saw Kawal's code can
+ * reproduce the bytes it signed. Keys in UTF-16 code-unit order, numbers
+ * and strings as JSON.stringify has them.
+ */
+function jcs(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(jcs).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${jcs(o[k])}`).join(",")}}`;
+}
+
+/**
+ * Kawal signs its card with the admin account. The signature is checked
+ * here with node:crypto alone — the JWK out of the protected header, the
+ * payload rebuilt with the JCS above — so the check shares nothing with the
+ * code that signed. An instance without the admin key serves the card
+ * unsigned, and says so by the field's absence.
+ */
+test("Kawal's card is signed ES256K, and the signature verifies with the JWK it carries", async ({ request }) => {
+  const card = await (await request.get("/.well-known/agent-card.json")).json();
+  test.skip(!Array.isArray(card.signatures), "this instance holds no admin key, so its card is unsigned");
+
+  expect(card.signatures).toHaveLength(1);
+  const { protected: prot, signature } = card.signatures[0];
+  const header = JSON.parse(Buffer.from(prot, "base64url").toString("utf8"));
+  expect(header.alg).toBe("ES256K");
+  expect(header.jwk).toMatchObject({ kty: "EC", crv: "secp256k1" });
+  expect(Buffer.from(header.jwk.x, "base64url")).toHaveLength(32);
+  expect(Buffer.from(header.jwk.y, "base64url")).toHaveLength(32);
+  const sig = Buffer.from(signature, "base64url");
+  expect(sig).toHaveLength(64);
+
+  const unsigned = { ...card };
+  delete unsigned.signatures;
+  const input = Buffer.from(`${prot}.${Buffer.from(jcs(unsigned), "utf8").toString("base64url")}`, "ascii");
+  const { createPublicKey, verify } = await import("node:crypto");
+  const key = createPublicKey({ key: header.jwk, format: "jwk" });
+  expect(verify("sha256", input, { key, dsaEncoding: "ieee-p1363" }, sig)).toBe(true);
+
+  // One byte of the card changed and the same signature no longer holds.
+  const tampered = Buffer.from(`${prot}.${Buffer.from(jcs({ ...unsigned, name: "Not Kawal" }), "utf8").toString("base64url")}`, "ascii");
+  expect(verify("sha256", tampered, { key, dsaEncoding: "ieee-p1363" }, sig)).toBe(false);
+
+  // Signed or not, it is still the same card Kawal's own reader accepts.
+  expect(card.name).toBe("Kawal");
+  expect(unsigned.skills.length).toBeGreaterThan(0);
+});
+
 test("a message naming a skill gets an answer with evidence in it", async ({ request }) => {
   const res = await post(request, envelope("message/send", withSkill("verify_agent", { tokenId: "43129" }, "ctx-1"), 7));
   expect(res.status()).toBe(200);

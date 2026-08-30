@@ -75,6 +75,22 @@ test("the registry's own score field is reported beside the marks", async ({ pag
   await expect(section.getByText(/score field/i)).toBeVisible();
 });
 
+test("the panel counts the records the agent wrote about itself, and names the writer", async ({ page }) => {
+  await page.goto(SPREAD);
+  const section = page.locator("section").filter({ hasText: "We read the feedback" });
+  const row = section.locator("div").filter({ hasText: /^Self-rated/ }).first();
+  await expect(row).toBeVisible();
+
+  const text = ((await row.textContent()) ?? "").replace(/\s+/g, " ");
+  const m = text.match(/(\d+) of (\d+) ratings were written by the agent/);
+  expect(m, `"${text}" names a count out of the sample`).not.toBeNull();
+  const [, self, sampled] = m!.map(Number);
+  expect(self).toBeLessThanOrEqual(sampled!);
+  // A non-zero count names who did it; zero names nobody.
+  if (self! > 0) expect(text).toMatch(/0x[0-9a-f]{8}…/);
+  else expect(text).not.toMatch(/0x[0-9a-f]{8}…/);
+});
+
 test("the track-record signal follows the records, not the count", async ({ page }) => {
   await page.goto(CAPTURED);
 

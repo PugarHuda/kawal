@@ -33,14 +33,15 @@
  * are harmless to the older clients and so are always present.
  */
 
-import { getAgent, getQuality, listAgents } from "./scan.ts";
+import { getAgent, getQuality, listAgents, type TrendingPeriod } from "./scan.ts";
 import { proveAgent } from "./probe.ts";
-import { assess, tierLabel } from "./signals.ts";
+import { assess, tierLabel, v5Rows, weakestV5 } from "./signals.ts";
+import { declaredEndpoint, trendingListings } from "./liveness.ts";
 import { CATEGORIES, classify } from "./taxonomy.ts";
 import { observedFor, uptimeFor } from "./uptime.ts";
 import { checkX402Cached } from "./x402.ts";
 import { getReputationCached } from "./reputation.ts";
-import { browse } from "./catalog.ts";
+import { browse, type Listing } from "./catalog.ts";
 import { diagnose, failureLabel } from "./failure.ts";
 import { mapLimit } from "./concurrency.ts";
 import { KNOWN_DEFECTS } from "./feedback.ts";
@@ -75,6 +76,22 @@ const MAX_SEARCH = 20;
 
 /** The comparison form holds three columns; the tool holds the same. */
 const MAX_COMPARE = 3;
+
+/** The registry's three trending windows, as `find_agents` accepts them. */
+const TRENDING_PERIODS: readonly TrendingPeriod[] = ["24h", "7d", "30d"];
+
+/** One search result: the registry's row with Kawal's tier beside it. */
+function listingSummary(l: Listing) {
+  return {
+    chainId: l.agent.chain_id,
+    tokenId: l.agent.token_id,
+    name: l.agent.name,
+    tier: l.assessment.tier,
+    declared: l.agent.supported_protocols ?? [],
+    feedbackRecords: l.agent.total_feedbacks,
+    duplicateRegistrations: l.assessment.duplicates,
+  };
+}
 
 /**
  * Bounds on the owner lookup, which dials other people's servers.
@@ -185,7 +202,7 @@ export const TOOLS: Tool[] = [
       const proof = await proveAgent(agent);
       const [observed, reputation, quality] = await Promise.all([
         observedFor(proof?.endpoint),
-        getReputationCached(chainId, tokenId),
+        getReputationCached(chainId, tokenId, agent),
         getQuality(chainId, tokenId).catch(() => null),
       ]);
       const payment =
@@ -217,6 +234,9 @@ export const TOOLS: Tool[] = [
           toolCount: proof.toolCount,
           error: proof.error,
           checkedAt: proof.checkedAt,
+          // A2A only: whether the card's own JWS checked out against the
+          // key it names. Null for MCP and for probes made before the check.
+          cardSignature: proof.a2a?.signature ?? null,
         },
         // The part no one else holds. A single reading is weather.
         history: proof?.endpoint ? await uptimeFor(proof.endpoint) : null,
@@ -287,6 +307,10 @@ export const TOOLS: Tool[] = [
         distinctWriters: r.raters,
         busiestWriter: r.topRater,
         busiestWriterShare: r.topRaterShare,
+        // Written by the agent's own wallet, owner or minter. Counted, not
+        // subtracted, so the caller sees that it happened.
+        selfRated: r.selfRated,
+        selfRaters: r.selfRaters,
         checkedAt: r.checkedAt,
       };
     },
@@ -300,37 +324,53 @@ export const TOOLS: Tool[] = [
       "product, and get back agents ranked with Kawal's evidence attached. " +
       "Duplicate registrations are collapsed: roughly two thirds of the newest " +
       "registrations are copies of a template, and returning all of them would " +
-      "be returning the same agent many times.",
+      "be returning the same agent many times. With `trending`, the list is " +
+      "instead what 8004scan's visitors looked at most over that window — " +
+      "attention, not evidence — each entry carrying the tier Kawal's own " +
+      "record gives it, which is where the two disagree.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "What you need done, in plain words." },
+        query: { type: "string", description: "What you need done, in plain words. Optional when `trending` is given; then it filters the trending list by name or description." },
+        trending: { type: "string", enum: [...TRENDING_PERIODS], description: "Return 8004scan's trending agents for this window instead of a search, in the registry's order." },
         limit: { type: "number", description: `How many to return, at most ${MAX_SEARCH}.` },
         chainId: CHAIN_PROPERTY,
       },
-      required: ["query"],
     },
     annotations: READS_OUTSIDE,
     async run(args) {
       const query = String(args.query ?? "").trim();
-      if (query === "") throw new Error("query must not be empty");
+      const period = args.trending === undefined || args.trending === null || args.trending === "" ? null : String(args.trending);
+      if (period !== null && !(TRENDING_PERIODS as readonly string[]).includes(period)) {
+        throw new Error(`trending must be one of ${TRENDING_PERIODS.join(", ")}`);
+      }
+      if (query === "" && period === null) throw new Error("query must not be empty unless trending is given");
       const limit = Math.min(MAX_SEARCH, Math.max(1, Number(args.limit ?? 5) || 5));
+      const chainId = chainOf(args);
 
-      const { listings, total } = await browse({ chainId: chainOf(args), search: query, limit });
+      if (period !== null) {
+        // The registry's order, kept: on this call its ranking is the datum
+        // and Kawal's tier is the annotation. A query narrows by name or
+        // description rather than re-ranking.
+        const { rows, asOf } = await trendingListings(period as TrendingPeriod, limit, chainId);
+        const q = query.toLowerCase();
+        const kept = rows.filter((r) => q === "" || `${r.listing.agent.name} ${r.listing.agent.description ?? ""}`.toLowerCase().includes(q));
+        return {
+          query: query || null,
+          trending: period,
+          registryAsOf: asOf,
+          results: kept.map((r) => ({ trendRank: r.rank, ...listingSummary(r.listing) })),
+          note: "Order is 8004scan's trend — who looked, by view count — and the tier is what Kawal's own record says about each. Call verify_agent to dial one now.",
+        };
+      }
+
+      const { listings, total } = await browse({ chainId, search: query, limit });
       return {
         query,
         matchedChainWide: total,
         // The tier here is the catalogue's, which has not dialled anything for
         // this call. `verify_agent` is what turns a listing into a probe.
-        results: listings.slice(0, limit).map((l) => ({
-          chainId: l.agent.chain_id,
-          tokenId: l.agent.token_id,
-          name: l.agent.name,
-          tier: l.assessment.tier,
-          declared: l.agent.supported_protocols ?? [],
-          feedbackRecords: l.agent.total_feedbacks,
-          duplicateRegistrations: l.assessment.duplicates,
-        })),
+        results: listings.slice(0, limit).map(listingSummary),
         note: "Tiers here come from the registry plus anything Kawal has already observed. Call verify_agent to dial one now.",
       };
     },
@@ -474,16 +514,16 @@ export const TOOLS: Tool[] = [
       const chainId = chainOf(args);
       const tokenId = tokenOf(args);
       const agent = await getAgent(chainId, tokenId);
-      // The endpoint the prober would dial, resolved the same way it does —
-      // MCP first — but not dialled: this tool reads the ledger, it does not
-      // add to it.
-      const endpoint = agent.services?.mcp?.endpoint ?? agent.services?.a2a?.endpoint ?? null;
-      if (!endpoint) return { agent: { chainId, tokenId, name: agent.name }, endpoint: null, history: null, reason: "no MCP or A2A endpoint declared" };
-      const history = await uptimeFor(endpoint);
+      // The endpoint the prober would dial, resolved in the prober's own
+      // order but not dialled: this tool reads the ledger, it does not add
+      // to it.
+      const declared = declaredEndpoint(agent);
+      if (!declared) return { agent: { chainId, tokenId, name: agent.name }, endpoint: null, history: null, reason: "no MCP, A2A or OASF endpoint declared" };
+      const history = await uptimeFor(declared.endpoint);
       return {
         agent: { chainId, tokenId, name: agent.name },
-        endpoint,
-        protocol: agent.services?.mcp?.endpoint ? "mcp" : "a2a",
+        endpoint: declared.endpoint,
+        protocol: declared.protocol,
         history,
         ...(history ? {} : { reason: "Kawal has never called this endpoint" }),
         knownDefects: KNOWN_DEFECTS,
@@ -672,6 +712,15 @@ function compareRow(c: Column): Json {
           : null,
     domainProven: checked.length === 0 ? null : { verified: checked.filter((s) => s.domain_verified).length, checked: checked.length },
     trackRecord: { feedbackRecords: c.agent.total_feedbacks, averageScore: c.agent.average_score, registryScore: c.agent.total_score },
+    // The registry's number in parts, with the part holding it down named.
+    scoreV5: c.scoreV5
+      ? {
+          total: c.scoreV5.total_score,
+          scoredAt: c.scoreV5.last_scored_at,
+          components: v5Rows(c.scoreV5).map((r) => ({ component: r.key, score: r.dimension.score, weight: r.dimension.weight, weighted: r.dimension.weighted_score })),
+          weakest: weakestV5(c.scoreV5)?.key ?? null,
+        }
+      : null,
     scoreTrend: h && h.data_points >= 2 && h.score_change !== null ? { change: h.score_change, periodDays: h.period_days } : null,
     flaggedRisks: (c.quality?.risk_flags ?? []).slice(0, 4).map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
     registered: new Date(c.agent.created_at).toISOString().slice(0, 10),
@@ -694,7 +743,7 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
   const proof = await proveAgent(agent);
   const [observed, reputation, quality] = await Promise.all([
     observedFor(proof?.endpoint),
-    getReputationCached(chainId, tokenId),
+    getReputationCached(chainId, tokenId, agent),
     getQuality(chainId, tokenId).catch(() => null),
   ]);
   const payment =
@@ -761,6 +810,8 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
       busiestWriter: reputation.topRater,
       busiestWriterShare: reputation.topRaterShare,
       withdrawn: reputation.revoked,
+      selfRated: reputation.selfRated,
+      selfRaters: reputation.selfRaters,
     },
     signals: assessment.signals.map((s) => ({ key: s.key, pass: s.pass, detail: s.detail })),
     caveats: [

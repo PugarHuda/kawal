@@ -16,6 +16,8 @@ import {
   seriesKey,
   stencilKey,
   MIN_OBSERVATIONS_TO_OVERRULE,
+  v5Rows,
+  weakestV5,
 } from "../lib/signals.ts";
 import { errorsCleanly } from "../lib/mcp.ts";
 import { readOasfRecord } from "../lib/probe.ts";
@@ -26,11 +28,14 @@ import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
 import { handleRpc, TOOLS, PROTOCOL_VERSION } from "../lib/server.mcp.ts";
 import { diagnose, failureLabel } from "../lib/failure.ts";
 import { challenge, PRICE_WEI, NETWORK } from "../lib/x402.terms.ts";
-import { readAgentCard, a2aAnswered } from "../lib/a2a.ts";
-import { agentCard, handleA2a } from "../lib/server.a2a.ts";
+import { readAgentCard, a2aAnswered, canonicalize, b64url, fromB64url, utf8, cardPayload, verifyCardSignature } from "../lib/a2a.ts";
+import { agentCard, handleA2a, signAgentCard } from "../lib/server.a2a.ts";
+import { summariseMarket, formatU, JOB_STATUS, type MarketJob } from "../lib/erc8183.ts";
+import { blocksPerDayBetween, annualise, fromRay, pct } from "../app/mandate/rates.ts";
+import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
-import { buildFeedback, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
-import { decodeFunctionData, keccak256, toHex, isAddress, getAddress } from "viem";
+import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
+import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
 import { memo, clearMemo, memoStats } from "../lib/memo.ts";
@@ -38,6 +43,7 @@ import { parseAgents, ScanAgentSchema } from "../lib/scan.schema.ts";
 import { readTool } from "../lib/probe.ts";
 import { verdictFor, winnerOf, type TaskResult } from "../lib/advantage.report.ts";
 import { explorerTx, explorerAddress } from "../lib/altana.ts";
+import { loginMessage, signable } from "../lib/scan.auth.ts";
 
 function agent(over: Partial<ScanAgent> = {}): ScanAgent {
   return {
@@ -1651,4 +1657,271 @@ assert.equal(readOasfRecord({ skills: [] }), null, "no name, no agent");
 assert.equal(readOasfRecord("Synergix"), null);
 assert.equal(readOasfRecord([{ name: "x" }]), null, "a list is not a record");
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit");
+/* ------------------------------------------------- signing in ---
+ *
+ * The admin key signs the text 8004scan sends back from `/auth/nonce`. The
+ * builder is held to the shape read off the live server on 29 Aug 2026, and
+ * the guard in front of the key must refuse anything that is not exactly
+ * that shape naming this wallet and this nonce — a server that could get
+ * arbitrary text signed would hold a signing oracle for the wallet.
+ */
+
+const liveNonce = "fbc413ee57752ba5c5155e8d0d2a30bd";
+const liveGreeting =
+  "Welcome to 8004scan!\n\nSign this message to authenticate your wallet.\n\n" +
+  "Wallet: 0xc7f5cdc8dd028e0b9af2ca9d3891f135b23f4b92\nNonce: fbc413ee57752ba5c5155e8d0d2a30bd\n" +
+  "Timestamp: 2026-08-29T01:07:35.844264+00:00\n\n" +
+  "This signature will not trigger any blockchain transaction or cost any gas fees.";
+const kawalWallet = "0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92";
+
+assert.equal(loginMessage(kawalWallet, liveNonce, "2026-08-29T01:07:35.844264+00:00"), liveGreeting, "the builder reproduces the live greeting byte for byte");
+assert.equal(signable(liveGreeting, kawalWallet, liveNonce), true, "so the live greeting is signable for this wallet and nonce");
+assert.equal(signable(liveGreeting, kawalWallet, "0000000000000000"), false, "not for a nonce we did not ask for");
+assert.equal(signable(liveGreeting, "0x0000000000000000000000000000000000000001", liveNonce), false, "not for another wallet");
+assert.equal(signable(liveGreeting + "\nApprove: everything", kawalWallet, liveNonce), false, "not with a line appended");
+assert.equal(signable(liveGreeting.replace("Welcome to 8004scan!", "Welcome to 8004scan"), kawalWallet, liveNonce), false, "not with a character changed");
+assert.equal(signable("", kawalWallet, liveNonce), false, "and never nothing");
+assert.equal(signable("Timestamp: now", kawalWallet, liveNonce), false, "a timestamp line alone is not the greeting");
+
+/* ------------------------------------------------- self-rating ---
+ *
+ * An address that is the agent — its wallet, its owner, or the address that
+ * minted it — writing feedback about the agent is the agent grading itself.
+ * Counted and named; never subtracted, so the reader sees it was done.
+ */
+
+const insiders = { agent_wallet: "0xWaLLeT", owner_address: "0xOwner", creator_address: "0xMinter" };
+const selfGraded = summarise(
+  [fb({ user_address: "0xwallet" }), fb({ user_address: "0xOWNER" }), fb({ user_address: "0xminter" }), fb({ user_address: "0xBBB" })],
+  4,
+  "t",
+  insiders,
+);
+assert.equal(selfGraded.selfRated, 3, "wallet, owner and minter each count, whatever the case");
+assert.deepEqual([...selfGraded.selfRaters].sort(), ["0xminter", "0xowner", "0xwallet"], "and are named, lowercased");
+assert.equal(selfGraded.raters, 4, "they are still distinct writers for the concentration figure");
+assert.equal(summarise([fb({ user_address: "0xBBB" })], 1, "t", insiders).selfRated, 0, "a stranger is not self-rating");
+assert.equal(summarise([fb({ user_address: "0xBBB" })], 1, "t").selfRated, 0, "and without a registration to compare against, nothing is");
+assert.deepEqual(summarise([fb()], 1, "t").selfRaters, [], "the list is present and empty rather than absent");
+assert.equal(summarise([fb({ user_address: null })], 1, "t", { owner_address: "" }).selfRated, 0, "an empty owner matches no anonymous row");
+const sameAddressThrice = summarise([fb({ user_address: "0xowner" }), fb({ user_address: "0xowner" })], 2, "t", { owner_address: "0xowner", agent_wallet: "0xowner" });
+assert.equal(sameAddressThrice.selfRated, 2, "two records from the owner are two self-ratings");
+assert.deepEqual(sameAddressThrice.selfRaters, ["0xowner"], "from one address, listed once");
+
+/* ------------------------------------------------- evidence on IPFS ---
+ *
+ * A pinned record names a CID instead of carrying the bytes, and the hash
+ * must not move: it is over the payload, and a reader reproduces it from
+ * what the CID resolves to. That only works if the payload survives a parse
+ * and a re-serialisation unchanged, which is asserted rather than assumed.
+ */
+
+const cid = "ipfs://QmbbRw6NJTBsujBPsx7hLAvfmjoT3km165SCjaYEoX5E4X";
+const pinnedRecord = buildFeedback(measured, stamped, cid);
+assert.equal(pinnedRecord.uri, cid, "the URI names the pin");
+assert.equal(pinnedRecord.payload, built.payload, "the payload is the same bytes");
+assert.equal(pinnedRecord.hash, built.hash, "so the hash is the same hash");
+assert.ok(pinnedRecord.data.length < built.data.length, "and the calldata is shorter for it");
+const [, , , , , , pinnedUri, pinnedHash] = decodeFunctionData({ abi: FEEDBACK_ABI, data: pinnedRecord.data }).args;
+assert.equal(pinnedUri, cid, "the calldata carries the ipfs:// URI");
+assert.equal(pinnedHash, built.hash, "beside the unchanged hash");
+assert.equal(JSON.stringify(JSON.parse(built.payload)), built.payload, "the payload is canonical: parse and re-serialise gives the same bytes");
+assert.equal(keccak256(toHex(JSON.stringify(JSON.parse(built.payload)))), built.hash, "which is what lets a verifier rebuild the hash from a fetched CID");
+assert.equal(buildResponseTime(measured, stamped, cid)?.uri, cid, "the responseTime record takes a pin the same way");
+assert.equal(buildResponseTime(measured, stamped, cid)?.hash, buildResponseTime(measured, stamped)?.hash, "at the same hash");
+
+/* ------------------------------------------------------ signed cards ---
+ *
+ * RFC 8785 first, because a canonicaliser that is nearly right signs bytes
+ * nobody else can reproduce. The two examples are the RFC's own (§3.2.3 for
+ * key order, Appendix B for numbers and strings), then Kawal's signer and
+ * verifier are run against each other and against WebCrypto's P-256.
+ */
+
+assert.equal(
+  canonicalize({
+    "\u20ac": "Euro Sign",
+    "\r": "Carriage Return",
+    "\ufb33": "Hebrew Letter Dalet With Dagesh",
+    "1": "One",
+    "\ud83d\ude00": "Emoji: Grinning Face",
+    "\u0080": "Control",
+    "\u00f6": "Latin Small Letter O With Diaeresis",
+  }),
+  '{"\\r":"Carriage Return","1":"One","\u0080":"Control","\u00f6":"Latin Small Letter O With Diaeresis","\u20ac":"Euro Sign","\ud83d\ude00":"Emoji: Grinning Face","\ufb33":"Hebrew Letter Dalet With Dagesh"}',
+  "RFC 8785 §3.2.3: keys sort by UTF-16 code unit, so the emoji lands before the Hebrew letter",
+);
+assert.equal(
+  canonicalize({
+    numbers: [333333333.33333329, 1e30, 4.5, 0.002, 1e-27],
+    string: "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/",
+    literals: [null, true, false],
+  }),
+  '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"\u20ac$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}',
+  "RFC 8785 Appendix B: ES number and string serialisation",
+);
+assert.equal(canonicalize({ b: undefined, a: [undefined, -0] }), '{"a":[null,0]}', "undefined drops as a member and reads as null in an array; -0 is 0");
+assert.throws(() => canonicalize({ n: Number.NaN }), TypeError, "JSON cannot carry NaN, so neither can JCS");
+assert.throws(() => canonicalize({ f: () => 1 }), TypeError);
+assert.equal(new TextDecoder().decode(fromB64url(b64url(utf8("Kawal · 検査")))), "Kawal · 検査", "base64url round-trips UTF-8 without padding");
+assert.throws(() => fromB64url("not+base64/url="), TypeError, "standard base64 is refused, not silently accepted");
+
+{
+  const key = generatePrivateKey();
+  const card = agentCard("https://kawal.test");
+  const signed = await signAgentCard(card, key);
+  const sigs = signed.signatures as Array<{ protected: string; signature: string }>;
+  assert.equal(sigs.length, 1);
+  const header = JSON.parse(new TextDecoder().decode(fromB64url(sigs[0]!.protected))) as { alg: string; jwk: { kty: string; crv: string; x: string; y: string } };
+  assert.equal(header.alg, "ES256K");
+  assert.deepEqual([header.jwk.kty, header.jwk.crv], ["EC", "secp256k1"]);
+  const pub = privateKeyToAccount(key).publicKey;
+  assert.equal(`0x04${toHex(fromB64url(header.jwk.x)).slice(2)}${toHex(fromB64url(header.jwk.y)).slice(2)}`, pub, "the JWK is the signing key's own point");
+  assert.equal(fromB64url(sigs[0]!.signature).length, 64, "raw r||s, no recovery byte, no DER");
+  assert.equal(readAgentCard(signed)?.name, "Kawal", "a signed card still reads as a card");
+
+  assert.equal(await verifyCardSignature(signed), "valid");
+  assert.equal(await verifyCardSignature({ ...signed, name: "Not Kawal" }), "invalid", "one changed byte of the card and the signature no longer covers it");
+  // Flip a byte of the signature itself, not a character of its encoding.
+  // 64 bytes encode to 86 base64url characters, and the last of those carries
+  // four bits the decoder throws away — so editing that character left the
+  // same 64 bytes about half the time, and this assertion failed at random
+  // depending on the key the run generated.
+  const tampered = Uint8Array.from(fromB64url(sigs[0]!.signature));
+  tampered[0] = tampered[0]! ^ 0xff;
+  assert.notEqual(b64url(tampered), sigs[0]!.signature, "the tamper must actually change the signature");
+  assert.equal(await verifyCardSignature({ ...signed, signatures: [{ ...sigs[0], signature: b64url(tampered) }] }), "invalid", "a changed signature is invalid, not unsupported");
+  assert.equal(await verifyCardSignature(card), "unsigned");
+  assert.equal(await verifyCardSignature({ ...card, signatures: [] }), "unsigned", "an empty list is no signature");
+  assert.equal(
+    await verifyCardSignature({ ...signed, signatures: [{ protected: b64url(utf8(JSON.stringify({ alg: "RS256" }))), signature: sigs[0]!.signature }] }),
+    "unsupported",
+    "an algorithm Kawal cannot check is reported as unchecked, not as wrong",
+  );
+  assert.equal(
+    await verifyCardSignature({ ...signed, signatures: [{ protected: b64url(utf8(JSON.stringify({ alg: "ES256K", kid: "somewhere-else" }))), signature: sigs[0]!.signature }] }),
+    "unsupported",
+    "a supported algorithm with no key in the card cannot be checked here",
+  );
+  assert.equal(await verifyCardSignature({ ...signed, signatures: [{ protected: "%%%", signature: sigs[0]!.signature }] }), "invalid", "a header that is not base64url is a broken signature");
+  assert.equal(
+    await verifyCardSignature({ ...signed, signatures: [{ protected: b64url(utf8(JSON.stringify({ alg: "RS256" }))), signature: "x" }, sigs[0]] }),
+    "valid",
+    "one valid signature among unsupported ones makes the card valid",
+  );
+  // A key whose JWK travels in the unprotected header, as RFC 7515 allows.
+  const bare = JSON.parse(new TextDecoder().decode(fromB64url(sigs[0]!.protected))) as Record<string, unknown>;
+  const reProtected = b64url(utf8(JSON.stringify({ alg: bare.alg })));
+  const reSigned = await sign({ hash: sha256(utf8(`${reProtected}.${cardPayload(card)}`)), privateKey: key, to: "bytes" });
+  assert.equal(
+    await verifyCardSignature({ ...card, signatures: [{ protected: reProtected, header: { jwk: bare.jwk }, signature: b64url(reSigned.slice(0, 64)) }] }),
+    "valid",
+    "the key may travel in the unprotected header",
+  );
+
+  // ES256 through WebCrypto, which is what a non-EVM agent would sign with.
+  const p256 = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const jwk = await crypto.subtle.exportKey("jwk", p256.publicKey);
+  const prot = b64url(utf8(JSON.stringify({ alg: "ES256", jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y } })));
+  const input = utf8(`${prot}.${cardPayload(card)}`);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, p256.privateKey, input));
+  assert.equal(raw.length, 64);
+  const es256 = { ...card, signatures: [{ protected: prot, signature: b64url(raw) }] };
+  assert.equal(await verifyCardSignature(es256), "valid", "ES256 over P-256 verifies through WebCrypto");
+  assert.equal(await verifyCardSignature({ ...es256, version: "0.0.0" }), "invalid");
+}
+
+/* ------------------------------------------------- the ERC-8183 market ---
+ *
+ * The walk itself needs a chain; the counting does not, and it is the
+ * counting a page prints.
+ */
+
+{
+  const job = (id: number, status: number, provider: string, budget: bigint): MarketJob => ({
+    id: BigInt(id),
+    client: "0x48cE74cdC366E8347f17F7187FBf2Ab9240692E9",
+    provider: provider as `0x${string}`,
+    evaluator: "0x51895229E12F9876011789B04f8698af06cCD6DA",
+    description: "x",
+    budget,
+    expiredAt: 0n,
+    status,
+    statusName: JOB_STATUS[status] ?? "UNKNOWN",
+    hook: "0x51895229E12F9876011789B04f8698af06cCD6DA",
+    submittedAt: 0n,
+    deliverable: `0x${"0".repeat(64)}`,
+  });
+  const recent = {
+    chainId: BSC_MAINNET,
+    nextJobId: 56666n,
+    readAt: "2026-08-29T00:00:00.000Z",
+    jobs: [
+      job(56665, 1, "0x4E21F74143660ee576F4D2aC26BD30729a849f55", 10n ** 17n),
+      job(56664, 1, "0x4e21f74143660ee576f4d2ac26bd30729a849f55", 10n ** 17n),
+      job(56663, 3, "0xa891E1743C5c8F00B7e216bC026C37914ddCD9c3", 5n * 10n ** 16n),
+      job(56662, 9, "0xBBfD4c1e74bBC25047C9E6dFB9136f5a7055d1Cc", 0n),
+    ],
+  };
+  const m = summariseMarket(recent);
+  assert.deepEqual(m.byStatus, { OPEN: 0, FUNDED: 2, SUBMITTED: 0, COMPLETED: 1, REJECTED: 0, EXPIRED: 0 }, "every status is present, counted from the enum the kernel locks");
+  assert.equal(m.budgetRaw, 25n * 10n ** 16n);
+  assert.equal(m.providers, 3, "the same seller in two checksums is one seller");
+  assert.equal(m.nextJobId, 56666n);
+  assert.equal(recent.jobs[3]!.statusName, "UNKNOWN", "a status the enum does not name is not counted as one it does");
+  assert.equal(formatU(25n * 10n ** 16n), "0.25 $U");
+}
+
+/* -------------------------------------------------------- venue rates --- */
+
+assert.equal(Math.round(blocksPerDayBetween(10_000n, 4_501)), 191_957, "the cadence measured on 2026-08-29: 10,000 blocks in 4,501 s");
+assert.equal(Math.round(blocksPerDayBetween(10_000n, 30_000)), 28_800, "three-second blocks, the cadence BSC launched with");
+assert.throws(() => blocksPerDayBetween(10_000n, 0), RangeError);
+// Venus vUSDT on 2026-08-29: 375484814 per block at 191,957 blocks/day is 2.63% a year.
+assert.equal(annualise(375_484_814n, 191_957).toFixed(4), "0.0263");
+assert.equal(annualise(0n, 191_957), 0);
+assert.equal(fromRay(23_671_138_640_458_510_106_023_766n).toFixed(4), "0.0237", "Aave's ray rate is already annual");
+assert.equal(pct(0.026308), "2.63%");
+assert.equal(pct(0), "0.00%");
+
+/* ------------------------------------------------------------ v5 parts --- */
+{
+  // 8004scan's live shape for 56:43129 on 2026-08-30: weights as fractions of
+  // one, and `weighted_score` = score × weight, so the five land on a 0-100
+  // scale. The page prints the share out of 100, which is what its caption
+  // promises and what a part scored out of 100 can be read against.
+  const dim = (score: number, weight: number) => ({ score, weight, weighted_score: score * weight, explanation: "", details: {} });
+  const v5 = {
+    agent_id: "9135dc06",
+    agent_name: "Venus powered by HeyAnon",
+    total_score: 30.47,
+    last_scored_at: "2026-08-30T09:54:21.587882Z",
+    version: "5.2",
+    algorithm: "v5_leaderboard_policy",
+    engagement: dim(6.39, 0.3),
+    service: dim(90, 0.25),
+    publisher: dim(43.48, 0.2),
+    compliance: dim(80, 0.15),
+    momentum: dim(5.02, 0.1),
+    weights: {},
+  };
+  const rows = v5Rows(v5);
+  assert.deepEqual(rows.map((r) => r.key), ["engagement", "service", "publisher", "compliance", "momentum"], "the registry's order, not the object's");
+  assert.deepEqual(rows.map((r) => r.weightPct), [30, 25, 20, 15, 10]);
+  assert.equal(rows.reduce((s, r) => s + r.weightPct, 0), 100, "the caption says the weights sum to 100, so they must");
+  // The registry's headline is not the sum of the registry's own parts —
+  // 30.47 against 45.62 here, 30.45 against 44.87 for 45381, both read on
+  // 2026-08-30. The agent sheet prints both and says they disagree, so this
+  // records the discrepancy rather than papering over it.
+  assert.equal(rows.reduce((s, r) => s + r.dimension.weighted_score, 0).toFixed(2), "45.62");
+  assert.notEqual(rows.reduce((s, r) => s + r.dimension.weighted_score, 0).toFixed(2), v5.total_score.toFixed(2));
+  assert.equal(weakestV5(v5)?.key, "momentum", "weakest on the 0-100 scale, not the weighted one");
+  assert.equal(weakestV5(v5)?.weightPct, 10);
+  // A dimension the registry left null is not drawn, and an unscored agent
+  // has no rows at all rather than five zeroes.
+  assert.equal(v5Rows({ ...v5, service: null }).length, 4);
+  assert.deepEqual(v5Rows(null), []);
+  assert.equal(weakestV5(null), null);
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts");

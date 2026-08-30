@@ -5,6 +5,9 @@
  *      npm run hire -- --provider 0x… --task "…" --budget 1 --send    funds the job through the Altana relay
  *      npm run hire -- --provider 0x… --task "…" --budget 1 --seat "Allocator"   sign with a seat's session key instead
  *      npm run hire -- --job 56665                                   read one job back from the kernel
+ *      npm run hire -- --job 56665 --settle approve --send           release the escrow (after the dispute window)
+ *      npm run hire -- --job 56665 --settle dispute --send           contest it (inside the window)
+ *      npm run hire -- --job 56665 --refund --send                   take the escrow back after `expiredAt`, nothing delivered
  *
  * `--budget` is in $U. The dry run is the whole buyer flow executed against
  * the live kernel by `eth_simulateV1` from the wallet that would send it:
@@ -21,18 +24,19 @@ import { adminKey, hasAdminKey, readLedger, isLive, KEY_FILE } from "../lib/vaul
 import { explorerAddress, explorerTx } from "../lib/altana.ts";
 import { BSC_MAINNET } from "../lib/chains.ts";
 import { publicClientFor } from "../lib/rpc.ts";
-import { hireQuote, hireAgent, jobStatus, formatU, U_DECIMALS } from "../lib/erc8183.ts";
+import { hireQuote, hireAgent, jobStatus, settleJob, claimRefund, formatU, U_DECIMALS } from "../lib/erc8183.ts";
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
   return i > -1 ? process.argv[i + 1] : undefined;
 };
 const SEND = process.argv.includes("--send");
+const REFUND = process.argv.includes("--refund");
 const CHAIN = BSC_MAINNET;
 
 console.log(`Kawal → ERC-8183 AgenticCommerce, BSC mainnet`);
 
-// --- read a job -------------------------------------------------------------
+// --- read, settle or refund a job -------------------------------------------
 
 const jobArg = arg("--job");
 if (jobArg !== undefined) {
@@ -40,7 +44,8 @@ if (jobArg !== undefined) {
     console.error(`--job takes a job id; got ${JSON.stringify(jobArg)}\n`);
     process.exit(1);
   }
-  const job = await jobStatus(BigInt(jobArg), CHAIN);
+  const jobId = BigInt(jobArg);
+  const job = await jobStatus(jobId, CHAIN);
   console.log(`\njob          ${job.id}  ${job.statusName}`);
   console.log(`client       ${job.client}`);
   console.log(`provider     ${job.provider}`);
@@ -49,6 +54,30 @@ if (jobArg !== undefined) {
   console.log(`task         ${job.description.slice(0, 120)}${job.description.length > 120 ? "…" : ""}`);
   console.log(`submitted    ${job.submittedAt > 0n ? new Date(Number(job.submittedAt) * 1000).toISOString() : "not yet"}`);
   console.log(`deliverable  ${job.deliverableUrl ?? (job.submittedAt > 0n ? "(submitted; URL not found in the policy's logs)" : "none")}\n`);
+
+  const settle = arg("--settle");
+  if (settle !== undefined && settle !== "approve" && settle !== "dispute") {
+    console.error(`--settle takes "approve" or "dispute"; got ${JSON.stringify(settle)}\n`);
+    process.exit(1);
+  }
+  if (settle === undefined && !REFUND) process.exit(0);
+
+  // Both are writes from the wallet that funded the job, so the same guard as
+  // a hire: the intent is printed without --send, and only the buyer can send.
+  const verb = REFUND ? "claimRefund" : `settle(${settle})`;
+  if (!SEND) {
+    console.log(`Dry run. Add -- --send to call ${verb} on job ${jobId} from the admin wallet.\n`);
+    process.exit(0);
+  }
+  if (!hasAdminKey()) {
+    console.error(`\nNo admin key. Put one in ${KEY_FILE} or set KAWAL_ADMIN_KEY.\n`);
+    process.exit(1);
+  }
+  const outcome = REFUND ? await claimRefund({ jobId, chainId: CHAIN }) : await settleJob({ jobId, action: settle, chainId: CHAIN });
+  console.log(`${outcome.status}  ${verb}  calls ${outcome.callsId}`);
+  if (outcome.transactionHash) console.log(`  ${explorerTx(CHAIN, outcome.transactionHash)}`);
+  const after = await jobStatus(jobId, CHAIN);
+  console.log(`the kernel now reads job ${after.id} as ${after.statusName}\n`);
   process.exit(0);
 }
 

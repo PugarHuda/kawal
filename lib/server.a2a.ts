@@ -22,11 +22,37 @@
  * it rather than pretending to one.
  */
 
+import { hexToBytes, sha256, type Hex } from "viem";
+import { privateKeyToAccount, sign } from "viem/accounts";
 import { TOOLS, SERVER_VERSION } from "./server.mcp.ts";
+import { b64url, cardPayload, utf8 } from "./a2a.ts";
 
 export const A2A_PROTOCOL_VERSION = "0.3.0";
 
 type Json = Record<string, unknown>;
+
+/**
+ * Signs a card as A2A 0.3 `signatures` has it: one detached JWS, ES256K,
+ * the signing key's JWK in the protected header so a reader needs nothing
+ * but the card to check it. The account is the admin key — the one that
+ * owns the mandate wallet — so whoever verifies this card learns which
+ * on-chain identity stands behind it, not just that some key does.
+ *
+ * Raw r||s, low-s (viem signs that way), over SHA-256 of
+ * `BASE64URL(protected) || '.' || BASE64URL(JCS(card))`, per RFC 7515 with
+ * RFC 8812's ES256K. `lib/a2a.ts` verifies the same shape off every other
+ * agent's card, and the self-check runs the two against each other.
+ */
+export async function signAgentCard(card: Json, privateKey: Hex): Promise<Json> {
+  const pub = hexToBytes(privateKeyToAccount(privateKey).publicKey);
+  const jwk = { kty: "EC", crv: "secp256k1", x: b64url(pub.slice(1, 33)), y: b64url(pub.slice(33, 65)) };
+  const protectedHeader = b64url(utf8(JSON.stringify({ alg: "ES256K", jwk })));
+  const payload = cardPayload(card);
+  const signature = await sign({ hash: sha256(utf8(`${protectedHeader}.${payload}`)), privateKey, to: "bytes" });
+  const unsigned = { ...card };
+  delete unsigned.signatures;
+  return { ...unsigned, signatures: [{ protected: protectedHeader, signature: b64url(signature.slice(0, 64)) }] };
+}
 
 /* --------------------------------------------------- error codes ---
  * From the A2A specification. JSON-RPC's own live in -32700..-32600.

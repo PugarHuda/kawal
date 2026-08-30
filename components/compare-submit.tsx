@@ -33,7 +33,7 @@ export function CompareSubmit({ max }: { max: number }) {
 
   const enough = ticked >= 2;
   return (
-    <button type="submit" className="counterfoil counterfoil--quiet" disabled={!enough}>
+    <button ref={ref} type="submit" className="counterfoil counterfoil--quiet" disabled={!enough}>
       {enough
         ? `Compare the ${Math.min(ticked, max)} ticked${ticked > max ? ` (first ${max})` : ""} →`
         : ticked === 1

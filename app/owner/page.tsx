@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { listAgents, getAgent, type ScanAgent } from "@/lib/scan";
+import { listAgents, getAgent, getWalletMetrics, type ScanAgent, type WalletMetrics } from "@/lib/scan";
 import { proveAgent, type EndpointProof } from "@/lib/probe";
 import { uptimeFor, type Uptime } from "@/lib/uptime";
 import { ownerOfAgent } from "@/lib/feedback";
@@ -8,6 +8,7 @@ import { diagnose, failureLabel } from "@/lib/failure";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
 import { Stamp, Tally } from "@/components/listing";
+import { WalletStrip } from "@/components/wallet";
 
 /**
  * Form K-6: the other half of the market.
@@ -159,8 +160,15 @@ type OwnedRow = {
 async function Results({ address }: { address: string }) {
   let agents: ScanAgent[];
   let total: number;
+  let wallet: WalletMetrics | null;
   try {
-    ({ agents, total } = await listAgents({ chainId: BSC_MAINNET, ownerAddress: address, limit: MAX_AGENTS }));
+    // The wallet's own ledger rides along with the roster read: what 8004scan
+    // has booked against this address on-chain, which is the owner's side of
+    // the payment story the agent pages tell. Null when never indexed.
+    [{ agents, total }, wallet] = await Promise.all([
+      listAgents({ chainId: BSC_MAINNET, ownerAddress: address, limit: MAX_AGENTS }),
+      getWalletMetrics(address),
+    ]);
   } catch {
     // The same sentence the manifest prints. A registry outage is not this
     // owner's fault and must not read as "no agents".
@@ -174,7 +182,9 @@ async function Results({ address }: { address: string }) {
 
   if (agents.length === 0) {
     return (
-      <div className="flex flex-wrap items-start justify-between gap-4 border-t-[1.5px] border-rule px-5 py-6">
+      <>
+        {wallet && <WalletStrip wallet={wallet} />}
+        <div className="flex flex-wrap items-start justify-between gap-4 border-t-[1.5px] border-rule px-5 py-6">
         <div>
           <h2 className="heading text-[1.7rem]">No registrations under this address.</h2>
           <p className="typed mt-2 max-w-[60ch] text-[0.9rem] text-carbon-2">
@@ -186,7 +196,8 @@ async function Results({ address }: { address: string }) {
         <Stamp ink="stamp-grey" size="lg">
           <span lang="id">Kosong</span>
         </Stamp>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -212,6 +223,7 @@ async function Results({ address }: { address: string }) {
 
   return (
     <div className="border-t-[1.5px] border-rule">
+      {wallet && <WalletStrip wallet={wallet} />}
       <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
         <div>
           <span className="cap">

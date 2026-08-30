@@ -54,7 +54,7 @@ export async function GET() {
       const run = await lastSweep();
       // A fresh instance has no run yet; that is a fact, not a failure.
       if (!run) return "no scheduled sweep has run on this instance";
-      return `${run.answered} of ${run.probed} answered, ${run.verified} handed to 8004scan, at ${run.ranAt}`;
+      return `${run.answered} of ${run.probed} answered, ${run.verified} handed to 8004scan for re-verification, ${run.healthChecked ?? 0} health checks queued, at ${run.ranAt}`;
     }),
 
     timed("ledger", async () => {

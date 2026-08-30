@@ -27,7 +27,6 @@ import {
   ScoreHistorySchema,
   ScoreV5Schema,
   WalletMetricsSchema,
-  FeedbackReplySchema,
   VerificationRequestSchema,
   parseAgents,
   type ScanAgent,
@@ -37,7 +36,6 @@ import {
   type AgentQuality,
   type ScoreV5,
   type WalletMetrics,
-  type FeedbackReply,
 } from "./scan.schema.ts";
 
 /**
@@ -64,7 +62,6 @@ export {
   AgentQualitySchema,
   ScoreV5Schema,
   WalletMetricsSchema,
-  FeedbackReplySchema,
   parseAgents,
 } from "./scan.schema.ts";
 export type {
@@ -81,7 +78,6 @@ export type {
   ScoreV5,
   V5Dimension,
   WalletMetrics,
-  FeedbackReply,
   VerificationRequest,
 } from "./scan.schema.ts";
 
@@ -384,29 +380,6 @@ export async function getTrending(
   return { agents, total: typeof body.total === "number" ? body.total : agents.length, asOf };
 }
 
-export type LeaderboardSort =
-  | "total_score"
-  | "quality_score"
-  | "popularity_score"
-  | "activity_score"
-  | "validation_score"
-  | "wallet_score"
-  | "freshness_score";
-
-/** The registry's own ranking, by whichever score dimension is asked for. */
-export async function getLeaderboard(
-  opts: { chainId?: number; limit?: number; sortBy?: LeaderboardSort; period?: "7d" | "30d" | "90d" | "all" } = {},
-) {
-  const { body, asOf } = await apiGet<Paged>("/agents/leaderboard", {
-    chain_id: opts.chainId ?? BSC_MAINNET,
-    limit: opts.limit ?? 20,
-    sort_by: opts.sortBy ?? "total_score",
-    period: opts.period ?? "all",
-  });
-  const { agents } = parseAgents(body.items);
-  return { agents, total: typeof body.total === "number" ? body.total : agents.length, asOf };
-}
-
 /**
  * On-chain facts about the wallet behind a registration: age, transaction
  * count, x402 revenue, whether it is a contract. Null when 8004scan has never
@@ -423,20 +396,19 @@ export async function getWalletMetrics(address: string): Promise<WalletMetrics |
 }
 
 /**
- * The owner's on-chain replies to one feedback record — ERC-8004
- * `appendResponse`. `feedbackId` is the composite the API uses:
- * `{chain}:{token}:{clientAddress}:{index}`.
+ * Reads a JSON document back off IPFS through 8004scan's gateway fan-out.
+ *
+ * No login needed. Content-addressed, so it is held for an hour: the bytes
+ * behind a CID cannot change, only fail to be found. Null when no gateway
+ * had it or it was not JSON — a record whose evidence is unreachable is a
+ * finding for `--verify`, not an exception.
  */
-export async function getFeedbackReplies(feedbackId: string): Promise<FeedbackReply[]> {
+export async function fetchEvidence(cid: string): Promise<unknown | null> {
   try {
-    const { body } = await apiGet<Paged>(`/feedbacks/${feedbackId}/replies`, { limit: 100 });
-    if (!Array.isArray(body.items)) return [];
-    return body.items
-      .map((r) => FeedbackReplySchema.safeParse(r))
-      .filter((r) => r.success)
-      .map((r) => r.data);
+    const { body } = await apiGet<{ cid?: string; content?: unknown }>("/ipfs/fetch", { cid }, 3600);
+    return body.content ?? null;
   } catch {
-    return [];
+    return null;
   }
 }
 

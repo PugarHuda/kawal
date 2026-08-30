@@ -92,7 +92,10 @@ export const FEEDBACK_ABI = parseAbi([
   "function getLastIndex(uint256 agentId, address clientAddress) view returns (uint64)",
 ]);
 
-const IDENTITY_ABI = parseAbi(["function ownerOf(uint256 tokenId) view returns (address)"]);
+const IDENTITY_ABI = parseAbi([
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function getAgentWallet(uint256 agentId) view returns (address)",
+]);
 
 /**
  * Two decimals, so 100.00% is 10000.
@@ -146,7 +149,10 @@ export type Measurement = {
 export type FeedbackRecord = {
   /** The JSON that is hashed and carried, as a string. */
   payload: string;
-  /** `data:application/json;base64,…`, the field the registry stores. */
+  /**
+   * The field the registry stores: `data:application/json;base64,…` carrying
+   * the payload itself, or `ipfs://{cid}` once the payload has been pinned.
+   */
   uri: string;
   /** keccak256 of the payload bytes — not of the URI. Verified against a live record. */
   hash: Hex;
@@ -208,6 +214,7 @@ function encode(
   m: Measurement,
   at: Date,
   spec: { tag1: string; value: bigint; valueDecimals: number; reasoning: string; percent: number },
+  evidenceUri?: string,
 ): FeedbackRecord {
   const registry = agentRegistryFor(m.chainId);
   const days = windowDays(m.since, Math.floor(at.getTime() / 1000));
@@ -237,8 +244,13 @@ function encode(
     },
   });
 
+  // The hash is over the payload whichever way it travels. A data: URI
+  // carries the bytes themselves; an ipfs:// URI names a pin whose bytes are
+  // the gateway's serialisation of the same object, so a reader reproduces
+  // this hash by JSON.stringify-ing what the CID resolves to. That only holds
+  // because the payload is already compact JSON with no whitespace to lose.
   const hash = keccak256(toHex(payload));
-  const uri = `data:application/json;base64,${Buffer.from(payload, "utf8").toString("base64")}`;
+  const uri = evidenceUri ?? `data:application/json;base64,${Buffer.from(payload, "utf8").toString("base64")}`;
 
   const data = encodeFunctionData({
     abi: FEEDBACK_ABI,
@@ -268,8 +280,13 @@ function encode(
  * explorer. `scripts/check.ts` asserts the hash rule against the same shape a
  * live GEBO record used. The eleven records already on BSC mainnet were
  * written by exactly this shape, and it is not to change under them.
+ *
+ * `evidenceUri`, when given, replaces the data: URI with wherever the same
+ * payload has been pinned — `ipfs://{cid}` from `uploadEvidence`. Nothing
+ * else moves: the payload, and so the hash, are identical either way, which
+ * is what lets the publisher pin at send time and keep the dry run's bytes.
  */
-export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
+export function buildFeedback(m: Measurement, at: Date, evidenceUri?: string): FeedbackRecord {
   guard(m);
   const percent = uptimePercent(m);
   const days = windowDays(m.since, Math.floor(at.getTime() / 1000));
@@ -287,7 +304,7 @@ export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
     reasoning:
       `Measured by Kawal from ${m.checks} probe(s) over ${days} day(s): ${percent.toFixed(VALUE_DECIMALS)}%. ` +
       `A probe counts as answered only when ${counted}; an HTTP 200 alone is not counted.`,
-  });
+  }, evidenceUri);
 }
 
 /**
@@ -300,7 +317,7 @@ export function buildFeedback(m: Measurement, at: Date): FeedbackRecord {
  * protocol-level answers it is the same figure as `uptime`, and one number
  * under two tags is two rows of gas for no information.
  */
-export function buildResponseTime(m: Measurement, at: Date): FeedbackRecord | null {
+export function buildResponseTime(m: Measurement, at: Date, evidenceUri?: string): FeedbackRecord | null {
   guard(m);
   if (m.medianMs === null || m.answered === 0) return null;
   const days = windowDays(m.since, Math.floor(at.getTime() / 1000));
@@ -313,7 +330,7 @@ export function buildResponseTime(m: Measurement, at: Date): FeedbackRecord | nu
     reasoning:
       `Median round trip of ${ms} ms across the ${m.answered} probe(s) that answered, of ${m.checks} over ${days} day(s), ` +
       `measured by Kawal from one region. The median is chosen over the mean so one slow tail does not become the number.`,
-  });
+  }, evidenceUri);
 }
 
 /* ------------------------------------------------------------ reads ---
@@ -413,6 +430,34 @@ export async function ownerOfAgent(chainId: number, tokenId: string | bigint): P
       functionName: "ownerOf",
       args: [BigInt(tokenId)],
     });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the agent is paid, as the Identity Registry holds it.
+ *
+ * EIP-8004 reserves the metadata key `agentWallet` for this: set to the
+ * owner at registration, changed only by `setAgentWallet` with a signature
+ * from the new wallet, cleared to zero when the token is transferred. Read
+ * through `getAgentWallet`, which the live BSC proxy answers — 43129 returns
+ * the same address 8004scan indexes as `agent_wallet`. Null when unset,
+ * cleared, non-existent, or on a chain with no registry: there is nothing
+ * to compare in any of those, and a zero address printed as a wallet is a
+ * comparison nobody can act on.
+ */
+export async function agentWalletOf(chainId: number, tokenId: string | bigint): Promise<Address | null> {
+  const registry = AGENT_REGISTRY[chainId];
+  if (!registry || !/^\d+$/.test(String(tokenId))) return null;
+  try {
+    const wallet = await publicClientFor(chainId).readContract({
+      address: registry,
+      abi: IDENTITY_ABI,
+      functionName: "getAgentWallet",
+      args: [BigInt(tokenId)],
+    });
+    return /^0x0{40}$/i.test(wallet) ? null : wallet;
   } catch {
     return null;
   }

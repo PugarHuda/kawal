@@ -17,12 +17,12 @@
  * nobody can turn the listing into an amplifier by reloading it.
  */
 
-import { getAgent } from "./scan.ts";
+import { getAgent, getTrending, type ScanAgentDetail, type TrendingPeriod } from "./scan.ts";
 import { proveAgent, type EndpointProof } from "./probe.ts";
 import { observedFor, uptimeFor, type Uptime } from "./uptime.ts";
 import { mapLimit } from "./concurrency.ts";
-import type { Observed } from "./signals.ts";
-import type { Listing } from "./catalog.ts";
+import type { Observed, Measured } from "./signals.ts";
+import { reassess, toListings, type Listing } from "./catalog.ts";
 
 const MAX_PROBES = 5;
 const CONCURRENCY = 3;
@@ -78,25 +78,75 @@ export async function probeListings(listings: Listing[]): Promise<Map<string, Li
 }
 
 /**
- * Probes a set of agents under the listing's bounds, for the owner page.
+ * The endpoint the prober would dial for a detail record, in the prober's own
+ * order — MCP, then A2A, then OASF — without dialling it.
  *
- * `/owner` fans out to every agent an address holds — as many as two dozen —
- * and each went out with the agent page's twenty-second default, so one slow
- * host could hold the page for the whole of it. Six seconds is the listing's
- * figure: an agent that has not completed a handshake in six seconds is not
- * one to grant a seat to today, and the history keeps the miss. Results keep
- * the input order; a detail that could not be proved is null, never a throw.
+ * Kawal's history is keyed by endpoint, so anything that wants to read the
+ * record for an agent it has not called has to resolve the same URL the
+ * probe would. Null when the registration declares nothing to call.
  */
-export async function probeAgents(
-  details: ReadonlyArray<Parameters<typeof proveAgent>[0]>,
-  opts: { timeoutMs?: number; concurrency?: number } = {},
-): Promise<Array<EndpointProof | null>> {
-  const timeoutMs = opts.timeoutMs ?? PROBE_TIMEOUT_MS;
-  return mapLimit(details, opts.concurrency ?? CONCURRENCY, async (detail) => {
+export function declaredEndpoint(agent: ScanAgentDetail): { endpoint: string; protocol: "mcp" | "a2a" | "oasf" } | null {
+  for (const protocol of ["mcp", "a2a", "oasf"] as const) {
+    const endpoint = agent.services?.[protocol]?.endpoint;
+    if (typeof endpoint === "string" && endpoint) return { endpoint, protocol };
+  }
+  return null;
+}
+
+/**
+ * What Kawal already knows about a listing, without a single new call.
+ *
+ * The listing probe above dials; this only reads. It exists for the surfaces
+ * that show the registry's own ranking — trending, a search an agent asked
+ * for — where the point is the contrast between the registry's opinion and
+ * Kawal's record, and where dialling everything shown would turn a cover
+ * sheet into an amplifier. Each row costs one cached detail read and one
+ * database read; a row Kawal has never called simply carries no record.
+ */
+export async function observeListings(listings: Listing[]): Promise<Map<string, Measured>> {
+  const seen = new Map<string, Measured>();
+  await mapLimit(listings, CONCURRENCY, async (l) => {
     try {
-      return await proveAgent(detail, { timeoutMs });
+      const detail = await getAgent(l.agent.chain_id, l.agent.token_id);
+      const declared = declaredEndpoint(detail);
+      if (!declared) return;
+      const [observed, uptime] = await Promise.all([observedFor(declared.endpoint), uptimeFor(declared.endpoint)]);
+      if (observed) seen.set(l.agent.agent_id, { observed, uptime });
     } catch {
-      return null;
+      // No detail, no record: the row keeps the registry's word alone.
     }
   });
+  return seen;
+}
+
+export type TrendingRow = { rank: number; listing: Listing; measured: Measured | undefined };
+
+/**
+ * 8004scan's trending list with Kawal's stamp beside each entry.
+ *
+ * The registry ranks by how many people looked (`view_count / (hours+2)^1.5`
+ * by its own description); Kawal's record says whether the thing they looked
+ * at ever answered. The two are kept side by side rather than merged: the
+ * order is the registry's, the stamp is Kawal's, and a trending agent that
+ * has never answered is exactly what the contrast exists to show.
+ *
+ * Throws when the registry does not answer; callers omit the section.
+ */
+export async function trendingListings(
+  period: TrendingPeriod,
+  limit: number,
+  chainId?: number,
+): Promise<{ rows: TrendingRow[]; asOf: string }> {
+  const { agents, asOf } = await getTrending(period, { limit, chainId });
+  const order = new Map(agents.map((a, i) => [a.agent_id, i]));
+  // `toListings` ranks by evidence; the registry's order is put back after,
+  // because on this surface its order is the datum.
+  const listings = toListings(agents).sort((a, b) => order.get(a.agent.agent_id)! - order.get(b.agent.agent_id)!);
+  const measured = await observeListings(listings);
+  return {
+    asOf,
+    rows: reassess(listings, measured)
+      .sort((a, b) => order.get(a.agent.agent_id)! - order.get(b.agent.agent_id)!)
+      .map((listing) => ({ rank: order.get(listing.agent.agent_id)! + 1, listing, measured: measured.get(listing.agent.agent_id) })),
+  };
 }

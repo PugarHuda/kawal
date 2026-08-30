@@ -4,6 +4,7 @@ import { CompareSubmit } from "@/components/compare-submit";
 import { browse } from "@/lib/catalog";
 import { mapLimit } from "@/lib/concurrency";
 import { loadColumn, parseRefs, MAX_COLUMNS, type Column } from "@/lib/compare";
+import { weakestV5 } from "@/lib/signals";
 
 /**
  * Form K-4: two or three agents, the same questions asked of each.
@@ -222,8 +223,30 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
                 }}
               </Row>
 
-              <Row label="Registry score" columns={columns}>
-                {(c) => <span>{c.agent.total_score.toFixed(2)}</span>}
+              {/* The registry's one number, with the part holding it down
+                  named: a 40 short on compliance and a 40 short on momentum
+                  are different agents to hire. */}
+              <Row label="Score v5" columns={columns}>
+                {(c) => {
+                  const weakest = weakestV5(c.scoreV5);
+                  if (!weakest) {
+                    return (
+                      <span>
+                        {c.agent.total_score.toFixed(2)}
+                        <span className="text-carbon-3"> · no v5 breakdown from 8004scan</span>
+                      </span>
+                    );
+                  }
+                  return (
+                    <span>
+                      {c.scoreV5!.total_score.toFixed(2)}
+                      <span className="text-carbon-3">
+                        {" "}
+                        · weakest {weakest.label.toLowerCase()} {weakest.dimension.score.toFixed(0)}/100 × {weakest.weightPct}
+                      </span>
+                    </span>
+                  );
+                }}
               </Row>
 
               <Row label="Flagged risks" columns={columns}>

@@ -150,10 +150,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 developer reading the footer should be one click from each. */}
             <span className="cap flex flex-wrap gap-x-3 gap-y-1">
               <span>Forms K-1 to K-7</span>
-              <a href="/api/mcp" className="underline">MCP at /api/mcp</a>
-              <a href="/.well-known/agent-card.json" className="underline">A2A card</a>
-              <a href="/.well-known/agent-registration.json" className="underline">ERC-8004 registration</a>
-              <a href="/api/health" className="underline">health</a>
+              <a href="/api/mcp" className="inline-block py-1.5 underline">MCP at /api/mcp</a>
+              <a href="/.well-known/agent-card.json" className="inline-block py-1.5 underline">A2A card</a>
+              <a href="/.well-known/agent-registration.json" className="inline-block py-1.5 underline">ERC-8004 registration</a>
+              <a href="/api/health" className="inline-block py-1.5 underline">health</a>
             </span>
           </div>
         </footer>

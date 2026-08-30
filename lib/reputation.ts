@@ -36,6 +36,8 @@
  */
 
 import { memo } from "./memo.ts";
+import { getAgent } from "./scan.ts";
+import { FeedbackReplySchema } from "./scan.schema.ts";
 
 const ORIGIN = process.env.SCAN_API_ORIGIN ?? "https://8004scan.io";
 
@@ -89,12 +91,35 @@ export type Reputation = {
    * with none tells you nothing either way, so this is shown, not scored.
    */
   replies: Array<{ feedbackId: string; by: string; at: string | null; uri: string | null }>;
+  /**
+   * Records written by the agent's own side: a rater whose address is the
+   * agent's wallet, its owner, or the address that minted it. A count that
+   * includes them is an agent grading itself. Shown, and named in the
+   * verdict, rather than subtracted: the reader should see it was done.
+   *
+   * Rarer than it sounds, and the reason is on-chain: simulated against the
+   * live BSC registry, `giveFeedback` from an agent's owner reverts with
+   * `Self-feedback not allowed`. What the contract cannot see is a wallet
+   * set apart from the owner with `setAgentWallet` — a hundred of the 445
+   * BSC agents with feedback have one — or the address that minted a token
+   * since transferred. Across all 11,730 BSC records and 66 writers on 29
+   * Aug 2026, none had done either; the count is zero everywhere today and
+   * this is the check that notices the first one.
+   */
+  selfRated: number;
+  /** Which of the insider addresses did it, lowercased. */
+  selfRaters: string[];
 };
 
-type FeedbackReplyRow = {
-  responder_address?: string | null;
-  responded_at?: string | null;
-  response_uri?: string | null;
+/**
+ * The addresses that are the agent, for the purpose of `selfRated`. The
+ * three 8004scan publishes on a registration; `agentWalletOf` in feedback.ts
+ * reads the first from the chain if the registry's copy is in doubt.
+ */
+export type Insiders = {
+  agent_wallet?: string | null;
+  owner_address?: string | null;
+  creator_address?: string | null;
 };
 
 type FeedbackRow = {
@@ -110,8 +135,12 @@ type FeedbackRow = {
   feedback_id?: string | null;
   submitted_at?: string | null;
   created_at?: string | null;
-  /** Present when `include_replies` was asked for: up to ten, embedded. */
-  replies?: { items?: FeedbackReplyRow[] | null } | null;
+  /**
+   * Present when `include_replies` was asked for: up to ten, embedded. The
+   * separate `/feedbacks/{id}/replies` endpoint exists for the eleventh
+   * onward, which nothing on BSC has, so it is not called.
+   */
+  replies?: { items?: unknown[] | null } | null;
 };
 
 /**
@@ -143,12 +172,19 @@ function hasValue(r: FeedbackRow): boolean {
  * or as one address talking to itself, which is worth checking against cases
  * chosen on purpose rather than against whatever the chain holds today.
  */
-export function summarise(rows: FeedbackRow[], total: number, checkedAt: string): Reputation {
+export function summarise(rows: FeedbackRow[], total: number, checkedAt: string, insiders: Insiders = {}): Reputation {
   const byRater = new Map<string, number>();
   let scored = 0;
   let valued = 0;
   let commented = 0;
   let revoked = 0;
+  let selfRated = 0;
+  const selfRaters = new Set<string>();
+  const own = new Set(
+    [insiders.agent_wallet, insiders.owner_address, insiders.creator_address]
+      .filter((a): a is string => typeof a === "string" && a !== "")
+      .map((a) => a.toLowerCase()),
+  );
 
   for (const r of rows) {
     if (typeof r.score === "number") scored++;
@@ -161,6 +197,10 @@ export function summarise(rows: FeedbackRow[], total: number, checkedAt: string)
     // concentration as diversity — the error that flatters.
     const who = (r.user_address ?? "").toLowerCase();
     if (who !== "") byRater.set(who, (byRater.get(who) ?? 0) + 1);
+    if (who !== "" && own.has(who)) {
+      selfRated++;
+      selfRaters.add(who);
+    }
   }
 
   let topRater: string | null = null;
@@ -186,12 +226,16 @@ export function summarise(rows: FeedbackRow[], total: number, checkedAt: string)
     if (typeof r.comment === "string" && r.comment.trim() !== "") {
       comments.push({ by: who, at, comment: r.comment.trim(), tag: r.tag1 ?? null });
     }
-    for (const reply of r.replies?.items ?? []) {
+    for (const raw of r.replies?.items ?? []) {
+      // The same shape scan.schema.ts checks everywhere else; a reply that
+      // cannot be read is dropped, not allowed to fail the record it hangs off.
+      const reply = FeedbackReplySchema.safeParse(raw);
+      if (!reply.success) continue;
       replies.push({
         feedbackId: r.feedback_id ?? "",
-        by: (reply.responder_address ?? "").toLowerCase(),
-        at: reply.responded_at ?? null,
-        uri: reply.response_uri ?? null,
+        by: reply.data.responder_address.toLowerCase(),
+        at: reply.data.responded_at || null,
+        uri: reply.data.response_uri,
       });
     }
   }
@@ -212,6 +256,8 @@ export function summarise(rows: FeedbackRow[], total: number, checkedAt: string)
     topRaterShare: rows.length === 0 ? 0 : topCount / rows.length,
     topRater,
     checkedAt,
+    selfRated,
+    selfRaters: [...selfRaters],
   };
 }
 
@@ -226,8 +272,15 @@ export function summarise(rows: FeedbackRow[], total: number, checkedAt: string)
  * Lives outside the `/public` namespace and answers unwrapped, so it does not
  * go through the `get()` helper in scan.ts — the same exception quality and
  * score history make.
+ *
+ * The rows do not say who the agent is — a feedback's embedded `agent` has a
+ * name and a token id, no addresses — so the registration is read for its
+ * wallet, owner and creator unless the caller already holds it. Fetched
+ * here rather than left to callers because a caller that forgets is a
+ * self-rated count silently reported as zero, and the page already has this
+ * document in Next's fetch cache.
  */
-export async function getReputation(chainId: number, tokenId: string): Promise<Reputation | null> {
+export async function getReputation(chainId: number, tokenId: string, agent?: Insiders): Promise<Reputation | null> {
   const url = new URL(`${ORIGIN}/api/v1/feedbacks`);
   url.searchParams.set("chain_id", String(chainId));
   url.searchParams.set("agent_token_id", tokenId);
@@ -250,7 +303,10 @@ export async function getReputation(chainId: number, tokenId: string): Promise<R
     const body = (await res.json()) as { items?: unknown; total?: unknown };
     const items = Array.isArray(body.items) ? (body.items as FeedbackRow[]) : [];
     const total = typeof body.total === "number" ? body.total : items.length;
-    return summarise(items, total, new Date().toISOString());
+    // A registration that cannot be read leaves the insiders empty: the
+    // count is then a floor, which is the honest direction to be wrong in.
+    const insiders = agent ?? (await getAgent(chainId, tokenId).catch((): Insiders => ({})));
+    return summarise(items, total, new Date().toISOString(), insiders);
   } catch {
     // A missing reputation read must not blank the agent page. The rest of the
     // evidence stands on its own.
@@ -277,8 +333,8 @@ export async function getReputation(chainId: number, tokenId: string): Promise<R
 const TTL_MS = 900_000;
 
 /** `getReputation`, shared across concurrent callers and reused while fresh. */
-export function getReputationCached(chainId: number, tokenId: string) {
-  return memo(`reputation:${chainId}:${tokenId}`, TTL_MS, () => getReputation(chainId, tokenId));
+export function getReputationCached(chainId: number, tokenId: string, agent?: Insiders) {
+  return memo(`reputation:${chainId}:${tokenId}`, TTL_MS, () => getReputation(chainId, tokenId, agent));
 }
 
 /**

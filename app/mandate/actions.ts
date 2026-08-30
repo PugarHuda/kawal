@@ -8,6 +8,8 @@ import { clientFor, grantMandate } from "@/lib/altana";
 import { USDT_BSC, MAX_PLANNER_CAPITAL, MAX_DURATION_DAYS, usdtToRaw } from "@/lib/mandate";
 import { BSC_MAINNET } from "@/lib/chains";
 import { assertOperator, unlock, lock } from "@/lib/operator";
+import { hireQuote, hireAgent, formatU, U_DECIMALS } from "@/lib/erc8183";
+import { isAddress, parseUnits, type Address } from "viem";
 
 /**
  * Takes a live session away.
@@ -96,15 +98,53 @@ export async function grantAction(formData: FormData) {
 }
 
 /**
+ * Hires the agent filling a seat, on ERC-8183, from the admin wallet.
+ *
+ * Same gate as `grantAction`, because it spends more: a funded job moves $U
+ * out of the wallet into the kernel's escrow. The page only offers the stub
+ * when the wallet already holds the budget, but a POST can skip the page, so
+ * the quote is taken again here and the batch is refused on any shortfall or
+ * any simulated revert — nothing is sent that would not land. The job then
+ * shows up in Bagian C on the next render, read back off the kernel rather
+ * than remembered from here.
+ */
+export async function hireAction(formData: FormData) {
+  await assertOperator();
+  requireAdminKey("hire");
+
+  const provider = formData.get("provider");
+  const task = formData.get("task");
+  const budget = formData.get("budget");
+  if (typeof provider !== "string" || !isAddress(provider)) throw new Error("provider must be an address");
+  if (typeof task !== "string" || task.trim() === "" || new TextEncoder().encode(task).length > 4096) {
+    throw new Error("task must be a non-empty description under 4096 bytes");
+  }
+  if (typeof budget !== "string" || !/^\d+(\.\d{1,18})?$/.test(budget) || Number(budget) <= 0 || Number(budget) > MAX_PLANNER_CAPITAL) {
+    throw new Error(`budget must be between 0 and ${MAX_PLANNER_CAPITAL.toLocaleString("en-US")} $U`);
+  }
+  const budgetRaw = parseUnits(budget, U_DECIMALS);
+
+  const q = await hireQuote({ provider: provider as Address, task, budgetRaw, chainId: BSC_MAINNET });
+  if (q.shortfallRaw > 0n) {
+    throw new Error(`the wallet is short ${formatU(q.shortfallRaw)} for this budget; nothing was sent`);
+  }
+  const revert = q.calls.find((c) => c.status !== "success");
+  if (revert) throw new Error(`${revert.name} would revert (${revert.error ?? "no reason given"}); nothing was sent`);
+
+  await hireAgent({ provider: provider as Address, task, budgetRaw, chainId: BSC_MAINNET });
+  revalidatePath("/mandate");
+}
+
+/**
  * An instance can hold the operator token and not the wallet key — a
  * read-only deployment, or one where the key was never installed. Without
  * this the button was offered, the operator unlocked, and the click threw an
  * uncaught MissingAdminKeyError straight into a 500.
  */
-function requireAdminKey(verb: "revoke" | "grant") {
+function requireAdminKey(verb: "revoke" | "grant" | "hire") {
   if (!hasAdminKey()) {
     throw new Error(
-      `This instance holds no admin key, so it cannot ${verb}. Sessions can only be ${verb === "grant" ? "granted" : "revoked"} where the wallet key lives.`,
+      `This instance holds no admin key, so it cannot ${verb}. This only happens where the wallet key lives.`,
     );
   }
 }

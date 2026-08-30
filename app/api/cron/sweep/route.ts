@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { CATEGORIES } from "@/lib/taxonomy";
 import { retrieveCategory, browse } from "@/lib/catalog";
 import { getAgent, verifyEndpoint, type Verification } from "@/lib/scan";
+import { requestHealthCheck, type HealthCheck } from "@/lib/scan.auth";
 import { proveAgent } from "@/lib/probe";
 import { recordSweep } from "@/lib/uptime";
 import { guardedFetch, readCapped } from "@/lib/ssrf";
@@ -32,6 +33,16 @@ import { BSC_MAINNET } from "@/lib/chains";
  * verification looks for, since asking otherwise burns the one request an
  * hour the registry allows on a check that cannot pass. The registry's 429
  * for an agent already asked about is an outcome to record, not an error.
+ *
+ * 8004scan is also asked to run its own health check on every agent that
+ * answered, signed in as Kawal's wallet. Two probers disagreeing about an
+ * endpoint is more informative than one, and the registry's check is the one
+ * its `health_score` is built from. The registry calls it owner-triggered
+ * and answers 403 for an agent this wallet does not own, so those are filed
+ * as `not-owner` without asking; 429 past the daily limit is recorded on
+ * the row and the sweep moves on, and an instance without the admin key
+ * records that it could not ask. Until `npm run register` mints Kawal's own
+ * registration, every row reads `not-owner` — which is the true state.
  *
  * Authenticated with the secret Vercel sends its cron requests with. Without
  * it this is a public button that makes Kawal dial the whole roster, and the
@@ -111,7 +122,15 @@ export async function GET(request: Request) {
   const batch = [...targets.slice(offset), ...targets.slice(0, offset)].slice(0, PER_RUN);
 
   const results = await mapLimit(batch, CONCURRENCY, async (t) => {
-    const row = { tokenId: t.tokenId, name: t.name, probed: false, answered: null as boolean | null, protocol: null as string | null, verified: null as Verified };
+    const row = {
+      tokenId: t.tokenId,
+      name: t.name,
+      probed: false,
+      answered: null as boolean | null,
+      protocol: null as string | null,
+      verified: null as Verified,
+      healthCheck: null as HealthCheck | null,
+    };
     try {
       const detail = await getAgent(t.chainId, t.tokenId);
       const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
@@ -120,9 +139,17 @@ export async function GET(request: Request) {
       row.answered = proof.answered;
       row.protocol = proof.protocol;
       if (proof.answered) {
-        row.verified = (await servesRegistrationDoc(proof.endpoint))
-          ? outcome(await verifyEndpoint(t.chainId, t.tokenId).catch((): Verification => ({ queued: false, reason: "refused", status: 0 })))
-          : "no-registration-doc";
+        // Two independent asks of the registry; neither waits on the other.
+        [row.verified, row.healthCheck] = await Promise.all([
+          servesRegistrationDoc(proof.endpoint).then((serves) =>
+            serves
+              ? verifyEndpoint(t.chainId, t.tokenId)
+                  .catch((): Verification => ({ queued: false, reason: "refused", status: 0 }))
+                  .then(outcome)
+              : ("no-registration-doc" as const),
+          ),
+          requestHealthCheck(t.chainId, t.tokenId, detail.owner_address),
+        ]);
       }
       return row;
     } catch {
@@ -135,6 +162,7 @@ export async function GET(request: Request) {
     ranAt: new Date(started).toISOString(),
     probed: probed.length,
     answered: probed.filter((r) => r.answered === true).length,
+    healthChecked: results.filter((r) => r.healthCheck === "queued").length,
     verified: results.filter((r) => r.verified === "queued").length,
   };
   await recordSweep(run);

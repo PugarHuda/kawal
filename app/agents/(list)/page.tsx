@@ -5,6 +5,7 @@ import { categoryById, CATEGORIES } from "@/lib/taxonomy";
 import { ListingRow, seatColor, Stamp, Legend } from "@/components/listing";
 import { CompareSubmit } from "@/components/compare-submit";
 import { BlankRows } from "@/components/blank-rows";
+import { Trending } from "@/components/trending";
 import { probeListings } from "@/lib/liveness";
 import { MAX_COLUMNS } from "@/lib/compare";
 import type { Listing } from "@/lib/catalog";
@@ -165,20 +166,31 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
             category has to be supplied, not indexed.
           </p>
         ) : (
-          // The header is on the wire while the endpoints are being called.
-          // The rows wait for the calls rather than streaming around them:
-          // they are re-ranked by what answered, and rows that reorder under
-          // a reader are worse than rows that arrive a moment later.
-          <Suspense
-            fallback={
-              <div className="border-t-[1.5px] border-rule">
-                <p className="cap px-5 pt-3">Calling the declared endpoints…</p>
-                <BlankRows count={Math.min(listings.length, 6)} />
-              </div>
-            }
-          >
-            <Manifest listings={listings} />
-          </Suspense>
+          <>
+            {/* The registry's own shortlist, above the unfiltered roster
+                only: a seat page is already a shortlist, and a search is
+                the reader's own. */}
+            {!category && !q && (
+              <Suspense fallback={null}>
+                <Trending inset />
+              </Suspense>
+            )}
+            {/* The header is on the wire while the endpoints are being
+                called. The rows wait for the calls rather than streaming
+                around them: they are re-ranked by what answered, and rows
+                that reorder under a reader are worse than rows that arrive
+                a moment later. */}
+            <Suspense
+              fallback={
+                <div className="border-t-[1.5px] border-rule">
+                  <p className="cap px-5 pt-3">Calling the declared endpoints…</p>
+                  <BlankRows count={Math.min(listings.length, 6)} />
+                </div>
+              }
+            >
+              <Manifest listings={listings} />
+            </Suspense>
+          </>
         )}
       </section>
 

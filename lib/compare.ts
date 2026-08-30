@@ -1,4 +1,4 @@
-import { getAgent, getQuality, getScoreHistory } from "@/lib/scan";
+import { getAgent, getQuality, getScoreHistory, getScoreV5 } from "@/lib/scan";
 import { proveAgent, type EndpointProof } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { checkX402Cached, type X402Check } from "@/lib/x402";
@@ -6,7 +6,7 @@ import { getReputationCached, type Reputation } from "@/lib/reputation";
 import { classify, type CategoryId } from "@/lib/taxonomy";
 import { assess, type Assessment } from "@/lib/signals";
 import { categoryLabel, seatColor } from "@/components/listing";
-import type { ScanAgentDetail, AgentQuality, ScoreHistory } from "@/lib/scan";
+import type { ScanAgentDetail, AgentQuality, ScoreHistory, ScoreV5 } from "@/lib/scan";
 
 /**
  * The comparison, as data.
@@ -24,6 +24,8 @@ export type Column = {
   agent: ScanAgentDetail;
   quality: AgentQuality | null;
   history: ScoreHistory | null;
+  /** The five weighted parts behind the registry's one number; null when it has not scored this agent under v5. */
+  scoreV5: ScoreV5 | null;
   proof: EndpointProof | null;
   uptime: Uptime | null;
   /** What the server said when asked to charge; null when nothing claimed x402 or nothing could be called. */
@@ -89,11 +91,12 @@ export async function loadColumn(chainId: number, tokenId: string): Promise<Colu
   const agent = await getAgent(chainId, tokenId).catch(() => null);
   if (!agent) return null;
 
-  const [quality, proof, history, reputation] = await Promise.all([
+  const [quality, proof, history, reputation, scoreV5] = await Promise.all([
     getQuality(chainId, tokenId),
     proveAgent(agent),
     getScoreHistory(chainId, tokenId),
-    getReputationCached(chainId, tokenId),
+    getReputationCached(chainId, tokenId, agent),
+    getScoreV5(chainId, tokenId),
   ]);
 
   // Same rule as the inspection sheet: only an agent that claims to charge is
@@ -116,6 +119,7 @@ export async function loadColumn(chainId: number, tokenId: string): Promise<Colu
     payment,
     reputation,
     history,
+    scoreV5,
     assessment: assess(
       agent,
       undefined,
@@ -134,3 +138,4 @@ export async function loadColumn(chainId: number, tokenId: string): Promise<Colu
       .at(-1) ?? new Date().toISOString(),
   };
 }
+

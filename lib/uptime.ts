@@ -84,6 +84,9 @@ async function open(): Promise<Store | null> {
             verified INTEGER NOT NULL
           )
         `);
+        // Added after the table existed on the deployed store; the ALTER
+        // fails harmlessly where the column is already there.
+        await store.exec("ALTER TABLE sweep ADD COLUMN health_checked INTEGER NOT NULL DEFAULT 0").catch(() => {});
         return store;
       } catch {
         return null;
@@ -131,6 +134,8 @@ export type SweepRun = {
   answered: number;
   /** How many 8004scan accepted a re-verification request for. */
   verified: number;
+  /** How many 8004scan queued its own health check for (owner-only, so zero until Kawal owns agents). */
+  healthChecked?: number;
 };
 
 /** Writes one sweep's tally. Silent on failure, like every write here. */
@@ -138,12 +143,16 @@ export async function recordSweep(run: SweepRun): Promise<void> {
   const store = await open();
   if (!store) return;
   try {
-    await store.run("INSERT INTO sweep (ran_at, probed, answered, verified) VALUES (?, ?, ?, ?)", [
-      Math.floor(new Date(run.ranAt).getTime() / 1000),
-      run.probed,
-      run.answered,
-      run.verified,
-    ]);
+    await store.run(
+      "INSERT INTO sweep (ran_at, probed, answered, verified, health_checked) VALUES (?, ?, ?, ?, ?)",
+      [
+        Math.floor(new Date(run.ranAt).getTime() / 1000),
+        run.probed,
+        run.answered,
+        run.verified,
+        run.healthChecked ?? 0,
+      ],
+    );
     await store.run("DELETE FROM sweep WHERE ran_at < ?", [Math.floor(Date.now() / 1000) - RETAIN_DAYS * 86_400]);
   } catch {
     // A lost tally costs one line on the health page, never the sweep.
@@ -158,15 +167,20 @@ export async function lastSweep(): Promise<SweepRun | null> {
   const store = await open();
   if (!store) return null;
   try {
-    const row = await store.get<{ ran_at: number; probed: number; answered: number; verified: number }>(
-      "SELECT ran_at, probed, answered, verified FROM sweep ORDER BY ran_at DESC LIMIT 1",
-    );
+    const row = await store.get<{
+      ran_at: number;
+      probed: number;
+      answered: number;
+      verified: number;
+      health_checked: number | null;
+    }>("SELECT ran_at, probed, answered, verified, health_checked FROM sweep ORDER BY ran_at DESC LIMIT 1");
     if (!row) return null;
     return {
       ranAt: new Date(Number(row.ran_at) * 1000).toISOString(),
       probed: Number(row.probed),
       answered: Number(row.answered),
       verified: Number(row.verified),
+      healthChecked: Number(row.health_checked ?? 0),
     };
   } catch {
     return null;

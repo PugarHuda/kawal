@@ -13,7 +13,7 @@
  */
 
 import { McpClient, NONEXISTENT_TOOL, errorsCleanly } from "./mcp.ts";
-import { probeA2a as fetchA2a, a2aAnswered, rpcOutcomeLabel, type RpcOutcome } from "./a2a.ts";
+import { probeA2a as fetchA2a, a2aAnswered, rpcOutcomeLabel, type RpcOutcome, type CardSignatureVerdict } from "./a2a.ts";
 import { guardedFetch, readCapped, BlockedUrlError, MAX_RESPONSE_BYTES } from "./ssrf.ts";
 import { memo } from "./memo.ts";
 import { recordProbe } from "./uptime.ts";
@@ -68,8 +68,14 @@ export type EndpointProof = {
   answered: boolean;
   /** It answered as an MCP server specifically. */
   isMcp: boolean;
-  /** What the A2A JSON-RPC side did, when this was an A2A probe. */
-  a2a: { rpcUrl: string | null; rpc: RpcOutcome; rpcStatus: number; note: string } | null;
+  /**
+   * What the A2A JSON-RPC side did, when this was an A2A probe. `signature`
+   * is whether the card's own JWS checked out: "unsigned" for every BSC card
+   * read so far, "valid"/"invalid" once one carries `signatures`, and
+   * "unsupported" for an algorithm Kawal cannot check. Optional because the
+   * probes recorded before it existed have no such field.
+   */
+  a2a: { rpcUrl: string | null; rpc: RpcOutcome; rpcStatus: number; note: string; signature?: CardSignatureVerdict | null } | null;
   serverName: string | null;
   protocolVersion: string | null;
   toolCount: number | null;
@@ -533,6 +539,7 @@ export function probeA2aEndpoint(
         rpc: p.rpc,
         rpcStatus: p.rpcStatus,
         note: rpcOutcomeLabel(p.rpc),
+        signature: p.signature ?? null,
       },
       serverName: p.card?.name ?? null,
       protocolVersion: p.card?.protocolVersion ?? null,

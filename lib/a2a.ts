@@ -28,11 +28,178 @@
  * to tools.
  */
 
+import { recoverPublicKey, sha256, toHex } from "viem";
 import { guardedFetch, readCapped, BlockedUrlError } from "./ssrf.ts";
 
 /** A card is a short document. Anything approaching a megabyte is not one. */
 const CARD_BYTES = 256_000;
 const RPC_BYTES = 64_000;
+
+/* ------------------------------------------------- signed cards ---
+ *
+ * A2A 0.3 lets a card carry `signatures`: detached JWS (RFC 7515) over the
+ * card itself, so a client can tell a card the agent published from one
+ * somebody put in front of it. The payload is the card without `signatures`,
+ * canonicalised with RFC 8785 (JCS) so two servers serialising the same card
+ * differently still sign the same bytes.
+ *
+ * Kawal signs its own card with the admin account — the key that owns the
+ * mandate wallet, so the card and the money answer to the same identity —
+ * and checks every card it reads. Surveyed on the day this was written:
+ * fifty A2A cards off BSC by score, none carried `signatures`. The field
+ * below is therefore "unsigned" for the whole catalogue today; it exists so
+ * that the first signed one is noticed rather than read like the rest.
+ *
+ * Two algorithms are checked. ES256K (secp256k1, RFC 8812) is what an EVM
+ * key produces and is what Kawal uses; WebCrypto has no secp256k1, so the
+ * check recovers the public key with viem and compares it to the JWK.
+ * ES256 (P-256) is what the rest of the JOSE world uses and WebCrypto does
+ * have. Anything else is reported as unsupported, not invalid: not checked
+ * is a different fact from checked and wrong.
+ */
+
+/**
+ * RFC 8785 JSON Canonicalization Scheme.
+ *
+ * Small on purpose. Keys sort by UTF-16 code unit, which is what a plain
+ * `sort()` on strings does; numbers and strings serialise exactly as ES
+ * `JSON.stringify` does, which the RFC defines as the reference; `undefined`
+ * members are dropped as JSON has no such value. Non-finite numbers throw,
+ * since JSON cannot carry them either.
+ */
+export function canonicalize(value: unknown): string {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError(`JCS cannot represent ${value}`);
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((v) => (v === undefined ? "null" : canonicalize(v))).join(",")}]`;
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalize(o[k])}`)
+      .join(",")}}`;
+  }
+  throw new TypeError(`JCS cannot represent a ${typeof value}`);
+}
+
+export function b64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function fromB64url(s: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new TypeError("not base64url");
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+export const utf8 = (s: string) => new TextEncoder().encode(s);
+
+/** The JWS payload for a card: everything but `signatures`, canonicalised. */
+export function cardPayload(card: Record<string, unknown>): string {
+  const unsigned = { ...card };
+  delete unsigned.signatures;
+  return b64url(utf8(canonicalize(unsigned)));
+}
+
+export type CardSignatureVerdict = "valid" | "invalid" | "unsigned" | "unsupported";
+
+type Jwk = { kty?: unknown; crv?: unknown; x?: unknown; y?: unknown };
+
+async function verifyOne(entry: unknown, payload: string): Promise<CardSignatureVerdict> {
+  if (typeof entry !== "object" || entry === null) return "invalid";
+  const { protected: prot, signature, header } = entry as Record<string, unknown>;
+  if (typeof prot !== "string" || typeof signature !== "string") return "invalid";
+
+  let h: Record<string, unknown>;
+  let sig: Uint8Array;
+  try {
+    h = JSON.parse(new TextDecoder().decode(fromB64url(prot))) as Record<string, unknown>;
+    sig = fromB64url(signature);
+  } catch {
+    return "invalid";
+  }
+  // The key travels in the protected header by preference, since that is
+  // what the signature covers; the unprotected header is accepted as the
+  // specification allows.
+  const jwk = (h.jwk ?? (typeof header === "object" && header !== null ? (header as { jwk?: unknown }).jwk : undefined)) as Jwk | undefined;
+  const supported = h.alg === "ES256K" || h.alg === "ES256";
+  if (!supported) return "unsupported";
+  // A supported algorithm with no key to check against cannot be checked.
+  if (!jwk || jwk.kty !== "EC" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return "unsupported";
+  // Both algorithms sign with raw r||s over SHA-256: 64 bytes, nothing else.
+  if (sig.length !== 64) return "invalid";
+
+  const input = utf8(`${prot}.${payload}`);
+
+  if (h.alg === "ES256K") {
+    if (jwk.crv !== "secp256k1") return "unsupported";
+    let expected: string;
+    try {
+      const x = fromB64url(jwk.x);
+      const y = fromB64url(jwk.y);
+      if (x.length !== 32 || y.length !== 32) return "invalid";
+      expected = `0x04${toHex(x).slice(2)}${toHex(y).slice(2)}`;
+    } catch {
+      return "invalid";
+    }
+    const hash = sha256(input);
+    // JWS carries no recovery id, so both are tried; a wrong one recovers a
+    // different key or throws, and neither matches.
+    for (const v of ["1b", "1c"]) {
+      try {
+        const recovered = await recoverPublicKey({ hash, signature: `${toHex(sig)}${v}` });
+        if (recovered.toLowerCase() === expected.toLowerCase()) return "valid";
+      } catch {
+        /* not recoverable with this v */
+      }
+    }
+    return "invalid";
+  }
+
+  if (jwk.crv !== "P-256") return "unsupported";
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    // Fresh copies: WebCrypto wants a view over an ArrayBuffer proper, and
+    // TypeScript cannot see that these were never shared.
+    return (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, new Uint8Array(sig), new Uint8Array(input))) ? "valid" : "invalid";
+  } catch {
+    return "invalid";
+  }
+}
+
+/**
+ * Checks a card's `signatures`, as parsed off the wire.
+ *
+ * One valid signature makes the card valid. Failing that, one that was
+ * checked and failed makes it invalid — a card carrying a bad signature is
+ * worse than one carrying none. Only when nothing could be checked at all is
+ * the answer unsupported.
+ */
+export async function verifyCardSignature(body: unknown): Promise<CardSignatureVerdict> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return "unsigned";
+  const card = body as Record<string, unknown>;
+  if (!Array.isArray(card.signatures) || card.signatures.length === 0) return "unsigned";
+
+  const payload = cardPayload(card);
+  let verdict: CardSignatureVerdict = "unsupported";
+  for (const entry of card.signatures) {
+    const one = await verifyOne(entry, payload);
+    if (one === "valid") return "valid";
+    if (one === "invalid") verdict = "invalid";
+  }
+  return verdict;
+}
 
 export type AgentCardSkill = {
   id: string;
@@ -147,6 +314,11 @@ export type A2aProbe = {
    * reads as null, not asked.
    */
   extendedCard?: boolean | null;
+  /**
+   * Whether the card's `signatures` check out against the key they carry.
+   * Null when there was no card to check.
+   */
+  signature?: CardSignatureVerdict | null;
 };
 
 /**
@@ -203,11 +375,13 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
     latencyMs: 0,
     error: null,
     extendedCard: null,
+    signature: null,
   };
 
   const started = performance.now();
   let card: AgentCard | null = null;
   let cardStatus = 0;
+  let signature: CardSignatureVerdict | null = null;
 
   try {
     const res = await guardedFetch(endpoint, {
@@ -217,7 +391,9 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
     cardStatus = res.status;
     if (res.ok) {
       try {
-        card = readAgentCard(JSON.parse(await readCapped(res, CARD_BYTES)));
+        const body: unknown = JSON.parse(await readCapped(res, CARD_BYTES));
+        card = readAgentCard(body);
+        if (card) signature = await verifyCardSignature(body);
       } catch {
         card = null;
       }
@@ -269,6 +445,7 @@ export async function probeA2a(endpoint: string, opts: { timeoutMs?: number } = 
     latencyMs,
     error,
     extendedCard,
+    signature,
   };
 }
 

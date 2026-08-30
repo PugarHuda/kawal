@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { formatEther, formatUnits, keccak256 } from "viem";
+import { formatEther, formatUnits, isAddressEqual, keccak256, type Address } from "viem";
 import {
   planMandate,
   preempt,
@@ -22,10 +22,12 @@ import { getAgent } from "@/lib/scan";
 import type { CategoryId } from "@/lib/taxonomy";
 import { seatColor, Stamp, Legend } from "@/components/listing";
 import { loadLedger, isLive, walletHoldings, hasAdminKey, type LedgerSeat } from "@/lib/sessions";
-import { explorerTx } from "@/lib/altana";
-import { revokeAction, unlockAction, lockAction, grantAction } from "./actions";
+import { explorerTx, explorerAddress } from "@/lib/altana";
+import { revokeAction, unlockAction, lockAction, grantAction, hireAction } from "./actions";
 import { isOperator, operatorConfigured } from "@/lib/operator";
 import { readHealth, effectiveHealthFactor, describeHealth, type HealthReading } from "./health";
+import { readRates, pct, type VenueRates } from "./rates";
+import { marketSummary, uHeld, buyerAddress, formatU, ERC8183_ADDRESSES, type MarketSummary } from "@/lib/erc8183";
 
 /*
  * Form K-5: the mandate.
@@ -157,14 +159,25 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
   const canRevoke = hasAdminKey();
 
   const firstSeat = ledger[0];
-  // Three reads that can each fail on their own: the wallet balance, the
-  // wallet's lending position, and the agent named in the URL. None of them
-  // is allowed to take the planner down with it.
-  const [holdings, health, agent] = await Promise.all([
+  // The wallet a hire would be paid from: the one the seats were granted
+  // from, or the admin key's own when nothing is granted yet. Null on an
+  // instance holding neither, which then has no $U to print.
+  const buyer: Address | null = firstSeat?.walletAddress ?? buyerAddress();
+  // Six reads that can each fail on their own: the wallet balance, the
+  // wallet's lending position, the agent named in the URL, the venues'
+  // rates, the ERC-8183 market and the wallet's $U. None of them is allowed
+  // to take the planner down with it.
+  const [holdings, health, agent, rates, market, uHeldRaw] = await Promise.all([
     firstSeat ? walletHoldings(firstSeat.chainId, firstSeat.walletAddress) : null,
     firstSeat ? readHealth(firstSeat.chainId, firstSeat.walletAddress).catch(() => null) : null,
     hire.agent ? getAgent(hire.agent.chainId, hire.agent.tokenId).catch(() => null) : null,
+    readRates(BSC_MAINNET).catch(() => null),
+    marketSummary({ chainId: BSC_MAINNET }).catch(() => null),
+    buyer ? uHeld(buyer, BSC_MAINNET).catch(() => null) : null,
   ]);
+  // A seat can only be hired for when the wallet can pay and the key that
+  // pays is here; the operator gate is checked again inside the action.
+  const hireCtx: Hiring = { buyer, uHeldRaw, operator, configured, canHire: canRevoke };
 
   // The cut, from the wallet's position rather than from a sentence. With no
   // mandate wallet there is no position to read, and the form says so.
@@ -290,9 +303,11 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
                 index={i + 1}
                 filledBy={
                   hire.seat === p.category && hire.agent
-                    ? { ...hire.agent, name: agent?.name ?? null }
+                    ? { ...hire.agent, name: agent?.name ?? null, owner: agent?.owner_address ?? null }
                     : null
                 }
+                rates={rates}
+                hiring={hireCtx}
               />
             ))}
           </div>
@@ -340,12 +355,16 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
         )}
       </section>
 
+      <MarketSheet market={market} buyer={buyer} />
+
       <div className="mt-6">
         <Legend
           items={[
             { mark: <Stamp ink="stamp-violet" size="sm" flat>Live</Stamp>, means: "registered in the Altana KeyStore and not yet expired or revoked" },
             { mark: <Stamp ink="stamp-red" size="sm" flat>Revoked</Stamp>, means: "destroyed on-chain; KeyStore revocation cannot be undone" },
             { mark: <span className="serial text-[0.8rem]" lang="id">Tidak melebihi</span>, means: "the spend cap: what the seat may spend per day, never a deposit" },
+            { mark: <span className="serial text-[0.8rem]" lang="id">Bunga hari ini</span>, means: "what the seat's lending venues pay and charge for USDT, read from the chain as the page was built" },
+            { mark: <span className="cap">$U</span>, means: "United Stables, the coin the ERC-8183 kernel escrows a job's budget in; one $U is one dollar of budget" },
           ]}
         />
       </div>
@@ -776,15 +795,32 @@ function GrantStub({
   );
 }
 
+/** What a hire from this page has to work with. */
+type Hiring = {
+  buyer: Address | null;
+  /** Null when the wallet's $U could not be read, or there is no wallet. */
+  uHeldRaw: bigint | null;
+  operator: boolean;
+  configured: boolean;
+  /** The admin key is on this instance. */
+  canHire: boolean;
+};
+
+type FilledBy = { chainId: number; tokenId: string; name: string | null; owner: string | null } | null;
+
 /** One planned seat, as a line of the form: the cap in its own box. */
 function SeatLine({
   plan,
   index,
   filledBy,
+  rates,
+  hiring,
 }: {
   plan: SessionPlan;
   index: number;
-  filledBy: { chainId: number; tokenId: string; name: string | null } | null;
+  filledBy: FilledBy;
+  rates: VenueRates | null;
+  hiring: Hiring;
 }) {
   const policy = SEAT_POLICIES.find((s) => s.category === plan.category);
   const spend = plan.permissions.spend?.[0];
@@ -793,6 +829,7 @@ function SeatLine({
   // only adds the protocol names. A plan for a seat the policy table no
   // longer names still prints its addresses rather than throwing.
   const venues = policy?.venues.map((id) => VENUES[id]) ?? [];
+  const lends = { venus: venues.some((v) => v.id === "venus.vusdt"), aave: venues.some((v) => v.id === "aave.v3.pool") };
 
   return (
     <div
@@ -843,6 +880,8 @@ function SeatLine({
           <dt className="cap">Expires</dt>
           <dd className="typed mt-1 text-[0.85rem] text-carbon-2">{new Date(plan.expiry * 1000).toISOString().slice(0, 10)}</dd>
         </div>
+        {(lends.venus || lends.aave) && <RatesLine rates={rates} venus={lends.venus} aave={lends.aave} />}
+        <HireStub plan={plan} limit={limit} filledBy={filledBy} hiring={hiring} />
       </dl>
       {/* The box every other line points at. */}
       <div className="col-start-2 mt-3 lg:col-start-4 lg:mt-0">
@@ -859,5 +898,271 @@ function SeatLine({
         </div>
       </div>
     </div>
+  );
+}
+
+/** A Unix second as `2026-08-29 05:12 UTC`. */
+function stampTime(unix: number) {
+  return `${new Date(unix * 1000).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+}
+
+/**
+ * What the seat's lending venues pay and charge for USDT today.
+ *
+ * Only the venues this seat may call, and only as read: the block and the
+ * cadence it was annualised at are printed with the number, because a rate
+ * per block is meaningless without knowing how long a block was that hour.
+ */
+function RatesLine({ rates, venus, aave }: { rates: VenueRates | null; venus: boolean; aave: boolean }) {
+  const lines = rates
+    ? [venus ? { name: "Venus vUSDT", reading: rates.venus } : null, aave ? { name: "Aave V3 USDT", reading: rates.aave } : null].filter(
+        (v): v is NonNullable<typeof v> => v !== null,
+      )
+    : [];
+  return (
+    <div className="sm:col-span-2">
+      <dt className="cap">
+        <span lang="id">Bunga hari ini</span> · today&rsquo;s rates
+      </dt>
+      <dd className="typed mt-1 text-[0.85rem] text-carbon-2">
+        {rates === null ? (
+          <span className="stamp-note">The venues could not be read just now, so no rate is printed.</span>
+        ) : (
+          <>
+            {lines.map((v) => (
+              <span key={v.name} className="block">
+                {v.name}:{" "}
+                {v.reading.ok
+                  ? `supply ${pct(v.reading.value.supplyApr)} · borrow ${pct(v.reading.value.borrowApr)} APR`
+                  : `could not be read (${v.reading.error})`}
+              </span>
+            ))}
+            <span className="block text-[0.75rem] text-carbon-3">
+              read at block {rates.readAt.block.toLocaleString("en-US")} · {stampTime(rates.readAt.timestamp)} ·{" "}
+              {Math.round(rates.blocksPerDay).toLocaleString("en-US")} blocks/day measured over the last 10,000 blocks
+            </span>
+          </>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The stub that would fund an ERC-8183 job for the agent in this seat.
+ *
+ * The budget is one period of the seat's cap, in $U, since that is what the
+ * mandate says the seat may spend. The stub is pressable only when every
+ * one of these holds: a wallet on this instance, an agent named for the
+ * seat, enough $U to fund the whole budget, the admin key here, and the
+ * operator unlocked. Every other state draws the stub disabled with the
+ * exact thing missing — for the common case, the shortfall to the unit.
+ */
+function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit: bigint; filledBy: FilledBy; hiring: Hiring }) {
+  const provider = filledBy?.owner && /^0x[0-9a-fA-F]{40}$/.test(filledBy.owner) ? filledBy.owner : null;
+  const shortfall = hiring.uHeldRaw === null ? null : hiring.uHeldRaw >= limit ? 0n : limit - hiring.uHeldRaw;
+  const period = plan.permissions.spend?.[0]?.period ?? "day";
+
+  const why = !hiring.buyer
+    ? "no mandate wallet on this instance, so there is nothing to pay from"
+    : hiring.uHeldRaw === null
+      ? "the wallet's $U could not be read just now"
+      : !filledBy
+        ? "no agent is named for this seat yet; open an agent's form and press Hire under a cap"
+        : !provider
+          ? "the registry did not answer with the agent's owner address, which is who the job would pay"
+          : shortfall !== null && shortfall > 0n
+            ? `short ${formatU(shortfall)} until funded — send $U to ${short(hiring.buyer)}`
+            : !hiring.canHire
+              ? "this instance holds no admin key, so it cannot fund a job; hiring happens where the wallet key lives"
+              : !hiring.configured
+                ? "no KAWAL_OPERATOR_TOKEN is set on this deployment, so nobody can hire here"
+                : !hiring.operator
+                  ? "unlock the control room above with the operator token first"
+                  : null;
+
+  const allowlist = (plan.permissions.calls ?? []).map((c) => ("to" in c ? c.to : c.signature)).join(", ");
+  const task =
+    `Kawal mandate · ${plan.seat} seat · cap ${fromRaw(limit)} USDT/${period} · ` +
+    `may call ${allowlist} · expires ${new Date(plan.expiry * 1000).toISOString().slice(0, 10)}`;
+
+  return (
+    <div className="sm:col-span-2">
+      <dt className="cap">
+        <span lang="id">Sewa lewat ERC-8183</span> · hire on ERC-8183
+      </dt>
+      <dd className="mt-1">
+        <p className="typed text-[0.85rem] text-carbon-2">
+          <span className="text-carbon-3">$U held </span>
+          <span className="font-bold">{hiring.uHeldRaw === null ? "unread" : fromRaw(hiring.uHeldRaw)}</span>
+          <span className="text-carbon-3"> · budget this plan implies </span>
+          <span className="font-bold">{fromRaw(limit)} $U</span>
+          <span className="text-carbon-3"> (one {period} at this seat&rsquo;s cap)</span>
+        </p>
+        {why === null && provider ? (
+          <form action={hireAction} className="mt-2 flex flex-wrap items-center gap-3">
+            <input type="hidden" name="provider" value={provider} />
+            <input type="hidden" name="task" value={task} />
+            <input type="hidden" name="budget" value={formatUnits(limit, 18)} />
+            <button type="submit" className="counterfoil counterfoil--quiet">
+              Hire on ERC-8183
+            </button>
+            <p className="stamp-note max-w-[44ch]">
+              Funds a job for {filledBy?.name ?? provider} from the admin wallet: five calls in one relay intent, the
+              escrow released after the dispute window.
+            </p>
+          </form>
+        ) : (
+          <div className="mt-2">
+            <span className="counterfoil counterfoil--quiet" aria-disabled="true">
+              Hire on ERC-8183
+            </span>
+            <p className="stamp-note mt-1.5 max-w-[48ch]">Not available: {why}.</p>
+          </div>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * Bagian C: the ERC-8183 market Kawal's sellers are hired on, read off the
+ * kernel by job id.
+ *
+ * Every number is the newest window of jobs counted, not a registry's
+ * summary of them. The panel under it is the one place a job this wallet
+ * funded would appear, and today it says that none has: a wallet with no
+ * jobs is a fact about the wallet, and the next id the kernel will hand out
+ * is printed so a reader can watch for it.
+ */
+function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: Address | null }) {
+  const commerce = ERC8183_ADDRESSES[BSC_MAINNET]?.commerce;
+  const commerceLink = commerce ? explorerAddress(BSC_MAINNET, commerce) : null;
+  const mine = market && buyer ? market.jobs.filter((j) => isAddressEqual(j.client, buyer)) : [];
+  const oldest = market?.jobs[market.jobs.length - 1]?.id;
+  const newest = market?.jobs[0]?.id;
+  const span = oldest !== undefined && newest !== undefined ? ` (${oldest}–${newest})` : "";
+
+  return (
+    <section className="sheet mt-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
+        <span className="cap">Bagian C · pasar ERC-8183 · the hiring market</span>
+        <span className="serial text-[0.85rem]">
+          {market ? `next job id ${market.nextJobId} · read ${stampTime(Math.floor(Date.parse(market.readAt) / 1000))}` : "kernel unread"}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
+        <div>
+          <h2 className="heading text-[1.9rem]">
+            <span lang="id">Pasar ERC-8183</span> · the hiring market
+          </h2>
+          <p className="typed mt-2 max-w-[62ch] text-[0.9rem] text-carbon-2">
+            The escrow rail Kawal&rsquo;s A2A sellers are hired on: a buyer funds a job in $U on the AgenticCommerce
+            kernel, the seller submits, and the escrow settles after the dispute window. The newest{" "}
+            {market ? market.jobs.length : "jobs"} on the kernel, read by id{span}.
+          </p>
+          {commerceLink && commerce && (
+            <p className="mt-2">
+              <a href={commerceLink} target="_blank" rel="noreferrer noopener" className="cap underline">
+                kernel {short(commerce)} on bscscan
+              </a>
+            </p>
+          )}
+        </div>
+        {market ? (
+          <Stamp ink="stamp-violet" size="lg" evidence={market.jobs.length}>
+            <span lang="id">Dibaca</span>
+          </Stamp>
+        ) : (
+          <Stamp ink="stamp-grey" size="lg">
+            <span lang="id">Tak terbaca</span>
+          </Stamp>
+        )}
+      </div>
+
+      {market ? (
+        <>
+          <dl className="cells border-x-0 sm:grid-cols-5">
+            <div className="cell">
+              <dt className="cap">Jobs in window</dt>
+              <dd className="tnum heading text-[1.7rem]">{market.jobs.length}</dd>
+            </div>
+            <div className="cell">
+              <dt className="cap">Funded</dt>
+              <dd className="tnum heading text-[1.7rem]">{market.byStatus.FUNDED}</dd>
+            </div>
+            <div className="cell">
+              <dt className="cap">Completed</dt>
+              <dd className="tnum heading text-[1.7rem]">{market.byStatus.COMPLETED}</dd>
+            </div>
+            <div className="cell">
+              <dt className="cap">$U budgeted</dt>
+              <dd className="tnum heading text-[1.7rem]">{fromRaw(market.budgetRaw)}</dd>
+            </div>
+            <div className="cell">
+              <dt className="cap">Providers</dt>
+              <dd className="tnum heading text-[1.7rem]">{market.providers}</dd>
+            </div>
+          </dl>
+          <p className="typed border-t-[1.5px] border-rule px-5 py-3 text-[0.8rem] text-carbon-3">
+            also in the window: {market.byStatus.OPEN} open · {market.byStatus.SUBMITTED} submitted ·{" "}
+            {market.byStatus.REJECTED} rejected · {market.byStatus.EXPIRED} expired
+          </p>
+
+          <div className="border-t-[1.5px] border-rule px-5 py-5">
+            <h3 className="cap">Terbaru · the newest jobs</h3>
+            <ol className="typed mt-2 space-y-1 text-[0.85rem]">
+              {market.jobs.slice(0, 8).map((j) => (
+                <li key={j.id.toString()} className="flex flex-wrap gap-x-3">
+                  <span className="serial">#{j.id.toString()}</span>
+                  <span className="cap !text-carbon-2">{j.statusName}</span>
+                  <span className="text-carbon-2">provider {short(j.provider)}</span>
+                  <span>{fromRaw(j.budget)} $U</span>
+                  <span className="text-carbon-3">
+                    {j.description.slice(0, 48)}
+                    {j.description.length > 48 ? "…" : ""}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="border-t-[1.5px] border-rule px-5 py-5">
+            <h3 className="cap">
+              <span lang="id">Pekerjaan Kawal</span> · jobs this wallet funded
+            </h3>
+            {!buyer ? (
+              <p className="stamp-note mt-2 max-w-[62ch]">
+                No mandate wallet on this instance, so there is no client to look for. The market above is read all
+                the same.
+              </p>
+            ) : mine.length === 0 ? (
+              <p className="typed mt-2 max-w-[62ch] text-[0.9rem] text-carbon-2">
+                None. Wallet {short(buyer)} is the client on none of the newest {market.jobs.length} jobs{span}. The
+                next job the kernel will number is <span className="serial">#{market.nextJobId.toString()}</span>; a
+                hire from the stub in Bagian B would take it, and would appear here on the next read.
+              </p>
+            ) : (
+              <ol className="typed mt-2 space-y-1 text-[0.85rem]">
+                {mine.map((j) => (
+                  <li key={j.id.toString()} className="flex flex-wrap gap-x-3">
+                    <span className="serial">#{j.id.toString()}</span>
+                    <span className="cap !text-carbon-2">{j.statusName}</span>
+                    <span className="text-carbon-2">provider {short(j.provider)}</span>
+                    <span>{fromRaw(j.budget)} $U</span>
+                    <span className="text-carbon-3">expires {stampTime(Number(j.expiredAt))}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="typed border-t-[1.5px] border-rule px-5 py-5 text-[0.9rem] text-carbon-2">
+          The kernel could not be read just now, so no market numbers are printed. Nothing above stands in for them.
+        </p>
+      )}
+    </section>
   );
 }
