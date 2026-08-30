@@ -39,8 +39,8 @@ export function WalletStrip({ wallet }: { wallet: WalletMetrics }) {
         <Cell cap="Saldo · balance">{trimEther(wallet.balance)} BNB</Cell>
         <Cell cap="Transaksi · transactions">{wallet.tx_count.toLocaleString()}</Cell>
         <Cell cap="Umur · wallet age">{wallet.wallet_age_days.toLocaleString()} days</Cell>
-        <Cell cap="Pembayaran · payments received">{wallet.payment_count.toLocaleString()}</Cell>
-        <Cell cap="Pendapatan · revenue">{trimEther(wallet.total_revenue)}</Cell>
+        <Cell cap="payments received">{wallet.payment_count.toLocaleString()}</Cell>
+        <Cell cap="revenue">{trimEther(wallet.total_revenue)}</Cell>
         <Cell cap="Jenis · kind">
           {kindOf(wallet)}
           {wallet.total_associated_agents > 0 && (

@@ -125,7 +125,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
           {coverage ? (
             <div className="cells border-0 sm:grid-cols-2 lg:grid-cols-2">
               <div className="cell cell--yellow">
-                <span className="cap">Ditarik · registrations retrieved</span>
+                <span className="cap">registrations retrieved</span>
                 <span className="heading block text-[2rem]">{coverage.retrieved}</span>
               </div>
               <div className="cell cell--yellow">
@@ -133,7 +133,7 @@ export default async function AgentsPage({ searchParams }: PageProps<"/agents">)
                 <span className="heading block text-[2rem]">{coverage.listable}</span>
               </div>
               <div className="cell cell--yellow">
-                <span className="cap">Dicap · bear Kawal&rsquo;s own stamp</span>
+                <span className="cap">bear Kawal&rsquo;s own stamp</span>
                 <span className="heading block text-[2rem]">{coverage.hireable}</span>
               </div>
               <div className="cell cell--yellow">

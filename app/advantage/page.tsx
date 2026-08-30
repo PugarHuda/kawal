@@ -111,7 +111,7 @@ export default function AdvantagePage() {
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
           <span className="cap">Form K-7 · agent advantage report</span>
-          <span className="serial text-[0.85rem]">Diukur · {report.generatedAt.slice(0, 10)}</span>
+          <span className="serial text-[0.85rem]">Measured · {report.generatedAt.slice(0, 10)}</span>
         </div>
 
         <header className="grid gap-px bg-rule lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">

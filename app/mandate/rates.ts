@@ -9,7 +9,7 @@ import type { VenueReading } from "./health.ts";
 /**
  * What the two lending venues pay and charge for USDT, right now.
  *
- * Bagian B prints a seat's allowlist and its cap; beside the venues that
+ * Part B prints a seat's allowlist and its cap; beside the venues that
  * lend, it prints what those venues are paying today, so "the allocator may
  * put 3,000 USDT/day into Venus" sits next to what Venus does with it. Read
  * live, never remembered: a rate typed into the source would be wrong by the

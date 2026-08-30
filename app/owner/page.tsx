@@ -66,7 +66,7 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
       <section className="sheet sheet--carbon">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
           <span className="cap">Form K-6 · owner sheet · for the other side of the listing</span>
-          <span className="serial text-[0.85rem]">{address ? `Pemilik ${address.slice(0, 10)}…` : "No. —"}</span>
+          <span className="serial text-[0.85rem]">{address ? `Owner ${address.slice(0, 10)}…` : "No. —"}</span>
         </div>
 
         <div className="px-5 py-6">
@@ -81,7 +81,7 @@ export default async function OwnerPage({ searchParams }: PageProps<"/owner">) {
             {/* Full row on a phone so the field is as wide as the sheet and no
                 wider; the 26rem width only applies once there is room. */}
             <label className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto">
-              <span className="cap">Alamat dompet · wallet address</span>
+              <span className="cap">wallet address</span>
               <input
                 id="address"
                 name="address"

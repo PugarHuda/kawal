@@ -105,7 +105,7 @@ export async function grantAction(formData: FormData) {
  * when the wallet already holds the budget, but a POST can skip the page, so
  * the quote is taken again here and the batch is refused on any shortfall or
  * any simulated revert — nothing is sent that would not land. The job then
- * shows up in Bagian C on the next render, read back off the kernel rather
+ * shows up in Part C on the next render, read back off the kernel rather
  * than remembered from here.
  */
 export async function hireAction(formData: FormData) {

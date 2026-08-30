@@ -36,7 +36,7 @@
  */
 
 import { memo } from "./memo.ts";
-import { getAgent } from "./scan.ts";
+import { getAgent, REGISTRY_TIMEOUT_MS } from "./scan.ts";
 import { FeedbackReplySchema } from "./scan.schema.ts";
 
 const ORIGIN = process.env.SCAN_API_ORIGIN ?? "https://8004scan.io";
@@ -295,8 +295,10 @@ export async function getReputation(chainId: number, tokenId: string, agent?: In
       headers: { accept: "application/json" },
       next: { revalidate: 900 },
       // Bounded like every other registry call: a hung connection here would
-      // hold the agent page open for as long as the socket lived.
-      signal: AbortSignal.timeout(15_000),
+      // hold the agent page open for as long as the socket lived. The bound
+      // is the shared one rather than a second copy of the number, which had
+      // already drifted from it.
+      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
     });
     if (!res.ok) return null;
 

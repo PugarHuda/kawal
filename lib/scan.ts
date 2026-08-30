@@ -49,8 +49,19 @@ import {
  * Also useful in anger: 8004scan has gone down for a day during this build.
  */
 const ORIGIN = process.env.SCAN_API_ORIGIN ?? "https://8004scan.io";
-/** How long any one registry call may take before it is treated as an outage. */
-export const REGISTRY_TIMEOUT_MS = 15_000;
+/**
+ * How long any one registry call may take before it is treated as an outage.
+ *
+ * Six seconds, not fifteen. Measured on 2026-08-31, the registry answers in
+ * 0.3-1.2 s; the ceiling only ever applies to a call that has already gone
+ * wrong. Fifteen let one of those hold a streamed section — and the page's
+ * open connection — for fifteen seconds, which twice timed out a test that
+ * waits for the network to go quiet, and is far past the point where a reader
+ * has decided the site is broken. Every section that reads the registry has
+ * an honest "could not be read" state; reaching it in six seconds is better
+ * than reaching it in fifteen, and much better than not reaching it at all.
+ */
+export const REGISTRY_TIMEOUT_MS = 6_000;
 const BASE = `${ORIGIN}/api/v1/public`;
 const API = `${ORIGIN}/api/v1`;
 

@@ -232,8 +232,8 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
       {/* ------------------------------------------------------ the planner --- */}
       <section className="sheet sheet--pink mt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-          <span className="cap">Bagian B · rencana · the plan (unsigned) · salinan ketiga</span>
-          <span className="cap">Isi lalu tekan · fill in, then press</span>
+          <span className="cap">Part B · the plan (unsigned) · third copy</span>
+          <span className="cap">fill in, then press</span>
         </div>
 
         <form method="get" className="grid gap-px bg-rule sm:grid-cols-[auto_auto_auto_minmax(0,1fr)] sm:items-end">
@@ -268,7 +268,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
             </button>
           </div>
           <div className="cell cell--yellow">
-            <span className="cap">Terikat · committed</span>
+            <span className="cap">committed</span>
             <p className="typed text-[0.9rem]">
               {fromRaw(committed)} of {capital.toLocaleString("en-US")} USDT committed — the remainder
               never leaves your wallet.
@@ -419,7 +419,7 @@ function PositionReading({ health, wallet }: { health: HealthReading | null; wal
 }
 
 /**
- * Bagian A with nothing in it.
+ * Part A with nothing in it.
  *
  * The sheet is printed even when empty, because a control room that simply
  * vanishes reads as "nothing to control" rather than "nothing granted yet",
@@ -429,7 +429,7 @@ function EmptyLedger() {
   return (
     <section className="sheet sheet--yellow mt-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-        <span className="cap">Bagian A · terdaftar di rantai · granted on-chain</span>
+        <span className="cap">Part A · granted on-chain</span>
         <span className="serial text-[0.85rem]">0 live of 0</span>
       </div>
       <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
@@ -488,7 +488,7 @@ function LiveSessions({
   return (
     <section className="sheet sheet--yellow mt-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-        <span className="cap">Bagian A · terdaftar di rantai · granted on-chain</span>
+        <span className="cap">Part A · granted on-chain</span>
         <span className="serial text-[0.85rem]">
           {live.length} live of {seats.length} · chain {seats[0]?.chainId}
         </span>
@@ -780,7 +780,7 @@ function GrantStub({
           </button>
           <p className="stamp-note max-w-[48ch]">
             Registers one key per seat in the Altana KeyStore from the admin wallet, at the registration
-            fee each. The seats appear in Bagian A as they land.
+            fee each. The seats appear in Part A as they land.
           </p>
         </form>
       ) : (
@@ -1026,7 +1026,7 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
 }
 
 /**
- * Bagian C: the ERC-8183 market Kawal's sellers are hired on, read off the
+ * Part C: the ERC-8183 market Kawal's sellers are hired on, read off the
  * kernel by job id.
  *
  * Every number is the newest window of jobs counted, not a registry's
@@ -1046,7 +1046,7 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
   return (
     <section className="sheet mt-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 border-b-[1.5px] border-rule px-5 py-2">
-        <span className="cap">Bagian C · pasar ERC-8183 · the hiring market</span>
+        <span className="cap">Part C · the hiring market</span>
         <span className="serial text-[0.85rem]">
           {market ? `next job id ${market.nextJobId} · read ${stampTime(Math.floor(Date.parse(market.readAt) / 1000))}` : "kernel unread"}
         </span>
@@ -1111,7 +1111,7 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
           </p>
 
           <div className="border-t-[1.5px] border-rule px-5 py-5">
-            <h3 className="cap">Terbaru · the newest jobs</h3>
+            <h3 className="cap">the newest jobs</h3>
             <ol className="typed mt-2 space-y-1 text-[0.85rem]">
               {market.jobs.slice(0, 8).map((j) => (
                 <li key={j.id.toString()} className="flex flex-wrap gap-x-3">
@@ -1141,7 +1141,7 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
               <p className="typed mt-2 max-w-[62ch] text-[0.9rem] text-carbon-2">
                 None. Wallet {short(buyer)} is the client on none of the newest {market.jobs.length} jobs{span}. The
                 next job the kernel will number is <span className="serial">#{market.nextJobId.toString()}</span>; a
-                hire from the stub in Bagian B would take it, and would appear here on the next read.
+                hire from the stub in Part B would take it, and would appear here on the next read.
               </p>
             ) : (
               <ol className="typed mt-2 space-y-1 text-[0.85rem]">

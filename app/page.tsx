@@ -45,7 +45,7 @@ export default async function Home() {
           <Suspense fallback={<span className="serial text-[0.85rem]">No. K1-······</span>}>
             <Serial stats={stats} />
           </Suspense>
-          <span className="cap">Tgl · {today}</span>
+          <span className="cap">Date · {today}</span>
           <Suspense fallback={null}>
             <RegistryAsOf stats={stats} />
           </Suspense>
