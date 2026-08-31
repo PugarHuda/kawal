@@ -1040,7 +1040,13 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
                 defaultValue={formatUnits(suggested, 18)}
                 min="0.000001"
                 max={formatUnits(limit < affordable ? limit : affordable, 18)}
-                step="0.01"
+                // `step="0.01"` against a min of 0.000001 made every round
+                // number invalid — the browser accepts only min + n·step, so
+                // 0.05 was refused and the field's own default value was too.
+                // It blocks submission with a tooltip and no event: the button
+                // did nothing at all, which is how this shipped unnoticed.
+                // $U carries 18 decimals; any of them is a real amount.
+                step="any"
                 required
                 className="w-28 border-[1.5px] border-rule bg-transparent px-2 py-1 tnum"
               />

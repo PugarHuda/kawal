@@ -174,6 +174,10 @@ test("the hire budget is a job's price, bounded by the seat's cap", async ({ pag
   // was unreachable.
   // Where the stub is offered at all, the budget is a field the operator fills
   // and the cap is its maximum — not its value.
+  // Vacuous where no wallet is configured, which is every CI run: the stub is
+  // only offered to an unlocked operator on an instance that holds $U. It is
+  // not vacuous where it matters, and job 56679 was funded through this exact
+  // form for 0.05 $U under a 3,500 $U cap.
   const budgets = page.locator('input[name="budget"]');
   for (let i = 0; i < (await budgets.count()); i++) {
     const b = budgets.nth(i);
@@ -182,6 +186,15 @@ test("the hire budget is a job's price, bounded by the seat's cap", async ({ pag
     expect(value).toBeGreaterThan(0);
     expect(value).toBeLessThanOrEqual(max);
     expect(value).toBeLessThan(3500);
+
+    // And the field must accept what it is already showing. `step="0.01"`
+    // against a min of 0.000001 made every round number invalid — a browser
+    // takes only min + n·step — so the default value was itself rejected and
+    // the button did nothing at all: no submit event, no message on the page,
+    // a tooltip and silence. Found only by clicking it.
+    expect(await b.evaluate((el: HTMLInputElement) => el.checkValidity())).toBe(true);
+    await b.fill("0.05");
+    expect(await b.evaluate((el: HTMLInputElement) => el.checkValidity())).toBe(true);
   }
 
   // The server's own refusal is asserted in `npm run check` against
