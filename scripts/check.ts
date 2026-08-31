@@ -20,7 +20,7 @@ import {
   weakestV5,
 } from "../lib/signals.ts";
 import { errorsCleanly } from "../lib/mcp.ts";
-import { readOasfRecord } from "../lib/probe.ts";
+import { readOasfRecord, unsubstituted, substituted } from "../lib/probe.ts";
 import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS, capForSeat, usdtToRaw, USDT_BSC } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
@@ -32,6 +32,7 @@ import { readAgentCard, a2aAnswered, canonicalize, b64url, fromB64url, utf8, car
 import { agentCard, handleA2a, signAgentCard } from "../lib/server.a2a.ts";
 import { summariseMarket, formatU, JOB_STATUS, type MarketJob } from "../lib/erc8183.ts";
 import { blocksPerDayBetween, annualise, fromRay, pct } from "../app/mandate/rates.ts";
+import { usdtPerBnbFrom, quote, magnitude } from "../app/mandate/pools.ts";
 import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
@@ -2111,4 +2112,66 @@ assert.equal(pct(0), "0.00%");
   assert.equal(capForSeat(mandate, ""), null);
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting, seat caps");
+// -- a registration that was never filled in -------------------------------
+{
+  // Braces are excluded from URIs by RFC 3986, so `{...}` in a declared
+  // endpoint is never an address. Measured on 2026-08-31: 17,885 agents, every
+  // one "on Termix Platform", register the same A2A card URL with `{agentId}`
+  // still in it — 6.1% of the BSC roster and 75% of every A2A declaration on
+  // the chain. As registered all of them answer 404.
+  const termix = "https://platform-backend.prod.termix.live/api/v1/a2a/agents/{agentId}/card";
+  assert.equal(unsubstituted(termix), "{agentId}");
+  assert.equal(substituted(termix, "189849"), "https://platform-backend.prod.termix.live/api/v1/a2a/agents/189849/card");
+
+  // A real endpoint carries none, and must not be "repaired".
+  assert.equal(unsubstituted("https://kawal-three.vercel.app/api/mcp"), null);
+  assert.equal(unsubstituted("https://erc8004.heyanon.ai/mcp/venus"), null);
+
+  // A query string is as much a template as a path, and every placeholder in
+  // one URL is filled — leaving the second would produce another dead address.
+  assert.equal(unsubstituted("https://x.example/a2a?id={tokenId}"), "{tokenId}");
+  assert.equal(substituted("https://x/{chain}/agents/{agentId}", "7"), "https://x/7/agents/7");
+
+  // Not every brace is a placeholder: an empty pair names nothing, and a
+  // fragment that merely contains braces is not a template to fill.
+  assert.equal(unsubstituted("https://x.example/a2a/{}"), null);
+  assert.equal(unsubstituted("https://x.example/a2a/%7BagentId%7D"), null, "percent-encoded braces are a literal path");
+}
+
+// -- the market-maker seat's venue, read rather than assumed ----------------
+{
+  // The seat named two PancakeSwap contracts it was allowed to call and no
+  // number at all, while the lending seats printed live Venus and Aave rates.
+  // The one thing here that can be silently wrong is the inversion: a
+  // mis-inverted price is not an error, it is a plausible number upside down.
+  //
+  // Taken from the live 0.05% WBNB/USDT pool at block 119188212, where USDT
+  // sorts first, so the raw ratio is BNB per USDT and the quote is its inverse.
+  const sqrt = 3017536920358436105975951961n;
+  const USDT = "0x55d398326f99059fF775485246999027B3197955";
+  const WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
+
+  const quoted = usdtPerBnbFrom(sqrt, USDT, 56);
+  assert.ok(quoted > 600 && quoted < 800, `USDT per BNB should be in the hundreds, got ${quoted}`);
+  assert.equal(quote(quoted), "689.37");
+
+  // Had the pool sorted WBNB first, the same figure means the other thing —
+  // and the two must not be within a rounding error of each other, or the test
+  // would pass whichever way the code inverted.
+  const flipped = usdtPerBnbFrom(sqrt, WBNB, 56);
+  assert.ok(flipped < 0.01, `sorted the other way this is BNB per USDT, got ${flipped}`);
+  assert.ok(Math.abs(quoted * flipped - 1) < 1e-9, "the two readings are reciprocal");
+
+  // Case is not significance: `token0()` returns a checksummed address and the
+  // table holds one too, but neither is guaranteed to match the other's case.
+  assert.equal(usdtPerBnbFrom(sqrt, WBNB.toLowerCase(), 56), flipped);
+
+  // Liquidity is shown as an order of magnitude because its units depend on
+  // the pair; the deep tiers stand at 10^24 and the 1% tier at 10^21.
+  assert.equal(magnitude(3212703738990154297713089n), "10^24");
+  assert.equal(magnitude(0n), "0");
+  assert.equal(magnitude(9n), "9");
+  assert.equal(magnitude(10n), "10^1");
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting, seat caps, unfilled templates, pool quotes");

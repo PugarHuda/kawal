@@ -27,6 +27,7 @@ import { revokeAction, unlockAction, lockAction, grantAction, hireAction } from 
 import { isOperator, operatorConfigured } from "@/lib/operator";
 import { readHealth, effectiveHealthFactor, describeHealth, type HealthReading } from "./health";
 import { readRates, pct, type VenueRates } from "./rates";
+import { readPools, quote, magnitude, type PoolQuotes } from "./pools";
 import { marketSummary, uHeld, buyerAddress, ERC8183_ADDRESSES, type MarketSummary } from "@/lib/erc8183";
 
 /*
@@ -165,13 +166,14 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
   const buyer: Address | null = firstSeat?.walletAddress ?? buyerAddress();
   // Six reads that can each fail on their own: the wallet balance, the
   // wallet's lending position, the agent named in the URL, the venues'
-  // rates, the ERC-8183 market and the wallet's $U. None of them is allowed
+  // rates, the market-maker seat's pools, the ERC-8183 market and the $U. None of them is allowed
   // to take the planner down with it.
-  const [holdings, health, agent, rates, market, uHeldRaw] = await Promise.all([
+  const [holdings, health, agent, rates, pools, market, uHeldRaw] = await Promise.all([
     firstSeat ? walletHoldings(firstSeat.chainId, firstSeat.walletAddress) : null,
     firstSeat ? readHealth(firstSeat.chainId, firstSeat.walletAddress).catch(() => null) : null,
     hire.agent ? getAgent(hire.agent.chainId, hire.agent.tokenId).catch(() => null) : null,
     readRates(BSC_MAINNET).catch(() => null),
+    readPools(BSC_MAINNET).catch(() => null),
     marketSummary({ chainId: BSC_MAINNET }).catch(() => null),
     buyer ? uHeld(buyer, BSC_MAINNET).catch(() => null) : null,
   ]);
@@ -307,6 +309,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
                     : null
                 }
                 rates={rates}
+                pools={pools}
                 hiring={hireCtx}
               />
             ))}
@@ -818,12 +821,14 @@ function SeatLine({
   index,
   filledBy,
   rates,
+  pools,
   hiring,
 }: {
   plan: SessionPlan;
   index: number;
   filledBy: FilledBy;
   rates: VenueRates | null;
+  pools: PoolQuotes | null;
   hiring: Hiring;
 }) {
   const policy = SEAT_POLICIES.find((s) => s.category === plan.category);
@@ -834,6 +839,9 @@ function SeatLine({
   // longer names still prints its addresses rather than throwing.
   const venues = policy?.venues.map((id) => VENUES[id]) ?? [];
   const lends = { venus: venues.some((v) => v.id === "venus.vusdt"), aave: venues.some((v) => v.id === "aave.v3.pool") };
+  // The market-maker seat is the one allowed to touch PancakeSwap, and until
+  // now it was the only seat with an allowlist and no reading behind it.
+  const makes = venues.some((v) => v.id.startsWith("pancakeswap."));
 
   return (
     <div
@@ -885,6 +893,7 @@ function SeatLine({
           <dd className="typed mt-1 text-[0.85rem] text-carbon-2">{new Date(plan.expiry * 1000).toISOString().slice(0, 10)}</dd>
         </div>
         {(lends.venus || lends.aave) && <RatesLine rates={rates} venus={lends.venus} aave={lends.aave} />}
+        {makes && <PoolsLine pools={pools} />}
         <HireStub plan={plan} limit={limit} filledBy={filledBy} hiring={hiring} />
       </dl>
       {/* The box every other line points at. */}
@@ -917,6 +926,43 @@ function stampTime(unix: number) {
  * cadence it was annualised at are printed with the number, because a rate
  * per block is meaningless without knowing how long a block was that hour.
  */
+/**
+ * What the market-maker seat's venue is quoting, read at a named block.
+ *
+ * The lending seats have printed a live rate since `rates.ts`; this seat named
+ * PancakeSwap's positions manager and router in its allowlist and said nothing
+ * about either. Every tier is shown rather than the deepest one, because the
+ * choice between them is the seat's to make and the thin tier drifting from
+ * the others — 683 against 689 when this was written — is the reason to look.
+ */
+function PoolsLine({ pools }: { pools: PoolQuotes | null }) {
+  return (
+    <div className="sm:col-span-2">
+      <dt className="cap">Today&rsquo;s pools</dt>
+      <dd className="typed mt-1 text-[0.85rem] text-carbon-2">
+        {pools === null ? (
+          <span className="stamp-note">The pools could not be read just now, so no quote is printed.</span>
+        ) : !pools.pools.ok ? (
+          <span className="stamp-note">The pools could not be read ({pools.pools.error}).</span>
+        ) : (
+          <>
+            {pools.pools.value.map((p) => (
+              <span key={p.address} className="block">
+                {pools.pair} {(p.feeBps / 10_000).toFixed(2)}%: {quote(p.usdtPerBnb)} USDT per BNB · in-range
+                liquidity {magnitude(p.liquidity)}
+              </span>
+            ))}
+            <span className="block text-[0.75rem] text-carbon-3">
+              read at block {pools.readAt.block.toLocaleString("en-US")} · {stampTime(pools.readAt.timestamp)} · from
+              PancakeSwap V3&rsquo;s own factory, the one `verify:venues` proves the router reports
+            </span>
+          </>
+        )}
+      </dd>
+    </div>
+  );
+}
+
 function RatesLine({ rates, venus, aave }: { rates: VenueRates | null; venus: boolean; aave: boolean }) {
   const lines = rates
     ? [venus ? { name: "Venus vUSDT", reading: rates.venus } : null, aave ? { name: "Aave V3 USDT", reading: rates.aave } : null].filter(

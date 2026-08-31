@@ -548,6 +548,27 @@ function LiveProbe({
         </p>
       )}
 
+      {/* The registration was never filled in. Said here rather than folded
+          into "does not answer", because it is the one failure whose owner can
+          fix it in a minute — and on BSC it is not rare: every agent on one
+          platform registers this same template, 6% of the whole roster. */}
+      {proof.template && (
+        <p className="typed mt-3 max-w-[64ch] border-[1.5px] border-stamp-red bg-paper-pink px-3 py-2 text-[0.9rem]">
+          <span className="cap">The address is a template</span>
+          <br />
+          The registration declares{" "}
+          <span className="break-all">{proof.template.placeholder}</span> where an identifier should be, so the URL
+          above is not this agent&rsquo;s address and nothing at it belongs to this agent. Substituting the token id
+          the registry already holds reaches{" "}
+          <span className="break-all">{proof.template.would}</span>
+          {proof.template.wouldStatus === null
+            ? ", which did not answer either."
+            : `, which answers HTTP ${proof.template.wouldStatus}.`}{" "}
+          Kawal called the address as published; a registration nobody can follow is the finding, not a typo to be
+          quietly corrected.
+        </p>
+      )}
+
       <dl className="cells mt-4 sm:grid-cols-2">
         <Row label="Endpoint">{proof.endpoint}</Row>
         {proof.serverName && <Row label="Server">{proof.serverName}</Row>}

@@ -95,6 +95,15 @@ export type EndpointProof = {
    * pitch is that a listing carries its evidence.
    */
   descriptor: ServiceDescriptor | null;
+  /**
+   * Set when the declared endpoint still holds a `{placeholder}`.
+   *
+   * Kept apart from `descriptor` because it is not a different kind of thing
+   * to call — it is not an address at all. Without it these read as "responds,
+   * but not as an A2A agent", which is true of the 404 and says nothing about
+   * why, to the owners of 6% of the BSC roster.
+   */
+  template?: { placeholder: string; would: string; wouldStatus: number | null } | null;
   /** Round trip for the initialize call, in milliseconds. */
   latencyMs: number;
   error: string | null;
@@ -563,6 +572,38 @@ export function probeA2aEndpoint(
 }
 
 /**
+ * The placeholder a registration forgot to fill in, or null.
+ *
+ * Braces are not legal in a URI (RFC 3986 excludes them), so `{...}` in a
+ * declared endpoint is never an address — it is the template the publisher
+ * meant to substitute into and did not. That makes this a general rule rather
+ * than a rule about one platform, which matters, because the platform it was
+ * found on is 6% of the BSC roster.
+ *
+ * Measured 2026-08-31: 17,885 agents — every one describing itself as being
+ * "on Termix Platform", and 75% of every A2A declaration on BSC — register
+ * `https://platform-backend.prod.termix.live/api/v1/a2a/agents/{agentId}/card`
+ * with `{agentId}` still in it. As registered every one answers 404.
+ */
+export function unsubstituted(endpoint: string): string | null {
+  const m = /\{[A-Za-z_][A-Za-z0-9_]*\}/.exec(endpoint);
+  return m ? m[0] : null;
+}
+
+/**
+ * The same URL with its placeholder filled by the id the registry already
+ * holds — the substitution the publisher meant to make.
+ *
+ * Kawal probes the endpoint as registered regardless: a registration that
+ * cannot be followed is the finding, and quietly repairing it would hide
+ * exactly what this project exists to show. This is for saying what would
+ * have been there, beside the failure, not instead of it.
+ */
+export function substituted(endpoint: string, tokenId: string): string {
+  return endpoint.replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, tokenId);
+}
+
+/**
  * Proof for an agent, or null when it declares nothing to call.
  *
  * The null is load-bearing and different from a failed probe: "no endpoint
@@ -571,18 +612,49 @@ export function probeA2aEndpoint(
  * one shape would let a page claim it checked something it never touched.
  */
 export function proveAgent(
-  agent: { services: Record<string, DeclaredService> | null },
+  agent: { services: Record<string, DeclaredService> | null; token_id?: string },
   opts: { timeoutMs?: number } = {},
 ): Promise<EndpointProof | null> {
   // MCP first when both are declared: its handshake returns more (a server
   // name, a protocol revision, a tool list with descriptions) and the four
   // agents on BSC that declare both serve the same software behind each.
   const mcp = endpointOf(agent.services, "mcp");
-  if (mcp) return probeMcp(mcp, opts);
+  if (mcp) return withTemplate(mcp, agent.token_id, probeMcp(mcp, opts));
   const a2a = endpointOf(agent.services, "a2a");
-  if (a2a) return probeA2aEndpoint(a2a, opts);
+  if (a2a) return withTemplate(a2a, agent.token_id, probeA2aEndpoint(a2a, opts));
   // Last, because it proves least: a document served, not a server spoken to.
   const oasf = endpointOf(agent.services, "oasf");
-  if (oasf) return probeOasf(oasf, opts);
+  if (oasf) return withTemplate(oasf, agent.token_id, probeOasf(oasf, opts));
   return Promise.resolve(null);
+}
+
+/**
+ * Notes an unfilled placeholder on a proof, and says what the filled URL
+ * answers — asked once, only when there is a placeholder to fill.
+ *
+ * The probe above already ran against the endpoint as registered, and its
+ * verdict stands. This adds the sentence an owner needs: the address in your
+ * registration is a template, and here is what the registry's own id would
+ * have reached instead.
+ */
+async function withTemplate(
+  endpoint: string,
+  tokenId: string | undefined,
+  probing: Promise<EndpointProof>,
+): Promise<EndpointProof> {
+  const proof = await probing;
+  const placeholder = unsubstituted(endpoint);
+  if (!placeholder || !tokenId) return proof;
+
+  const would = substituted(endpoint, tokenId);
+  let wouldStatus: number | null = null;
+  try {
+    const res = await guardedFetch(would, { method: "GET", signal: AbortSignal.timeout(8_000) });
+    wouldStatus = res.status;
+  } catch {
+    // Unreachable is a real answer here and is left null rather than guessed
+    // at: the point is what the registration failed to say, not a diagnosis
+    // of somebody else's host.
+  }
+  return { ...proof, template: { placeholder, would, wouldStatus } };
 }
