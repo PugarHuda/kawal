@@ -222,12 +222,17 @@ if (VERIFY) {
       }
     }
   }
-  // What the file says against what the register holds. The file is Kawal's
-  // own bookkeeping and the register is the truth, and they came apart once:
-  // on 2026-08-31 the chain held 102 records where the file named 92, because
-  // `noteWrite` let a stale `at` survive a responseTime write and ten agents
-  // were written about twice. Nothing surfaced that until it was looked for by
-  // hand, which is the wrong way to find out you are adding to the noise.
+  // What the file says against what the register holds, and they do not have
+  // to agree. The file keeps one hash per kind per agent, so a second uptime
+  // record about the same agent overwrites the first here while both stand
+  // on-chain forever: on 2026-08-31 the chain held 102 records where the file
+  // named 92, and every one of the ten was an older round's record the file no
+  // longer names — agent 43129's index 1 is from 2026-08-28, the transaction
+  // the README cites as Kawal's first.
+  //
+  // Worth printing anyway, because `--revoke` needs a hash to work from. A
+  // record this file has forgotten is a record Kawal wrote and can no longer
+  // take back, and that is a thing to know before it matters.
   const perAgent = await Promise.all(
     Object.entries(published).map(async ([agentId, rec]) => {
       const names = (rec.txHash ? 1 : 0) + (rec.responseTimeTx ? 1 : 0);
@@ -259,9 +264,10 @@ if (VERIFY) {
   if (held !== named) {
     const ahead = compared.filter((a) => a.held > a.names);
     console.log(
-      `The register holds ${held} record(s) from this writer across ${compared.length} agent(s); this machine's ` +
-        `file names ${named}. The chain is the count that is true.` +
-        (ahead.length ? ` Unnamed here: ${ahead.map((a) => `${a.agentId} (+${a.held - a.names})`).join(", ")}.` : ""),
+      `The register holds ${held} record(s) from this writer across ${compared.length} agent(s); this file names ` +
+        `${named}. The difference is earlier rounds, not a fault: one hash is kept per kind per agent, so an ` +
+        `older record about the same agent is no longer named here and could not be revoked from this machine.` +
+        (ahead.length ? ` Forgotten: ${ahead.map((a) => `${a.agentId} (+${a.held - a.names})`).join(", ")}.` : ""),
     );
   }
   if (unreadable > 0) {

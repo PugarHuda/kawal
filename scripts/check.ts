@@ -1957,8 +1957,9 @@ assert.equal(pct(0), "0.00%");
 {
   // `at` decides whether an agent is written about again. The responseTime
   // branch used to let the previous entry overwrite the `at` it had just set,
-  // so an agent stayed permanently due and collected a duplicate record on
-  // every run — ten of them, measured against the chain on 2026-08-31.
+  // leaving an agent permanently due. No duplicate was ever traced to it, but
+  // `at` is the only thing between a measurement and a second publication, and
+  // a register full of unmeasured repetition is the thing Kawal exists about.
   const prev = {
     txHash: "0xaaa" as string,
     at: "2026-08-30T00:00:00.000Z",

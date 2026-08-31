@@ -30,9 +30,11 @@ export type PublishedRecord = {
  * stayed due on every subsequent run, and had another record written about it
  * each time.
  *
- * Measured on 2026-08-31: 102 records stood on-chain against the 92 this file
- * named — ten agents carrying exactly one duplicate apiece, and about
- * 0.0001 BNB of gas spent saying the same thing twice.
+ * No duplicate was ever traced to it — the 102-against-92 gap that prompted
+ * the look turned out to be earlier rounds this file no longer names, one hash
+ * being kept per kind per agent. The bug is real all the same, and the window
+ * it opens is a day wide: `at` is the only thing standing between a
+ * measurement and being published a second time.
  *
  * The previous entry goes first, always. Everything after it is this write.
  */
