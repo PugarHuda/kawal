@@ -37,6 +37,7 @@ import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
 import { registeredOn } from "../lib/unindexed.ts";
+import { noteWrite } from "../lib/published.ts";
 import { ScanAgentDetailSchema } from "../lib/scan.schema.ts";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
@@ -1952,4 +1953,38 @@ assert.equal(pct(0), "0.00%");
   assert.equal(ScanAgentDetailSchema.parse({ ...fromIndex, indexed: "no" }).indexed, true, "junk falls back to indexed");
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents");
+// -- the record of what was already written --------------------------------
+{
+  // `at` decides whether an agent is written about again. The responseTime
+  // branch used to let the previous entry overwrite the `at` it had just set,
+  // so an agent stayed permanently due and collected a duplicate record on
+  // every run — ten of them, measured against the chain on 2026-08-31.
+  const prev = {
+    txHash: "0xaaa" as string,
+    at: "2026-08-30T00:00:00.000Z",
+    checks: 40,
+    evidence: "ipfs://old",
+  };
+  const now = () => "2026-08-31T12:00:00.000Z";
+
+  const afterResponseTime = noteWrite(prev, "responseTime", "0xbbb", 114, "ipfs://new", now);
+  assert.equal(afterResponseTime.at, "2026-08-31T12:00:00.000Z", "the write must advance `at`, or it is written again tomorrow");
+  assert.equal(afterResponseTime.checks, 114);
+  assert.equal(afterResponseTime.responseTimeTx, "0xbbb");
+  assert.equal(afterResponseTime.responseTimeEvidence, "ipfs://new");
+  // The uptime side of the entry is carried, not clobbered: both records are
+  // about the same agent and the revoke path needs either hash.
+  assert.equal(afterResponseTime.txHash, "0xaaa");
+  assert.equal(afterResponseTime.evidence, "ipfs://old");
+
+  const afterUptime = noteWrite(prev, "uptime", "0xccc", 114, null, now);
+  assert.equal(afterUptime.at, "2026-08-31T12:00:00.000Z");
+  assert.equal(afterUptime.txHash, "0xccc", "a fresh uptime record replaces the old one");
+  assert.equal(afterUptime.responseTimeTx, undefined);
+  // A pin that failed carries no evidence key rather than an undefined one,
+  // so `--verify` reads the record as inline rather than as a broken CID.
+  assert.equal(afterUptime.evidence, "ipfs://old", "an unpinned write leaves the previous CID alone");
+  assert.equal(noteWrite(undefined, "uptime", "0xddd", 12, null, now).evidence, undefined);
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record");

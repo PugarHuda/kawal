@@ -43,6 +43,7 @@ import { uploadEvidence } from "../lib/scan.auth.ts";
 import { proveAgent } from "../lib/probe.ts";
 import { uptimeFor } from "../lib/uptime.ts";
 import { publicClientFor } from "../lib/rpc.ts";
+import { noteWrite, type PublishedRecord } from "../lib/published.ts";
 import { adminKey, hasAdminKey, KEY_FILE } from "../lib/vault.ts";
 import { explorerTx } from "../lib/altana.ts";
 import { BSC_MAINNET } from "../lib/chains.ts";
@@ -75,23 +76,12 @@ const CHAIN = BSC_MAINNET;
  */
 const PUBLISHED_FILE = ".kawal-published.json";
 const REPUBLISH_AFTER_MS = 24 * 3_600_000;
-type Published = Record<
-  string,
-  {
-    txHash: string;
-    at: string;
-    checks: number;
-    responseTimeTx?: string;
-    revokedTx?: string[];
-    /** `ipfs://{cid}` when the evidence was pinned; absent for the data: URI records. */
-    evidence?: string;
-    responseTimeEvidence?: string;
-  }
->;
+type Published = Record<string, PublishedRecord>;
 const published: Published = existsSync(PUBLISHED_FILE)
   ? (JSON.parse(readFileSync(PUBLISHED_FILE, "utf8")) as Published)
   : {};
 const save = () => writeFileSync(PUBLISHED_FILE, JSON.stringify(published, null, 2));
+
 const recent = (agentId: string) => {
   const p = published[agentId];
   return p !== undefined && Date.now() - Date.parse(p.at) < REPUBLISH_AFTER_MS;
@@ -232,7 +222,51 @@ if (VERIFY) {
       }
     }
   }
+  // What the file says against what the register holds. The file is Kawal's
+  // own bookkeeping and the register is the truth, and they came apart once:
+  // on 2026-08-31 the chain held 102 records where the file named 92, because
+  // `noteWrite` let a stale `at` survive a responseTime write and ten agents
+  // were written about twice. Nothing surfaced that until it was looked for by
+  // hand, which is the wrong way to find out you are adding to the noise.
+  const perAgent = await Promise.all(
+    Object.entries(published).map(async ([agentId, rec]) => {
+      const names = (rec.txHash ? 1 : 0) + (rec.responseTimeTx ? 1 : 0);
+      try {
+        const held = Number(
+          await rpc.readContract({
+            address: registryFor(CHAIN),
+            abi: FEEDBACK_ABI,
+            functionName: "getLastIndex",
+            args: [BigInt(agentId), account.address],
+          }),
+        );
+        return { agentId, names, held };
+      } catch {
+        return { agentId, names, held: null };
+      }
+    }),
+  );
+  // Compared over the agents that answered, not over all of them. Summing a
+  // failed read as zero would make the chain look short of the file and print
+  // the opposite of the truth; skipping the comparison entirely because one
+  // read failed would say nothing at all, which is how this went unnoticed.
+  const compared = perAgent.filter((a): a is { agentId: string; names: number; held: number } => a.held !== null);
+  const held = compared.reduce((sum, a) => sum + a.held, 0);
+  const named = compared.reduce((sum, a) => sum + a.names, 0);
+  const unreadable = perAgent.length - compared.length;
+
   console.log(`\n${landed} of ${total} record(s) are on-chain exactly as written.`);
+  if (held !== named) {
+    const ahead = compared.filter((a) => a.held > a.names);
+    console.log(
+      `The register holds ${held} record(s) from this writer across ${compared.length} agent(s); this machine's ` +
+        `file names ${named}. The chain is the count that is true.` +
+        (ahead.length ? ` Unnamed here: ${ahead.map((a) => `${a.agentId} (+${a.held - a.names})`).join(", ")}.` : ""),
+    );
+  }
+  if (unreadable > 0) {
+    console.log(`${unreadable} agent(s) could not be counted on-chain and were left out of that comparison.`);
+  }
   if (unchecked > 0) {
     console.log(
       `${unchecked} more stand on-chain but could not have their evidence read back — no gateway served it. ` +
@@ -517,18 +551,7 @@ for (const { m, kind, record: built, gas } of affordable) {
     nonce += 1;
     // Written after each receipt rather than at the end, so a run that dies
     // halfway still knows what it sent.
-    if (kind === "uptime") {
-      published[m.agentId] = { ...published[m.agentId], txHash: hash, at: new Date().toISOString(), checks: m.checks, ...(evidence ? { evidence } : {}) };
-    } else {
-      published[m.agentId] = {
-        txHash: published[m.agentId]?.txHash ?? hash,
-        at: new Date().toISOString(),
-        checks: m.checks,
-        ...published[m.agentId],
-        responseTimeTx: hash,
-        ...(evidence ? { responseTimeEvidence: evidence } : {}),
-      };
-    }
+    published[m.agentId] = noteWrite(published[m.agentId], kind, hash, m.checks, evidence);
     save();
   } catch (e) {
     // One rejected record must not abandon the rest: they are independent
