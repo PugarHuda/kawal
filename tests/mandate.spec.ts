@@ -160,8 +160,46 @@ test("every seat carries a hire stub that says exactly why it cannot be pressed"
   const reason = page.getByText(/^Not available: /).first();
   await expect(reason).toBeVisible();
   expect(await reason.textContent()).toMatch(
-    /no mandate wallet on this instance|\$U could not be read|no agent is named for this seat|short [\d.]+ \$U until funded/,
+    /no mandate wallet on this instance|\$U could not be read|no agent is named for this seat|short [\d.]+ \$U for even the smallest job/,
   );
+});
+
+test("the hire budget is a job's price, bounded by the seat's cap", async ({ page, request }) => {
+  await page.goto("/mandate?capital=10000&days=30");
+
+  // The cap and the budget were the same number, so hiring on the first seat
+  // asked for 3,500 $U — a day's whole ceiling escrowed into one job, on a
+  // page whose argument is that a mandate cannot be crossed. The one job this
+  // project has actually funded cost 1 $U, through the CLI, because the button
+  // was unreachable.
+  // Where the stub is offered at all, the budget is a field the operator fills
+  // and the cap is its maximum — not its value.
+  const budgets = page.locator('input[name="budget"]');
+  for (let i = 0; i < (await budgets.count()); i++) {
+    const b = budgets.nth(i);
+    const max = Number(await b.getAttribute("max"));
+    const value = Number(await b.inputValue());
+    expect(value).toBeGreaterThan(0);
+    expect(value).toBeLessThanOrEqual(max);
+    expect(value).toBeLessThan(3500);
+  }
+
+  // And the ceiling is the server's, not the browser's: a posted budget over
+  // the seat's cap is refused before anything is quoted or sent. Without an
+  // operator session this is refused earlier, which is the same guarantee.
+  const res = await request.post("/mandate", {
+    form: {
+      provider: "0x0475C8Fa8ac94888eAB9B4329b93C263708A9A07",
+      task: "over the cap on purpose",
+      budget: "999999",
+      seat: "Risk officer",
+      capital: "10000",
+      days: "30",
+    },
+    headers: { "next-action": "hire" },
+    maxRedirects: 0,
+  });
+  expect(res.status(), "a budget of 999,999 $U must never be accepted").not.toBe(200);
 });
 
 test("the control room shows what the wallet holds beside the caps", async ({ page }) => {

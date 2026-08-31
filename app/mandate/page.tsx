@@ -177,7 +177,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
   ]);
   // A seat can only be hired for when the wallet can pay and the key that
   // pays is here; the operator gate is checked again inside the action.
-  const hireCtx: Hiring = { buyer, uHeldRaw, operator, configured, canHire: canRevoke };
+  const hireCtx: Hiring = { buyer, uHeldRaw, operator, configured, canHire: canRevoke, capital, days };
 
   // The cut, from the wallet's position rather than from a sentence. With no
   // mandate wallet there is no position to read, and the form says so.
@@ -804,6 +804,10 @@ type Hiring = {
   configured: boolean;
   /** The admin key is on this instance. */
   canHire: boolean;
+  /** The mandate these seats were planned from, so the hire can name it and
+      the server can derive the same cap rather than trust a hidden field. */
+  capital: number;
+  days: number;
 };
 
 type FilledBy = { chainId: number; tokenId: string; name: string | null; owner: string | null } | null;
@@ -958,9 +962,26 @@ function RatesLine({ rates, venus, aave }: { rates: VenueRates | null; venus: bo
  * operator unlocked. Every other state draws the stub disabled with the
  * exact thing missing — for the common case, the shortfall to the unit.
  */
+/**
+ * What the budget field starts at.
+ *
+ * One $U, because that is what the one job Kawal has actually funded cost
+ * (56673, on 2026-08-31) and because a form that opens on a number nobody can
+ * afford is a form nobody presses. A seat whose cap is smaller than this opens
+ * at the cap instead.
+ */
+const DEFAULT_JOB_BUDGET = 1_000000000000000000n;
+
 function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit: bigint; filledBy: FilledBy; hiring: Hiring }) {
   const provider = filledBy?.owner && /^0x[0-9a-fA-F]{40}$/.test(filledBy.owner) ? filledBy.owner : null;
-  const shortfall = hiring.uHeldRaw === null ? null : hiring.uHeldRaw >= limit ? 0n : limit - hiring.uHeldRaw;
+  // What one job escrows, not what the session may spend in a day. These were
+  // the same number until now, which asked an operator to hold a full day's
+  // cap — 3,500 $U on the first seat — before a single job could be funded,
+  // and would have escrowed all of it into that one job if they had. The cap
+  // bounds the session; the budget buys the work.
+  const suggested = limit < DEFAULT_JOB_BUDGET ? limit : DEFAULT_JOB_BUDGET;
+  const shortfall =
+    hiring.uHeldRaw === null ? null : hiring.uHeldRaw >= suggested ? 0n : suggested - hiring.uHeldRaw;
   const period = plan.permissions.spend?.[0]?.period ?? "day";
 
   const why = !hiring.buyer
@@ -972,7 +993,7 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
         : !provider
           ? "the registry did not answer with the agent's owner address, which is who the job would pay"
           : shortfall !== null && shortfall > 0n
-            ? `short ${formatU(shortfall)} until funded — send $U to ${short(hiring.buyer)}`
+            ? `short ${formatU(shortfall)} for even the smallest job — send $U to ${short(hiring.buyer)}`
             : !hiring.canHire
               ? "this instance holds no admin key, so it cannot fund a job; hiring happens where the wallet key lives"
               : !hiring.configured
@@ -1003,13 +1024,30 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
           <form action={hireAction} className="mt-2 flex flex-wrap items-center gap-3">
             <input type="hidden" name="provider" value={provider} />
             <input type="hidden" name="task" value={task} />
-            <input type="hidden" name="budget" value={formatUnits(limit, 18)} />
+            <input type="hidden" name="seat" value={plan.seat} />
+            <input type="hidden" name="capital" value={String(hiring.capital)} />
+            <input type="hidden" name="days" value={String(hiring.days)} />
+            <label className="typed flex items-center gap-2 text-[0.85rem]">
+              <span className="cap">budget</span>
+              <input
+                type="number"
+                name="budget"
+                defaultValue={formatUnits(suggested, 18)}
+                min="0.000001"
+                max={formatUnits(limit, 18)}
+                step="0.01"
+                required
+                className="w-28 border-[1.5px] border-rule bg-transparent px-2 py-1 tnum"
+              />
+              <span className="text-carbon-3">$U</span>
+            </label>
             <button type="submit" className="counterfoil counterfoil--quiet">
               Hire on ERC-8183
             </button>
             <p className="stamp-note max-w-[44ch]">
               Funds a job for {filledBy?.name ?? provider} from the admin wallet: five calls in one relay intent, the
-              escrow released after the dispute window.
+              escrow released after the dispute window. The budget is what this one job escrows; the cap above is the
+              most the seat may spend in a {period}, and the server refuses a budget over it.
             </p>
           </form>
         ) : (

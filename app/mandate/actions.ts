@@ -5,7 +5,7 @@ import { signerFromPrivateKey } from "@altananetwork/sdk";
 import { revokeSeat, hasAdminKey, loadLedger } from "@/lib/sessions";
 import { adminKey, mutateLedger } from "@/lib/vault";
 import { clientFor, grantMandate } from "@/lib/altana";
-import { USDT_BSC, MAX_PLANNER_CAPITAL, MAX_DURATION_DAYS, usdtToRaw } from "@/lib/mandate";
+import { USDT_BSC, MAX_PLANNER_CAPITAL, MAX_DURATION_DAYS, usdtToRaw, planMandate } from "@/lib/mandate";
 import { BSC_MAINNET } from "@/lib/chains";
 import { assertOperator, unlock, lock } from "@/lib/operator";
 import { hireQuote, hireAgent, formatU, U_DECIMALS } from "@/lib/erc8183";
@@ -123,6 +123,37 @@ export async function hireAction(formData: FormData) {
     throw new Error(`budget must be between 0 and ${MAX_PLANNER_CAPITAL.toLocaleString("en-US")} $U`);
   }
   const budgetRaw = parseUnits(budget, U_DECIMALS);
+
+  // The cap is the point of the whole form, and this path did not enforce it:
+  // the only ceiling here was MAX_PLANNER_CAPITAL, a trillion. It is derived
+  // again from the mandate rather than read from a hidden field, because a
+  // hidden field is whatever the browser sends.
+  const seat = formData.get("seat");
+  const capital = formData.get("capital");
+  const days = formData.get("days");
+  if (typeof seat !== "string" || typeof capital !== "string" || typeof days !== "string") {
+    throw new Error("the seat and the mandate it belongs to must be named");
+  }
+  if (!/^\d+(\.\d{1,18})?$/.test(capital) || !/^\d+$/.test(days)) {
+    throw new Error("the mandate's capital and duration must be numbers");
+  }
+  // Built exactly as the page builds it, so the cap enforced here is the cap
+  // the form printed. `now` only moves the expiry, never the spend limit.
+  const plans = planMandate({
+    chainId: BSC_MAINNET,
+    capital: usdtToRaw(Number(capital)),
+    token: USDT_BSC,
+    durationDays: Number(days),
+    now: Math.floor(Date.now() / 1000),
+  });
+  const plan = plans.find((pl) => pl.seat === seat);
+  if (!plan) throw new Error(`no seat named ${JSON.stringify(seat)} in this mandate`);
+  const cap = plan.permissions.spend?.[0]?.limit ?? 0n;
+  if (budgetRaw > cap) {
+    throw new Error(
+      `a job of ${formatU(budgetRaw)} would exceed the ${plan.seat} seat's cap of ${formatU(cap)}; nothing was sent`,
+    );
+  }
 
   const q = await hireQuote({ provider: provider as Address, task, budgetRaw, chainId: BSC_MAINNET });
   if (q.shortfallRaw > 0n) {
