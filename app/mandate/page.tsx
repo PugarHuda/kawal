@@ -27,7 +27,7 @@ import { revokeAction, unlockAction, lockAction, grantAction, hireAction } from 
 import { isOperator, operatorConfigured } from "@/lib/operator";
 import { readHealth, effectiveHealthFactor, describeHealth, type HealthReading } from "./health";
 import { readRates, pct, type VenueRates } from "./rates";
-import { marketSummary, uHeld, buyerAddress, formatU, ERC8183_ADDRESSES, type MarketSummary } from "@/lib/erc8183";
+import { marketSummary, uHeld, buyerAddress, ERC8183_ADDRESSES, type MarketSummary } from "@/lib/erc8183";
 
 /*
  * Form K-5: the mandate.
@@ -979,9 +979,14 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
   // cap — 3,500 $U on the first seat — before a single job could be funded,
   // and would have escrowed all of it into that one job if they had. The cap
   // bounds the session; the budget buys the work.
-  const suggested = limit < DEFAULT_JOB_BUDGET ? limit : DEFAULT_JOB_BUDGET;
-  const shortfall =
-    hiring.uHeldRaw === null ? null : hiring.uHeldRaw >= suggested ? 0n : suggested - hiring.uHeldRaw;
+  //
+  // The form opens at whichever of these is smallest, and is offered whenever
+  // the wallet holds anything at all: gating on the suggested figure hid the
+  // whole control behind a number the operator was free to change, so a wallet
+  // holding 0.09 $U was told it could not fund a job of 0.05.
+  const affordable = hiring.uHeldRaw ?? 0n;
+  const suggested = [DEFAULT_JOB_BUDGET, limit, affordable].reduce((a, b) => (b < a ? b : a));
+  const shortfall = hiring.uHeldRaw === null ? null : affordable > 0n ? 0n : limit;
   const period = plan.permissions.spend?.[0]?.period ?? "day";
 
   const why = !hiring.buyer
@@ -993,7 +998,7 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
         : !provider
           ? "the registry did not answer with the agent's owner address, which is who the job would pay"
           : shortfall !== null && shortfall > 0n
-            ? `short ${formatU(shortfall)} for even the smallest job — send $U to ${short(hiring.buyer)}`
+            ? `the wallet holds no $U at all — send some to ${short(hiring.buyer)}`
             : !hiring.canHire
               ? "this instance holds no admin key, so it cannot fund a job; hiring happens where the wallet key lives"
               : !hiring.configured
@@ -1034,7 +1039,7 @@ function HireStub({ plan, limit, filledBy, hiring }: { plan: SessionPlan; limit:
                 name="budget"
                 defaultValue={formatUnits(suggested, 18)}
                 min="0.000001"
-                max={formatUnits(limit, 18)}
+                max={formatUnits(limit < affordable ? limit : affordable, 18)}
                 step="0.01"
                 required
                 className="w-28 border-[1.5px] border-rule bg-transparent px-2 py-1 tnum"

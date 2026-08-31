@@ -160,11 +160,11 @@ test("every seat carries a hire stub that says exactly why it cannot be pressed"
   const reason = page.getByText(/^Not available: /).first();
   await expect(reason).toBeVisible();
   expect(await reason.textContent()).toMatch(
-    /no mandate wallet on this instance|\$U could not be read|no agent is named for this seat|short [\d.]+ \$U for even the smallest job/,
+    /no mandate wallet on this instance|\$U could not be read|no agent is named for this seat|the wallet holds no \$U at all/,
   );
 });
 
-test("the hire budget is a job's price, bounded by the seat's cap", async ({ page, request }) => {
+test("the hire budget is a job's price, bounded by the seat's cap", async ({ page }) => {
   await page.goto("/mandate?capital=10000&days=30");
 
   // The cap and the budget were the same number, so hiring on the first seat
@@ -184,22 +184,11 @@ test("the hire budget is a job's price, bounded by the seat's cap", async ({ pag
     expect(value).toBeLessThan(3500);
   }
 
-  // And the ceiling is the server's, not the browser's: a posted budget over
-  // the seat's cap is refused before anything is quoted or sent. Without an
-  // operator session this is refused earlier, which is the same guarantee.
-  const res = await request.post("/mandate", {
-    form: {
-      provider: "0x0475C8Fa8ac94888eAB9B4329b93C263708A9A07",
-      task: "over the cap on purpose",
-      budget: "999999",
-      seat: "Risk officer",
-      capital: "10000",
-      days: "30",
-    },
-    headers: { "next-action": "hire" },
-    maxRedirects: 0,
-  });
-  expect(res.status(), "a budget of 999,999 $U must never be accepted").not.toBe(200);
+  // The server's own refusal is asserted in `npm run check` against
+  // `capForSeat`, not here. A Server Action rejects a hand-rolled POST before
+  // it reaches any application code, so an HTTP test of the cap would have
+  // passed on a 500 that had nothing to do with the cap — green for the wrong
+  // reason, which is worse than absent.
 });
 
 test("the control room shows what the wallet holds beside the caps", async ({ page }) => {

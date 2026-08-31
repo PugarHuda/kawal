@@ -311,6 +311,24 @@ export type SessionPlan = {
 export class UnsafeMandateError extends Error {}
 
 /**
+ * What one seat of a mandate may spend in its period.
+ *
+ * Pulled out of the hire action so the guarantee is testable without a browser.
+ * The action used to accept any budget up to `MAX_PLANNER_CAPITAL` — the cap
+ * was printed on the form and enforced nowhere — and a black-box POST could
+ * not prove otherwise: a server action rejects a hand-rolled body before it
+ * reaches any of this, so an HTTP test would have passed on the wrong 500.
+ *
+ * Null when the mandate names no such seat, which a caller must treat as a
+ * refusal rather than as "no limit".
+ */
+export function capForSeat(mandate: Mandate, seat: string): bigint | null {
+  const plan = planMandate(mandate).find((p) => p.seat === seat);
+  if (!plan) return null;
+  return plan.permissions.spend?.[0]?.limit ?? null;
+}
+
+/**
  * The longest a mandate may run.
  *
  * Without a ceiling, `planMandate` accepted any positive number and then threw

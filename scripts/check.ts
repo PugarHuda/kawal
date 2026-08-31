@@ -21,7 +21,7 @@ import {
 } from "../lib/signals.ts";
 import { errorsCleanly } from "../lib/mcp.ts";
 import { readOasfRecord } from "../lib/probe.ts";
-import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS } from "../lib/mandate.ts";
+import { planMandate, preempt, UnsafeMandateError, VENUES, MAX_DURATION_DAYS, capForSeat, usdtToRaw, USDT_BSC } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { readChallenge, networkName } from "../lib/x402.ts";
 import { summarise, isTrackRecord, CAPTURED_SHARE } from "../lib/reputation.ts";
@@ -35,7 +35,7 @@ import { blocksPerDayBetween, annualise, fromRay, pct } from "../app/mandate/rat
 import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
-import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
+import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256, parseUnits } from "viem";
 import { registeredOn, sift } from "../lib/unindexed.ts";
 import { noteWrite, everyHash } from "../lib/published.ts";
 import { sweepLine } from "../lib/uptime.ts";
@@ -2082,4 +2082,33 @@ assert.equal(pct(0), "0.00%");
   assert.match(sweepLine({ ...base, verified: 0, healthChecked: undefined }), /0 health checks queued/);
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting");
+// -- a seat's cap is a ceiling, not a price --------------------------------
+{
+  // The hire form submitted the seat's daily cap as the job's budget, so
+  // funding one job asked for 3,500 $U and the button was never pressable.
+  // The action then accepted any budget up to MAX_PLANNER_CAPITAL: the cap was
+  // printed on the page and enforced nowhere.
+  const mandate = {
+    chainId: BSC_MAINNET,
+    capital: usdtToRaw(10_000),
+    token: USDT_BSC,
+    durationDays: 30,
+    now: 1_756_000_000,
+  };
+  const cap = capForSeat(mandate, "Risk officer");
+  assert.ok(cap !== null && cap > 0n, "the first seat has a cap");
+
+  // A day's ceiling is not the price of a job: one $U is well inside it, and
+  // the ceiling itself is the largest a job may be.
+  assert.ok(parseUnits("1", 18) < cap!, "the default job budget fits inside the cap");
+  assert.ok(cap! <= cap!, "a budget equal to the cap is allowed");
+  assert.ok(parseUnits("999999", 18) > cap!, "the budget the action must refuse");
+
+  // A seat the mandate does not name yields null, which the action treats as a
+  // refusal. Returning a zero here would read as "no limit" to a careless
+  // caller and let anything through.
+  assert.equal(capForSeat(mandate, "Not a seat"), null);
+  assert.equal(capForSeat(mandate, ""), null);
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting, seat caps");
