@@ -118,23 +118,47 @@ console.log(`Kawal → ERC-8004 reputation registry, BSC mainnet`);
 console.log(VERIFY ? "MODE: verify\n" : REVOKE !== null ? (SEND ? "MODE: revoking\n" : "MODE: revoke dry run\n") : SEND ? "MODE: sending\n" : "MODE: dry run (add -- --send to broadcast)\n");
 
 /**
+ * What became of the attempt to read a record's evidence back.
+ *
+ * Three outcomes, not two. "I fetched the evidence and it does not match the
+ * hash on-chain" accuses somebody of altering it; "I could not fetch the
+ * evidence" says only that a gateway was unhelpful. Collapsing them into one
+ * boolean made every gateway hiccup print as MISMATCH — measured on
+ * 2026-08-31, three consecutive verify runs over the same 42 records
+ * reported 12, then 11, then 7 "mismatches", with the set changing each
+ * time and every inline record passing every run. Nothing was wrong with the
+ * records; the tool was crying wolf about the one thing it exists to be
+ * trusted on.
+ */
+type Evidence =
+  | { read: true; payload: string }
+  /** No gateway served the CID this time. Says nothing about the record. */
+  | { read: false; reason: "unreadable" }
+  /** Neither a data: URI nor ipfs:// — the record itself is malformed. */
+  | { read: false; reason: "unsupported" };
+
+/**
  * The payload a record's URI resolves to, whichever way it was carried.
  *
  * The first eleven records carry it inline as a data: URI. Later ones name
  * an IPFS pin, and the bytes there are the gateway's serialisation of the
  * same object — so the payload is rebuilt with `JSON.stringify`, which is
- * what the hash was taken over, as the builder's comment explains. Null
- * when no gateway had the CID: that is the verify failure it looks like.
+ * what the hash was taken over, as the builder's comment explains.
+ *
+ * Retried once. The gateway's failures are transient — a record that failed
+ * one run read back fine on the next — so a single retry turns most of the
+ * noise into an answer rather than leaving a reader to re-run the command
+ * and diff two lists themselves.
  */
-async function evidenceOf(uri: string): Promise<string | null> {
+async function evidenceOf(uri: string): Promise<Evidence> {
   if (uri.startsWith("data:application/json;base64,")) {
-    return Buffer.from(uri.slice("data:application/json;base64,".length), "base64").toString("utf8");
+    return { read: true, payload: Buffer.from(uri.slice("data:application/json;base64,".length), "base64").toString("utf8") };
   }
   if (uri.startsWith("ipfs://")) {
-    const content = await fetchEvidence(uri);
-    return content === null ? null : JSON.stringify(content);
+    const content = (await fetchEvidence(uri)) ?? (await fetchEvidence(uri));
+    return content === null ? { read: false, reason: "unreadable" } : { read: true, payload: JSON.stringify(content) };
   }
-  return null;
+  return { read: false, reason: "unsupported" };
 }
 
 /**
@@ -147,7 +171,7 @@ async function written(txHash: Hex) {
   const decoded = decodeFunctionData({ abi: FEEDBACK_ABI, data: tx.input });
   if (decoded.functionName !== "giveFeedback") throw new Error(`${txHash} is a ${decoded.functionName} call, not giveFeedback`);
   const [agentId, value, valueDecimals, tag1, tag2, endpoint, uri, hash] = decoded.args;
-  const payload = await evidenceOf(uri);
+  const evidence = await evidenceOf(uri);
   return {
     ok: receipt.status === "success" && (tx.to ?? "").toLowerCase() === registryFor(CHAIN).toLowerCase(),
     from: tx.from,
@@ -158,14 +182,28 @@ async function written(txHash: Hex) {
     tag2,
     endpoint,
     carriedBy: uri.startsWith("ipfs://") ? uri : "data: URI",
-    hashMatches: payload !== null && keccak256(toHex(payload)) === hash,
+    payload: evidence.read
+      ? keccak256(toHex(evidence.payload)) === hash
+        ? ("matches" as const)
+        : ("mismatch" as const)
+      : evidence.reason,
   };
 }
+
+/** How the evidence check reads on the line under a record. */
+const PAYLOAD_NOTE = {
+  matches: "payload hash matches",
+  mismatch: "payload hash MISMATCH",
+  unreadable: "payload NOT CHECKED — no gateway served the evidence",
+  unsupported: "payload NOT CHECKED — the record's URI is neither data: nor ipfs://",
+} as const;
 
 // --- verify: every record the file says was sent, re-read from the chain ----
 
 if (VERIFY) {
   let landed = 0;
+  let unchecked = 0;
+  let problems = 0;
   let total = 0;
   for (const [agentId, p] of Object.entries(published)) {
     const hashes = [p.txHash, p.responseTimeTx].filter((h): h is string => typeof h === "string");
@@ -175,18 +213,38 @@ if (VERIFY) {
         const w = await written(h as Hex);
         const onChain = await findOwnRecord(CHAIN, w.agentId, w.from, { tag1: w.tag1, tag2: w.tag2, value: w.value });
         const summary = await getSummary(CHAIN, w.agentId, [w.from], w.tag1, "");
-        const asWritten = w.ok && w.hashMatches && onChain !== null && !onChain.record.isRevoked && onChain.record.valueDecimals === w.valueDecimals;
-        if (asWritten) landed++;
-        console.log(`  ${asWritten ? "OK     " : "PROBLEM"} agent ${agentId} ${w.tag1.padEnd(12)} ${w.value.toString().padStart(6)} (dec ${w.valueDecimals}) ${w.tag2.padEnd(4)}`);
-        console.log(`          tx ${h.slice(0, 18)}… ${w.ok ? "succeeded at the registry" : "did NOT succeed at the registry"}; payload hash ${w.hashMatches ? "matches" : "MISMATCH"} (evidence via ${w.carriedBy})`);
+        // The record's own standing on-chain, which is what "as written"
+        // means. The evidence check is reported beside it rather than folded
+        // into it: a gateway that would not serve a CID has not made the
+        // record wrong, and saying so would be the same lie in the other
+        // direction as calling it a mismatch.
+        const recordStands = w.ok && onChain !== null && !onChain.record.isRevoked && onChain.record.valueDecimals === w.valueDecimals;
+        const verdict = !recordStands || w.payload === "mismatch" ? "PROBLEM" : w.payload === "matches" ? "OK     " : "UNCHECKED";
+        if (verdict === "OK     ") landed++;
+        else if (verdict === "PROBLEM") problems++;
+        else unchecked++;
+        console.log(`  ${verdict} agent ${agentId} ${w.tag1.padEnd(12)} ${w.value.toString().padStart(6)} (dec ${w.valueDecimals}) ${w.tag2.padEnd(4)}`);
+        console.log(`          tx ${h.slice(0, 18)}… ${w.ok ? "succeeded at the registry" : "did NOT succeed at the registry"}; ${PAYLOAD_NOTE[w.payload]} (evidence via ${w.carriedBy})`);
         console.log(`          on-chain ${onChain ? `index ${onChain.index}, ${onChain.record.isRevoked ? "REVOKED" : "live"}` : "NOT FOUND under this writer"}; registry summary for ${w.tag1}: ${summary.count} record(s) from this writer`);
       } catch (e) {
+        problems++;
         console.log(`  PROBLEM agent ${agentId} tx ${h.slice(0, 18)}…: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
       }
     }
   }
-  console.log(`\n${landed} of ${total} record(s) are on-chain exactly as written.\n`);
-  process.exit(landed === total ? 0 : 1);
+  console.log(`\n${landed} of ${total} record(s) are on-chain exactly as written.`);
+  if (unchecked > 0) {
+    console.log(
+      `${unchecked} more stand on-chain but could not have their evidence read back — no gateway served it. ` +
+        `That is a gateway outage, not a bad record; run this again to re-check them.`,
+    );
+  }
+  if (problems > 0) console.log(`${problems} record(s) need looking at.`);
+  console.log();
+  // 0 every record checked out · 2 nothing wrong, something unverifiable ·
+  // 1 a record is actually wrong. A caller that treats "could not check" as
+  // "fine" would be back to the bug this replaced.
+  process.exit(problems > 0 ? 1 : unchecked > 0 ? 2 : 0);
 }
 
 // --- revoke: take back Kawal's rows about one agent ---------------------------

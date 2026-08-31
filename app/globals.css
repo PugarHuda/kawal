@@ -34,10 +34,10 @@
   --rule-faint: #d8cfb6;
 
   /* Stamp inks: the verdicts. One ink per outcome, never mixed. */
-  --stamp-violet: #4a2a7d;   /* TELAH DIPERIKSA — inspected and answered */
-  --stamp-blue: #1f4e9c;     /* DITERIMA — reached, not in the declared way */
-  --stamp-red: #b5271f;      /* DITOLAK — called, no answer */
-  --stamp-grey: #5a5850;     /* BELUM DIPERIKSA — not yet called */
+  --stamp-violet: #4a2a7d;   /* HIREABLE — inspected and answered */
+  --stamp-blue: #1f4e9c;     /* REACHABLE — reached, not in the declared way */
+  --stamp-red: #b5271f;      /* DOES NOT ANSWER — called, no answer */
+  --stamp-grey: #5a5850;     /* REGISTERED ONLY — not yet called */
   --stamp-green: #2f6b3a;    /* LUNAS — paid, confirmed */
 
   /* Seats, as the inks the four manifest lines are ruled in */

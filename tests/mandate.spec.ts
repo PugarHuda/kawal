@@ -61,13 +61,13 @@ test("garbage parameters fall back to defaults", async ({ page }) => {
 });
 
 /**
- * Bagian C reads the AgenticCommerce kernel by job id. The numbers move
- * with the market, so the assertions are about shape and honesty: every
- * cell holds a number, the newest job carries a status the kernel defines,
- * and the panel for this wallet's jobs says "none" with the next id rather
- * than showing a job that does not exist.
+ * Part C reads the AgenticCommerce kernel by job id. The numbers move with
+ * the market, so the assertions are about shape and honesty: every cell
+ * holds a number, the newest job carries a status the kernel defines, and
+ * the panel for this wallet's jobs reports whichever of its three states is
+ * true — no wallet, no jobs in the window, or the jobs themselves.
  */
-test("the ERC-8183 market is read off the kernel, and the empty job panel is honest", async ({ page }) => {
+test("the ERC-8183 market is read off the kernel, and the job panel is honest", async ({ page }) => {
   await page.goto("/mandate");
   const market = page.locator("section").filter({ hasText: "ERC-8183 market" });
   await expect(market).toBeVisible();
@@ -89,13 +89,35 @@ test("the ERC-8183 market is read off the kernel, and the empty job panel is hon
     /bscscan\.com\/address\/0xEa4DAa3100A767e86FDed867729ae7446476EBA6/i,
   );
 
-  // This wallet has funded no job. The panel says so, with the next id,
-  // and prints no job row of its own.
+  // Whichever of the panel's three states is true today, it has to be the
+  // true one and it has to be complete. This asserted the empty state
+  // outright until the wallet funded job 56673 on 2026-08-31 and the panel
+  // correctly stopped saying "None" — the test was encoding a fact about the
+  // world, not a property of the page, so it failed for the one reason that
+  // should have made it pass.
   const panel = market.locator("div", { hasText: "jobs this wallet funded" }).last();
   const text = (await panel.textContent()) ?? "";
   if (/No mandate wallet on this instance/.test(text)) return;
-  expect(text).toMatch(/None\. Wallet 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} is the client on none of the newest \d+ jobs/);
-  expect(text).toMatch(/next job the kernel will number is #\d+/);
+
+  const rows = panel.locator("ol li");
+  if ((await rows.count()) === 0) {
+    // Nothing of this wallet's in the window: say so, and name the id a hire
+    // would take next rather than leaving the reader to guess.
+    expect(text).toMatch(/None\. Wallet 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} is the client on none of the newest \d+ jobs/);
+    expect(text).toMatch(/next job the kernel will number is #\d+/);
+    return;
+  }
+
+  // A funded job is printed whole — id, kernel status, provider, budget and
+  // expiry — because a row missing any of those is a row you cannot act on.
+  for (let i = 0; i < (await rows.count()); i++) {
+    const row = rows.nth(i);
+    await expect(row.locator(".serial")).toHaveText(/^#\d+$/);
+    await expect(row.getByText(/^(OPEN|FUNDED|SUBMITTED|COMPLETED|REJECTED|EXPIRED)$/)).toBeVisible();
+    await expect(row.getByText(/provider 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/)).toBeVisible();
+    await expect(row.getByText(/[\d.]+ \$U/)).toBeVisible();
+    await expect(row.getByText(/expires \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/)).toBeVisible();
+  }
 });
 
 /**

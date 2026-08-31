@@ -86,14 +86,14 @@ export default async function Image() {
               color: "#4a453b",
             }}
           >
-            <span>FORM K-1 · SURAT JALAN AGEN · COVER SHEET</span>
+            <span>FORM K-1 · COVER SHEET</span>
             <span style={{ color: "#b5271f", fontFamily: typed }}>
               {registered !== null ? `No. K1-${registered}` : "No. —"}
             </span>
           </div>
           <div style={{ display: "flex", flex: 1 }}>
             <div style={{ display: "flex", flexDirection: "column", flex: 1.3, padding: "32px 24px" }}>
-              <span style={cap}>KETERANGAN · WHAT THIS FORM IS FOR</span>
+              <span style={cap}>KEY · WHAT THIS FORM IS FOR</span>
               <span
                 style={{
                   fontFamily: typed,
@@ -122,7 +122,7 @@ export default async function Image() {
                 position: "relative",
               }}
             >
-              <span style={cap}>DIPERIKSA OLEH · INSPECTED BY KAWAL</span>
+              <span style={cap}>INSPECTED BY KAWAL</span>
               <span style={{ fontFamily: typed, fontSize: 96, fontWeight: 700, color: "#1f1c17", marginTop: 8 }}>
                 {observed ? observed.checks.toLocaleString("en-US") : "—"}
               </span>
@@ -154,7 +154,7 @@ export default async function Image() {
                     letterSpacing: 4,
                   }}
                 >
-                  TELAH DIPERIKSA
+                  HIREABLE
                 </div>
               </div>
             </div>
