@@ -30,6 +30,12 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
+      # `PageProps` and `LayoutProps` are generated, not written — Next puts
+      # them in `.next/types`, so `tsc` on a fresh checkout fails on seven
+      # files that compile perfectly well on a machine that has built once.
+      # `typegen` writes exactly those and touches no network, which a full
+      # `next build` could not promise.
+      - run: npx next typegen
       - run: npm run check
       - run: npm run lint
       - run: npx tsc --noEmit
