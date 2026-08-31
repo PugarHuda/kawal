@@ -143,8 +143,25 @@ const amount = BigInt(native.amount);
 
 const rpc = publicClientFor(BSC_MAINNET);
 const from = hasAdminKey() ? privateKeyToAccount(adminKey()).address : ("0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92" as const);
-const [balance, gasPrice] = await Promise.all([rpc.getBalance({ address: from }), rpc.getGasPrice()]);
-const gas = 21_000n;
+/**
+ * Estimated, not assumed.
+ *
+ * This was `21_000n` — the cost of a transfer between two accounts with no
+ * code — and that held until the payee became an EIP-7702 delegated account.
+ * A transfer to one of those runs the delegate's code on the way in, so the
+ * intrinsic 21,000 is spent before the recipient has done anything and the
+ * transaction reverts out of gas. It did, on 2026-08-31: 21,000 of 21,000
+ * used, 0.0001 BNB not paid, the fee gone. `publish` has always estimated
+ * with the same headroom; this now does too, and the estimate covers a plain
+ * EOA payee unchanged because there the answer is exactly 21,000.
+ */
+const GAS_HEADROOM = 110n;
+const [balance, gasPrice, estimate] = await Promise.all([
+  rpc.getBalance({ address: from }),
+  rpc.getGasPrice(),
+  rpc.estimateGas({ account: from, to, value: amount }),
+]);
+const gas = (estimate * GAS_HEADROOM) / 100n;
 const cost = amount + gas * gasPrice;
 
 console.log(`\npayer        ${from}`);
