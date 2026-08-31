@@ -59,7 +59,13 @@ test("a genuinely hosted server is unaffected by descriptor detection", async ({
   await page.goto("/agents/56/43129");
 
   const probe = page.locator("section", { has: page.getByText("We just called it") });
-  await expect(probe.getByText("Answers MCP")).toBeVisible();
+  // What must never happen is this endpoint being filed as software rather
+  // than as a server. Whether it answered on this particular call is HeyAnon's
+  // business and changes between runs — it did not, twice, under the suite's
+  // fan-out — but it is a hosted endpoint either way, and the two descriptor
+  // verdicts are wrong for it in every one of those states.
+  await expect(probe.getByText("Runs locally, not hosted")).toHaveCount(0);
+  await expect(probe.getByText("Published as source")).toHaveCount(0);
   await expect(probe.getByText("Transport")).toHaveCount(0);
   await expect(probe.getByText("Install")).toHaveCount(0);
 });

@@ -237,7 +237,7 @@ if (VERIFY) {
             address: registryFor(CHAIN),
             abi: FEEDBACK_ABI,
             functionName: "getLastIndex",
-            args: [BigInt(agentId), account.address],
+            args: [BigInt(agentId), from],
           }),
         );
         return { agentId, names, held };
@@ -265,7 +265,13 @@ if (VERIFY) {
     );
   }
   if (unreadable > 0) {
-    console.log(`${unreadable} agent(s) could not be counted on-chain and were left out of that comparison.`);
+    console.log(
+      unreadable === perAgent.length
+        ? `None of the ${unreadable} agents could be counted on-chain, so there was no comparison to make. ` +
+            `Every single one failing is a fault here, not an RPC having a bad minute — the first version of ` +
+            `this read an identifier that did not exist yet and swallowed the ReferenceError as an outage.`
+        : `${unreadable} agent(s) could not be counted on-chain and were left out of that comparison.`,
+    );
   }
   if (unchecked > 0) {
     console.log(
