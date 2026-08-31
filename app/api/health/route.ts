@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStats } from "@/lib/scan";
 import { loadLedger, isLive, hasAdminKey } from "@/lib/sessions";
-import { uptimeFor, lastSweep } from "@/lib/uptime";
+import { uptimeFor, lastSweep, sweepLine } from "@/lib/uptime";
 import { isRemote } from "@/lib/db";
 
 /**
@@ -54,7 +54,7 @@ export async function GET() {
       const run = await lastSweep();
       // A fresh instance has no run yet; that is a fact, not a failure.
       if (!run) return "no scheduled sweep has run on this instance";
-      return `${run.answered} of ${run.probed} answered, ${run.verified} handed to 8004scan for re-verification, ${run.healthChecked ?? 0} health checks queued, at ${run.ranAt}`;
+      return sweepLine(run);
     }),
 
     timed("ledger", async () => {

@@ -164,6 +164,12 @@ export async function GET(request: Request) {
     answered: probed.filter((r) => r.answered === true).length,
     healthChecked: results.filter((r) => r.healthCheck === "queued").length,
     verified: results.filter((r) => r.verified === "queued").length,
+    // Counted, not discarded. `verified: 0` on its own cannot be told apart
+    // from "8004scan refused all of them", and a health report nobody can read
+    // that way is a health report that hides the outage it exists to show.
+    refused: results.filter((r) => r.verified === "refused").length,
+    rateLimited: results.filter((r) => r.verified === "rate-limited").length,
+    noDoc: results.filter((r) => r.verified === "no-registration-doc").length,
   };
   await recordSweep(run);
 

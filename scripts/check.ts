@@ -37,7 +37,8 @@ import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
 import { registeredOn } from "../lib/unindexed.ts";
-import { noteWrite } from "../lib/published.ts";
+import { noteWrite, everyHash } from "../lib/published.ts";
+import { sweepLine } from "../lib/uptime.ts";
 import { ScanAgentDetailSchema } from "../lib/scan.schema.ts";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
@@ -1986,6 +1987,49 @@ assert.equal(pct(0), "0.00%");
   // so `--verify` reads the record as inline rather than as a broken CID.
   assert.equal(afterUptime.evidence, "ipfs://old", "an unpinned write leaves the previous CID alone");
   assert.equal(noteWrite(undefined, "uptime", "0xddd", 12, null, now).evidence, undefined);
+
+  // The slots hold the newest of each kind; the history holds every one. That
+  // is the difference between a record Kawal can take back and one it merely
+  // remembers writing — `--revoke` works from a hash, and an overwritten slot
+  // is a hash nobody has any more. Ten had already been lost this way.
+  const first = noteWrite(undefined, "uptime", "0x111", 40, null, () => "2026-08-29T00:00:00.000Z");
+  const second = noteWrite(first, "uptime", "0x222", 90, null, now);
+  assert.equal(second.txHash, "0x222", "the slot moves on");
+  assert.deepEqual(second.history?.map((h) => h.txHash), ["0x111", "0x222"], "the first is still named");
+  assert.deepEqual(everyHash(second), ["0x222", "0x111"], "newest first, and nothing dropped");
+
+  // Entries written before `history` existed carry only the slots, and those
+  // must still be reachable or this loses what it was added to keep.
+  assert.deepEqual(everyHash({ txHash: "0xaaa", at: "x", checks: 1, responseTimeTx: "0xbbb" }), ["0xaaa", "0xbbb"]);
+  assert.deepEqual(everyHash(undefined), []);
+  // The same hash in a slot and in the history is one record, not two.
+  assert.deepEqual(everyHash(noteWrite(undefined, "responseTime", "0xccc", 5, null, now)), ["0xccc"]);
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record");
+// -- the sweep says which zero it is ---------------------------------------
+{
+  const base = { ranAt: "2026-08-31T12:00:00.000Z", probed: 39, answered: 16, healthChecked: 0 };
+
+  // The reading that was ambiguous: nothing queued, and no reason given. The
+  // health report said "0 handed to 8004scan for re-verification", which an
+  // operator reads as "nothing needed doing" — and it might have meant the
+  // registry refused all sixteen.
+  const refusedAll = sweepLine({ ...base, verified: 0, refused: 16 });
+  assert.match(refusedAll, /none handed/);
+  assert.match(refusedAll, /16 refused/);
+
+  // Genuinely nothing to do reads differently from being turned away.
+  const nothingEligible = sweepLine({ ...base, verified: 0 });
+  assert.match(nothingEligible, /nothing was eligible/);
+  assert.doesNotMatch(nothingEligible, /refused|rate-limited|registration document/);
+
+  // A partial run names both halves rather than only the good one.
+  const mixed = sweepLine({ ...base, verified: 3, refused: 2, rateLimited: 1, noDoc: 10 });
+  assert.match(mixed, /3 handed/);
+  assert.match(mixed, /2 refused, 1 rate-limited, 10 serving no registration document/);
+
+  // A row written before the columns existed reads as zeroes, not as NaN.
+  assert.match(sweepLine({ ...base, verified: 0, healthChecked: undefined }), /0 health checks queued/);
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting");

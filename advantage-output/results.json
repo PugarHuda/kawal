@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T03:52:41.769Z",
+  "generatedAt": "2026-08-31T13:51:52.695Z",
   "tasks": [
     {
       "id": "task1",
@@ -9,10 +9,11 @@
       "hired": {
         "path": "hired",
         "label": "Venus powered by HeyAnon — MCP getAccountLiquidity",
-        "ms": 1266,
-        "spread": "906-1549",
+        "ms": 987,
+        "spread": "937-2684",
+        "samples": 3,
         "ok": true,
-        "output": "{\"project\":\"venus\",\"operation\":\"getAccountLiquidity\",\"data\":[{\"chain\":\"bsc\",\"pool\":\"CORE\",\"borrowLimit\":\"63758.38\",\"shortfall\":\"0.00\"}]}",
+        "output": "{\"project\":\"venus\",\"operation\":\"getAccountLiquidity\",\"data\":[{\"chain\":\"bsc\",\"pool\":\"CORE\",\"borrowLimit\":\"61368.06\",\"shortfall\":\"0.00\"}]}",
         "costUsd": 0,
         "coverage": {
           "count": 1,
@@ -23,10 +24,11 @@
       "manual": {
         "path": "manual",
         "label": "Venus Comptroller read directly over RPC",
-        "ms": 103,
-        "spread": "102-486",
+        "ms": 111,
+        "spread": "104-475",
+        "samples": 3,
         "ok": true,
-        "output": "{\n  \"source\": \"Venus Comptroller getAccountLiquidity, read directly\",\n  \"comptroller\": \"0xfD36E2c2a6789Db23113685031d7F16329158384\",\n  \"error\": \"0\",\n  \"liquidityUsd\": \"63758.38\",\n  \"shortfallUsd\": \"0.00\"\n}",
+        "output": "{\n  \"source\": \"Venus Comptroller getAccountLiquidity, read directly\",\n  \"comptroller\": \"0xfD36E2c2a6789Db23113685031d7F16329158384\",\n  \"error\": \"0\",\n  \"liquidityUsd\": \"61368.06\",\n  \"shortfallUsd\": \"0.00\"\n}",
         "costUsd": 0,
         "coverage": {
           "count": 1,
@@ -34,7 +36,7 @@
         },
         "note": "Excludes the work of finding and proving the Comptroller address. Kawal spent real effort on that (npm run verify:venues) precisely because published lists name an implementation address that would return nothing here."
       },
-      "verdict": "Doing it yourself was 12.3x faster; both paths returned the same position. Hiring buys convenience, not information."
+      "verdict": "Doing it yourself was 8.9x faster; both paths returned the same position. Hiring buys convenience, not information."
     },
     {
       "id": "task2",
@@ -44,24 +46,26 @@
       "hired": {
         "path": "hired",
         "label": "Beefy powered by HeyAnon — MCP getVaultsWithChains",
-        "ms": 771,
-        "spread": "757-1596",
+        "ms": 1010,
+        "spread": "997-1828",
+        "samples": 3,
         "ok": true,
-        "output": "{\"project\":\"beefy\",\"operation\":\"getVaultsWithChains\",\"data\":[{\"chain\":\"bsc\",\"vaults\":[{\"id\":\"pancake-cow-bsc-tst-wbnb-vault\",\"name\":\"TST-WBNB\",\"chain\":\"bsc\",\"tokenProviderId\":\"pancakeswap\",\"platform\":\"pancakeswap\",\"token\":\"TST-WBNB\",\"tokenAddress\":\"0x167e740b1Bf51100e210B3663a9e3eb49459F164\",\"tvl\":1985.4530414487258,\"poolTvl\":803880.6709473975,\"apy\":0.8379290974170683},{\"id\":\"pancake-cow-bsc-sol-wbnb-vault\",\"name\":\"SOL-WBNB\",\"chain\":\"bsc\",\"tokenProviderId\":\"pancakeswap\",\"platform\":\"pancakeswap\",\"token\":\"SOL-WBNB\",\"tokenAddress\":\"0x06DFa5747f0B6F4f1332267A5376aD3f4eeeff55\",\"tvl\":46465.952344632\n… truncated, full output in advantage-output/",
+        "output": "{\"project\":\"beefy\",\"operation\":\"getVaultsWithChains\",\"data\":[{\"chain\":\"bsc\",\"vaults\":[{\"id\":\"pancake-cow-bsc-pepe-wbnb-vault\",\"name\":\"PEPE-WBNB\",\"chain\":\"bsc\",\"tokenProviderId\":\"pancakeswap\",\"platform\":\"pancakeswap\",\"token\":\"PEPE-WBNB\",\"tokenAddress\":\"0x3e5067c68EA8B3661d65B6d817e669898A711B9B\",\"tvl\":4059.8874360614814,\"poolTvl\":244559.6756709668,\"apy\":0.7294505568568055},{\"id\":\"pancake-cow-bsc-sol-wbnb-vault\",\"name\":\"SOL-WBNB\",\"chain\":\"bsc\",\"tokenProviderId\":\"pancakeswap\",\"platform\":\"pancakeswap\",\"token\":\"SOL-WBNB\",\"tokenAddress\":\"0x06DFa5747f0B6F4f1332267A5376aD3f4eeeff55\",\"tvl\":46022.976780\n… truncated, full output in advantage-output/",
         "costUsd": 0,
         "coverage": {
-          "count": 14,
+          "count": 13,
           "unit": "vaults across protocols"
         },
-        "note": "Returned 14 BSC vaults with TVL and platform for each."
+        "note": "Returned 13 BSC vaults with TVL and platform for each."
       },
       "manual": {
         "path": "manual",
         "label": "Venus vUSDT supply rate read directly, annualised by hand",
-        "ms": 105,
-        "spread": "104-293",
+        "ms": 414,
+        "spread": "106-1690",
+        "samples": 3,
         "ok": true,
-        "output": "{\n  \"source\": \"Venus vUSDT supplyRatePerBlock, read directly\",\n  \"market\": \"0xfD5840Cd36d94D7229439859C0112a4185BC0255\",\n  \"symbol\": \"vUSDT\",\n  \"supplyRatePerBlock\": \"347552788\",\n  \"assumedBlocksPerYear\": 42048000,\n  \"impliedSupplyApyPercent\": \"1.4721\",\n  \"covers\": \"one market on one protocol\"\n}",
+        "output": "{\n  \"source\": \"Venus vUSDT supplyRatePerBlock, read directly\",\n  \"market\": \"0xfD5840Cd36d94D7229439859C0112a4185BC0255\",\n  \"symbol\": \"vUSDT\",\n  \"supplyRatePerBlock\": \"406097739\",\n  \"assumedBlocksPerYear\": 42048000,\n  \"impliedSupplyApyPercent\": \"1.7222\",\n  \"covers\": \"one market on one protocol\"\n}",
         "costUsd": 0,
         "coverage": {
           "count": 1,
@@ -69,7 +73,7 @@
         },
         "note": "Answers a much narrower question for comparable effort: one market, one protocol, and only after deciding a blocks-per-year constant that BSC has already changed once this year."
       },
-      "verdict": "Doing it yourself was 7.3x faster, but the agent returned 14 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one."
+      "verdict": "Doing it yourself was 2.4x faster, but the agent returned 13 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one."
     },
     {
       "id": "task3",
@@ -79,32 +83,34 @@
       "hired": {
         "path": "hired",
         "label": "Aster powered by HeyAnon — MCP getSupportedMarkets",
-        "ms": 1168,
-        "spread": "948-1190",
+        "ms": 1180,
+        "spread": "1032-1494",
+        "samples": 3,
         "ok": true,
         "output": "{\"project\":\"aster\",\"operation\":\"getSupportedMarkets\",\"data\":[{\"symbol\":\"ASTERUSDT\",\"filters\":[{\"minPrice\":\"0.00010\",\"maxPrice\":\"200\",\"filterType\":\"PRICE_FILTER\",\"tickSize\":\"0.00010\"},{\"stepSize\":\"0.01\",\"filterType\":\"LOT_SIZE\",\"maxQty\":\"10000000\",\"minQty\":\"0.01\"},{\"stepSize\":\"0.01\",\"filterType\":\"MARKET_LOT_SIZE\",\"maxQty\":\"900000\",\"minQty\":\"0.01\"},{\"limit\":200,\"filterType\":\"MAX_NUM_ORDERS\"},{\"limit\":10,\"filterType\":\"MAX_NUM_ALGO_ORDERS\"},{\"notional\":\"5\",\"filterType\":\"MIN_NOTIONAL\"},{\"multiplierDown\":\"0.9500\",\"multiplierUp\":\"1.0500\",\"ltMultiplierDown\":\"0.9700\",\"multiplierDecimal\":\"4\",\"filterType\"\n… truncated, full output in advantage-output/",
         "costUsd": 0,
         "coverage": {
-          "count": 550,
+          "count": 552,
           "unit": "markets"
         },
-        "note": "Returned 550 markets."
+        "note": "Returned 552 markets."
       },
       "manual": {
         "path": "manual",
         "label": "Aster public REST exchangeInfo, called directly",
-        "ms": 316,
-        "spread": "124-381",
+        "ms": 330,
+        "spread": "132-374",
+        "samples": 3,
         "ok": true,
-        "output": "{\n  \"source\": \"Aster public REST exchangeInfo, called directly\",\n  \"endpoint\": \"https://fapi.asterdex.com/fapi/v1/exchangeInfo\",\n  \"symbolCount\": 567\n}",
+        "output": "{\n  \"source\": \"Aster public REST exchangeInfo, called directly\",\n  \"endpoint\": \"https://fapi.asterdex.com/fapi/v1/exchangeInfo\",\n  \"symbolCount\": 572\n}",
         "costUsd": 0,
         "coverage": {
-          "count": 567,
+          "count": 572,
           "unit": "markets"
         },
-        "note": "Returned 567 markets from a documented public endpoint that needs no key."
+        "note": "Returned 572 markets from a documented public endpoint that needs no key."
       },
-      "verdict": "Doing it yourself was 3.7x faster; both paths returned the same markets. Hiring buys convenience, not information."
+      "verdict": "Doing it yourself was 3.6x faster; both paths returned the same markets. Hiring buys convenience, not information."
     }
   ]
 }

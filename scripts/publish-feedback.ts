@@ -43,7 +43,7 @@ import { uploadEvidence } from "../lib/scan.auth.ts";
 import { proveAgent } from "../lib/probe.ts";
 import { uptimeFor } from "../lib/uptime.ts";
 import { publicClientFor } from "../lib/rpc.ts";
-import { noteWrite, type PublishedRecord } from "../lib/published.ts";
+import { noteWrite, everyHash, type PublishedRecord } from "../lib/published.ts";
 import { adminKey, hasAdminKey, KEY_FILE } from "../lib/vault.ts";
 import { explorerTx } from "../lib/altana.ts";
 import { BSC_MAINNET } from "../lib/chains.ts";
@@ -196,7 +196,9 @@ if (VERIFY) {
   let problems = 0;
   let total = 0;
   for (const [agentId, p] of Object.entries(published)) {
-    const hashes = [p.txHash, p.responseTimeTx].filter((h): h is string => typeof h === "string");
+    // Every hash this file still names, not just the newest of each kind: a
+    // record whose slot was overwritten is the one nobody could revoke.
+    const hashes = everyHash(p);
     for (const h of hashes) {
       total++;
       try {
@@ -266,7 +268,8 @@ if (VERIFY) {
     console.log(
       `The register holds ${held} record(s) from this writer across ${compared.length} agent(s); this file names ` +
         `${named}. The difference is earlier rounds, not a fault: one hash is kept per kind per agent, so an ` +
-        `older record about the same agent is no longer named here and could not be revoked from this machine.` +
+        `older record about the same agent is no longer named here and cannot be revoked from this machine. ` +
+        `Records written from now on are kept in \`history\` and stay revocable; these ones were already lost.` +
         (ahead.length ? ` Forgotten: ${ahead.map((a) => `${a.agentId} (+${a.held - a.names})`).join(", ")}.` : ""),
     );
   }
@@ -301,7 +304,9 @@ if (REVOKE !== null) {
     console.error(`No record of a publication about agent ${JSON.stringify(REVOKE)} in ${PUBLISHED_FILE}. Nothing to revoke.\n`);
     process.exit(1);
   }
-  const hashes = [p.txHash, p.responseTimeTx].filter((h): h is string => typeof h === "string");
+  // Every hash this file still names, not just the newest of each kind: a
+  // record whose slot was overwritten is the one nobody could revoke.
+  const hashes = everyHash(p);
   const gasPrice = await rpc.getGasPrice();
   const balance = await rpc.getBalance({ address: from });
   const todo: Array<{ index: bigint; tag1: string; data: Hex; to: `0x${string}`; gas: bigint }> = [];

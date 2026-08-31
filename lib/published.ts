@@ -18,6 +18,17 @@ export type PublishedRecord = {
   /** `ipfs://{cid}` when the evidence was pinned; absent for the data: URI records. */
   evidence?: string;
   responseTimeEvidence?: string;
+  /**
+   * Every record ever written about this agent, oldest first.
+   *
+   * The four fields above hold only the newest of each kind, so a second
+   * uptime record overwrote the first and the register ended up holding ten
+   * records this file could no longer name. `--revoke` works from a hash, so
+   * a forgotten hash is a record Kawal wrote and cannot take back. The ten
+   * already lost stay lost — the chain has them, this file does not — but
+   * nothing written from here on joins them.
+   */
+  history?: Array<{ tag: "uptime" | "responseTime"; txHash: string; at: string; evidence?: string }>;
 };
 
 /**
@@ -47,15 +58,41 @@ export function noteWrite(
   now: () => string = () => new Date().toISOString(),
 ): PublishedRecord {
   const at = now();
+  // Appended before the overwriting fields are set, so the hash survives even
+  // though the slot it used to occupy does not.
+  const history = [
+    ...(prev?.history ?? []),
+    { tag: kind, txHash: hash, at, ...(evidence ? { evidence } : {}) },
+  ];
   if (kind === "uptime") {
-    return { ...prev, txHash: hash, at, checks, ...(evidence ? { evidence } : {}) };
+    return { ...prev, txHash: hash, at, checks, history, ...(evidence ? { evidence } : {}) };
   }
   return {
     ...prev,
     txHash: prev?.txHash ?? hash,
     at,
     checks,
+    history,
     responseTimeTx: hash,
     ...(evidence ? { responseTimeEvidence: evidence } : {}),
   };
+}
+
+/**
+ * Every transaction this file can still name for one agent, newest first.
+ *
+ * The two slots and the history are merged rather than one replacing the
+ * other: entries written before `history` existed live only in the slots, and
+ * dropping them would lose exactly what this was added to stop losing.
+ */
+export function everyHash(rec: PublishedRecord | undefined): string[] {
+  if (!rec) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of [rec.txHash, rec.responseTimeTx, ...(rec.history ?? []).map((e) => e.txHash)]) {
+    if (typeof h !== "string" || seen.has(h.toLowerCase())) continue;
+    seen.add(h.toLowerCase());
+    out.push(h);
+  }
+  return out;
 }

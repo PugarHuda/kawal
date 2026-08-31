@@ -87,6 +87,11 @@ async function open(): Promise<Store | null> {
         // Added after the table existed on the deployed store; the ALTER
         // fails harmlessly where the column is already there.
         await store.exec("ALTER TABLE sweep ADD COLUMN health_checked INTEGER NOT NULL DEFAULT 0").catch(() => {});
+        // The three ways a re-verification does not get queued, each counted
+        // separately so a zero in `verified` can be read.
+        for (const col of ["refused", "rate_limited", "no_doc"]) {
+          await store.exec(`ALTER TABLE sweep ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+        }
         return store;
       } catch {
         return null;
@@ -134,9 +139,47 @@ export type SweepRun = {
   answered: number;
   /** How many 8004scan accepted a re-verification request for. */
   verified: number;
+  /**
+   * Why the rest were not accepted.
+   *
+   * `verified: 0` used to be the whole story, and it reads as "nothing needed
+   * doing" when it can equally mean 8004scan refused every one of them. Three
+   * different outcomes were being folded into one silence — the same fold that
+   * made `--verify` call an unread gateway a hash mismatch.
+   */
+  refused?: number;
+  rateLimited?: number;
+  noDoc?: number;
   /** How many 8004scan queued its own health check for (owner-only, so zero until Kawal owns agents). */
   healthChecked?: number;
 };
+
+/**
+ * The sweep, as a sentence an operator can act on.
+ *
+ * Kept beside the type rather than in the health route so it can be tested
+ * without a database: the whole point is that a zero says which zero it is.
+ */
+export function sweepLine(run: SweepRun): string {
+  const notQueued = [
+    run.refused ? `${run.refused} refused` : null,
+    run.rateLimited ? `${run.rateLimited} rate-limited` : null,
+    run.noDoc ? `${run.noDoc} serving no registration document` : null,
+  ].filter((s): s is string => s !== null);
+
+  const verification =
+    run.verified > 0
+      ? `${run.verified} handed to 8004scan for re-verification`
+      : notQueued.length > 0
+        ? "none handed to 8004scan for re-verification"
+        : "nothing was eligible for re-verification";
+
+  return (
+    `${run.answered} of ${run.probed} answered, ${verification}` +
+    (notQueued.length ? ` (${notQueued.join(", ")})` : "") +
+    `, ${run.healthChecked ?? 0} health checks queued, at ${run.ranAt}`
+  );
+}
 
 /** Writes one sweep's tally. Silent on failure, like every write here. */
 export async function recordSweep(run: SweepRun): Promise<void> {
@@ -144,13 +187,16 @@ export async function recordSweep(run: SweepRun): Promise<void> {
   if (!store) return;
   try {
     await store.run(
-      "INSERT INTO sweep (ran_at, probed, answered, verified, health_checked) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO sweep (ran_at, probed, answered, verified, health_checked, refused, rate_limited, no_doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [
         Math.floor(new Date(run.ranAt).getTime() / 1000),
         run.probed,
         run.answered,
         run.verified,
         run.healthChecked ?? 0,
+        run.refused ?? 0,
+        run.rateLimited ?? 0,
+        run.noDoc ?? 0,
       ],
     );
     await store.run("DELETE FROM sweep WHERE ran_at < ?", [Math.floor(Date.now() / 1000) - RETAIN_DAYS * 86_400]);
@@ -173,7 +219,12 @@ export async function lastSweep(): Promise<SweepRun | null> {
       answered: number;
       verified: number;
       health_checked: number | null;
-    }>("SELECT ran_at, probed, answered, verified, health_checked FROM sweep ORDER BY ran_at DESC LIMIT 1");
+      refused: number | null;
+      rate_limited: number | null;
+      no_doc: number | null;
+    }>(
+      "SELECT ran_at, probed, answered, verified, health_checked, refused, rate_limited, no_doc FROM sweep ORDER BY ran_at DESC LIMIT 1",
+    );
     if (!row) return null;
     return {
       ranAt: new Date(Number(row.ran_at) * 1000).toISOString(),
@@ -181,6 +232,9 @@ export async function lastSweep(): Promise<SweepRun | null> {
       answered: Number(row.answered),
       verified: Number(row.verified),
       healthChecked: Number(row.health_checked ?? 0),
+      refused: Number(row.refused ?? 0),
+      rateLimited: Number(row.rate_limited ?? 0),
+      noDoc: Number(row.no_doc ?? 0),
     };
   } catch {
     return null;

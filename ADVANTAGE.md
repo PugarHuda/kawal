@@ -1,6 +1,6 @@
 # Agent Advantage Report
 
-Generated 2026-08-27T03:52:41.769Z · every number below came from a live run of
+Generated 2026-08-31T13:51:52.695Z · every number below came from a live run of
 `npm run advantage`. No result is simulated, averaged or reconstructed.
 
 ## Method
@@ -29,15 +29,15 @@ found by scanning vUSDT `Borrow` events, not chosen from a write-up.
 
 | Path | What ran | Median of 3 (range) | Returned | Cost |
 |---|---|---|---|---|
-| Hired | Venus powered by HeyAnon — MCP getAccountLiquidity | 1266 ms (906-1549) | 1 position | $0.00 |
-| Manual | Venus Comptroller read directly over RPC | 103 ms (102-486) | 1 position | $0.00 |
+| Hired | Venus powered by HeyAnon — MCP getAccountLiquidity | 987 ms (937-2684) | 1 position | $0.00 |
+| Manual | Venus Comptroller read directly over RPC | 111 ms (104-475) | 1 position | $0.00 |
 
-**Doing it yourself was 12.3x faster; both paths returned the same position. Hiring buys convenience, not information.**
+**Doing it yourself was 8.9x faster; both paths returned the same position. Hiring buys convenience, not information.**
 
 Hired — Listed on Kawal as hireable. No x402 challenge was issued, so the call was free.
 
 ```json
-{"project":"venus","operation":"getAccountLiquidity","data":[{"chain":"bsc","pool":"CORE","borrowLimit":"63758.38","shortfall":"0.00"}]}
+{"project":"venus","operation":"getAccountLiquidity","data":[{"chain":"bsc","pool":"CORE","borrowLimit":"61368.06","shortfall":"0.00"}]}
 ```
 
 Manual — Excludes the work of finding and proving the Comptroller address. Kawal spent real effort on that (npm run verify:venues) precisely because published lists name an implementation address that would return nothing here.
@@ -47,7 +47,7 @@ Manual — Excludes the work of finding and proving the Comptroller address. Kaw
   "source": "Venus Comptroller getAccountLiquidity, read directly",
   "comptroller": "0xfD36E2c2a6789Db23113685031d7F16329158384",
   "error": "0",
-  "liquidityUsd": "63758.38",
+  "liquidityUsd": "61368.06",
   "shortfallUsd": "0.00"
 }
 ```
@@ -61,15 +61,15 @@ Manual — Excludes the work of finding and proving the Comptroller address. Kaw
 
 | Path | What ran | Median of 3 (range) | Returned | Cost |
 |---|---|---|---|---|
-| Hired | Beefy powered by HeyAnon — MCP getVaultsWithChains | 771 ms (757-1596) | 14 vaults across protocols | $0.00 |
-| Manual | Venus vUSDT supply rate read directly, annualised by hand | 105 ms (104-293) | 1 vault across protocols | $0.00 |
+| Hired | Beefy powered by HeyAnon — MCP getVaultsWithChains | 1010 ms (997-1828) | 13 vaults across protocols | $0.00 |
+| Manual | Venus vUSDT supply rate read directly, annualised by hand | 414 ms (106-1690) | 1 vault across protocols | $0.00 |
 
-**Doing it yourself was 7.3x faster, but the agent returned 14 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one.**
+**Doing it yourself was 2.4x faster, but the agent returned 13 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one.**
 
-Hired — Returned 14 BSC vaults with TVL and platform for each.
+Hired — Returned 13 BSC vaults with TVL and platform for each.
 
 ```json
-{"project":"beefy","operation":"getVaultsWithChains","data":[{"chain":"bsc","vaults":[{"id":"pancake-cow-bsc-tst-wbnb-vault","name":"TST-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"TST-WBNB","tokenAddress":"0x167e740b1Bf51100e210B3663a9e3eb49459F164","tvl":1985.4530414487258,"poolTvl":803880.6709473975,"apy":0.8379290974170683},{"id":"pancake-cow-bsc-sol-wbnb-vault","name":"SOL-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"SOL-WBNB","tokenAddress":"0x06DFa5747f0B6F4f1332267A5376aD3f4eeeff55","tvl":46465.95234463253,"poolTvl":472935.1137161113,"apy":0.17036133036844725},{"id":"pancake-cow-bsc-cake-usdt-vault","name":"CAKE-USDT","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"CAKE-USDT","tokenAddress":"0x07F015C14C536B3fFaA1b14ea06E224E9cCF5630","tvl":73389.81729074624,"poolTvl":4285478.928087051,"apy":0.13481102168361403},{"id":"pancake-cow-bsc-wbnb-xvs-vault","name":"XVS-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"XVS-WBNB","tokenAddress":"0xE0d0F7738814FE9a87D95Af6c50B2Ac99e53D845","tvl":21990.488617641746,"poolTvl":253677.96246292075,"apy":0.13324282534164777},{"id":"pancake-cow-bsc-usdt-wbnb-vault","name":"WBNB-USDT","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"WBNB-USDT","tokenAddress":
+{"project":"beefy","operation":"getVaultsWithChains","data":[{"chain":"bsc","vaults":[{"id":"pancake-cow-bsc-pepe-wbnb-vault","name":"PEPE-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"PEPE-WBNB","tokenAddress":"0x3e5067c68EA8B3661d65B6d817e669898A711B9B","tvl":4059.8874360614814,"poolTvl":244559.6756709668,"apy":0.7294505568568055},{"id":"pancake-cow-bsc-sol-wbnb-vault","name":"SOL-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"SOL-WBNB","tokenAddress":"0x06DFa5747f0B6F4f1332267A5376aD3f4eeeff55","tvl":46022.9767801619,"poolTvl":469371.39594139135,"apy":0.13028805836870516},{"id":"pancake-cow-bsc-eth-btcb-vault","name":"ETH-BTCB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"ETH-BTCB","tokenAddress":"0xC0885E2B72E2Ff70E6a947387a70435c6E59a477","tvl":13574.07151634619,"poolTvl":1151738.2418850763,"apy":0.11475477635600995},{"id":"pancake-cow-bsc-doge-wbnb-vault","name":"DOGE-WBNB","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"DOGE-WBNB","tokenAddress":"0x364aaFb34D8d98D9ea87aCAFc884bbd52f262cb4","tvl":47344.38914773385,"poolTvl":613907.3434885448,"apy":0.10993981084395998},{"id":"pancake-cow-bsc-usdt-sol-vault","name":"SOL-USDT","chain":"bsc","tokenProviderId":"pancakeswap","platform":"pancakeswap","token":"SOL-USDT","tokenAddress":"
 … truncated, full output in advantage-output/
 ```
 
@@ -80,9 +80,9 @@ Manual — Answers a much narrower question for comparable effort: one market, o
   "source": "Venus vUSDT supplyRatePerBlock, read directly",
   "market": "0xfD5840Cd36d94D7229439859C0112a4185BC0255",
   "symbol": "vUSDT",
-  "supplyRatePerBlock": "347552788",
+  "supplyRatePerBlock": "406097739",
   "assumedBlocksPerYear": 42048000,
-  "impliedSupplyApyPercent": "1.4721",
+  "impliedSupplyApyPercent": "1.7222",
   "covers": "one market on one protocol"
 }
 ```
@@ -96,25 +96,25 @@ Manual — Answers a much narrower question for comparable effort: one market, o
 
 | Path | What ran | Median of 3 (range) | Returned | Cost |
 |---|---|---|---|---|
-| Hired | Aster powered by HeyAnon — MCP getSupportedMarkets | 1168 ms (948-1190) | 550 markets | $0.00 |
-| Manual | Aster public REST exchangeInfo, called directly | 316 ms (124-381) | 567 markets | $0.00 |
+| Hired | Aster powered by HeyAnon — MCP getSupportedMarkets | 1180 ms (1032-1494) | 552 markets | $0.00 |
+| Manual | Aster public REST exchangeInfo, called directly | 330 ms (132-374) | 572 markets | $0.00 |
 
-**Doing it yourself was 3.7x faster; both paths returned the same markets. Hiring buys convenience, not information.**
+**Doing it yourself was 3.6x faster; both paths returned the same markets. Hiring buys convenience, not information.**
 
-Hired — Returned 550 markets.
+Hired — Returned 552 markets.
 
 ```json
 {"project":"aster","operation":"getSupportedMarkets","data":[{"symbol":"ASTERUSDT","filters":[{"minPrice":"0.00010","maxPrice":"200","filterType":"PRICE_FILTER","tickSize":"0.00010"},{"stepSize":"0.01","filterType":"LOT_SIZE","maxQty":"10000000","minQty":"0.01"},{"stepSize":"0.01","filterType":"MARKET_LOT_SIZE","maxQty":"900000","minQty":"0.01"},{"limit":200,"filterType":"MAX_NUM_ORDERS"},{"limit":10,"filterType":"MAX_NUM_ALGO_ORDERS"},{"notional":"5","filterType":"MIN_NOTIONAL"},{"multiplierDown":"0.9500","multiplierUp":"1.0500","ltMultiplierDown":"0.9700","multiplierDecimal":"4","filterType":"PERCENT_PRICE","ltMultiplierUp":"1.0300"}],"orderTypes":["LIMIT","MARKET","STOP","STOP_MARKET","TAKE_PROFIT","TAKE_PROFIT_MARKET","TRAILING_STOP_MARKET"],"timeInForce":["GTC","IOC","GTX","HIDDEN"],"createTime":1758215451058,"pair":"ASTERUSDT","contractType":"PERPETUAL","deliveryDate":4133404800000,"onboardDate":1758178800000,"status":"TRADING","maintMarginPercent":"12.5000","requiredMarginPercent":"25.0000","baseAsset":"ASTER","quoteAsset":"USDT","marginAsset":"USDT","pricePrecision":5,"quantityPrecision":2,"baseAssetPrecision":8,"quotePrecision":8,"underlyingType":"COIN","underlyingSubType":["Top"],"symbolType":0,"tradingMode":0,"name":"","channel":"{}","sequenceNo":100,"twapMinNotional":"1000","imn":"4000.00","tags":[],"settlePlan":0,"triggerProtect":"0.1500","liquidationFee":"0.025000
 … truncated, full output in advantage-output/
 ```
 
-Manual — Returned 567 markets from a documented public endpoint that needs no key.
+Manual — Returned 572 markets from a documented public endpoint that needs no key.
 
 ```json
 {
   "source": "Aster public REST exchangeInfo, called directly",
   "endpoint": "https://fapi.asterdex.com/fapi/v1/exchangeInfo",
-  "symbolCount": 567
+  "symbolCount": 572
 }
 ```
 
@@ -123,9 +123,9 @@ Manual — Returned 567 markets from a documented public endpoint that needs no 
 
 ## What the numbers say
 
-- **Liquidation risk on a live lending position** — Doing it yourself was 12.3x faster; both paths returned the same position. Hiring buys convenience, not information.
-- **Finding where yield actually is** — Doing it yourself was 7.3x faster, but the agent returned 14 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one.
-- **Enumerating tradable markets** — Doing it yourself was 3.7x faster; both paths returned the same markets. Hiring buys convenience, not information.
+- **Liquidation risk on a live lending position** — Doing it yourself was 8.9x faster; both paths returned the same position. Hiring buys convenience, not information.
+- **Finding where yield actually is** — Doing it yourself was 2.4x faster, but the agent returned 13 vaults across protocols against 1. Hiring wins: matching that breadth by hand is many more calls, not one.
+- **Enumerating tradable markets** — Doing it yourself was 3.6x faster; both paths returned the same markets. Hiring buys convenience, not information.
 
 Wall clock favoured the manual path in all three tasks, and on its own that
 number is misleading: a single targeted RPC call will always beat an MCP
@@ -138,15 +138,15 @@ is what came back.
   snapshots rather than a bug. For a liquidation decision that gap matters,
   and only the direct read is reproducible against a block number.
 - **Yield** — the one task where hiring clearly pays. The agent surveyed
-  14 vaults across several protocols in a single
+  13 vaults across several protocols in a single
   call; the direct read covered 1, and only
   after committing to a blocks-per-year constant that BSC has already changed
   once this year. The manual path is faster at answering a much smaller
   question.
 - **Trading** — hiring loses on both axes. Aster publishes the same data on a
   documented public endpoint that needs no key, returned
-  567 markets against the agent's
-  550, and did it faster. Paying an agent to
+  572 markets against the agent's
+  552, and did it faster. Paying an agent to
   proxy a public API is a worse deal than calling the API.
 
 The pattern across all three: hiring is worth it when the agent aggregates
