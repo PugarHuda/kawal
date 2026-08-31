@@ -2018,10 +2018,17 @@ assert.equal(pct(0), "0.00%");
   assert.match(refusedAll, /none handed/);
   assert.match(refusedAll, /16 refused/);
 
-  // Genuinely nothing to do reads differently from being turned away.
-  const nothingEligible = sweepLine({ ...base, verified: 0 });
+  // A row from before the reason columns existed reads as three honest zeroes,
+  // and must not be dressed up as "nothing was eligible" — that is the same
+  // reassurance the bare zero gave, in a longer sentence. Caught in production
+  // within a minute of deploying the first version of this.
+  const noBreakdown = sweepLine({ ...base, verified: 0 });
+  assert.match(noBreakdown, /did not record why/);
+
+  // Genuinely nothing to do: every agent that answered is accounted for.
+  const nothingEligible = sweepLine({ ...base, answered: 0, verified: 0 });
   assert.match(nothingEligible, /nothing was eligible/);
-  assert.doesNotMatch(nothingEligible, /refused|rate-limited|registration document/);
+  assert.doesNotMatch(nothingEligible, /refused|rate-limited|registration document|did not record/);
 
   // A partial run names both halves rather than only the good one.
   const mixed = sweepLine({ ...base, verified: 3, refused: 2, rateLimited: 1, noDoc: 10 });

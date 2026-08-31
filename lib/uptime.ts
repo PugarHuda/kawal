@@ -167,12 +167,21 @@ export function sweepLine(run: SweepRun): string {
     run.noDoc ? `${run.noDoc} serving no registration document` : null,
   ].filter((s): s is string => s !== null);
 
+  // Every agent that answered gets exactly one of the four outcomes, so the
+  // four must add up to `answered`. When they do not, the breakdown was not
+  // recorded — rows written before these columns existed read as three honest
+  // zeroes — and saying "nothing was eligible" there would be inventing the
+  // very reassurance this was written to stop giving.
+  const accounted = run.verified + (run.refused ?? 0) + (run.rateLimited ?? 0) + (run.noDoc ?? 0);
+
   const verification =
     run.verified > 0
       ? `${run.verified} handed to 8004scan for re-verification`
-      : notQueued.length > 0
-        ? "none handed to 8004scan for re-verification"
-        : "nothing was eligible for re-verification";
+      : accounted < run.answered
+        ? "none handed to 8004scan for re-verification, and this run did not record why"
+        : notQueued.length > 0
+          ? "none handed to 8004scan for re-verification"
+          : "nothing was eligible for re-verification";
 
   return (
     `${run.answered} of ${run.probed} answered, ${verification}` +
