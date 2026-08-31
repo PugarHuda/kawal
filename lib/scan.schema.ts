@@ -74,6 +74,15 @@ export const ScanAgentDetailSchema = ScanAgentSchema.extend({
   services: z.record(z.string(), DeclaredServiceSchema).nullable().catch(null),
   scores: z.unknown().nullable().catch(null),
   created_block_number: nullableNumber,
+  /**
+   * Whether 8004scan is where this row came from.
+   *
+   * Absent on everything the index returns, so it defaults to true. A row
+   * built from the Identity Registry because the index had never heard of the
+   * token sets it false, and pages say so rather than presenting a thin row as
+   * if it were a scored one.
+   */
+  indexed: z.boolean().catch(true),
 });
 
 export const ChainStatSchema = z.object({

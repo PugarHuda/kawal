@@ -4,6 +4,7 @@ import { listAgents, getAgent, getWalletMetrics, type ScanAgent, type WalletMetr
 import { proveAgent, type EndpointProof } from "@/lib/probe";
 import { uptimeFor, type Uptime } from "@/lib/uptime";
 import { ownerOfAgent } from "@/lib/feedback";
+import { agentFromChain, chainOnlyFor, type ChainOnly } from "@/lib/unindexed";
 import { diagnose, failureLabel } from "@/lib/failure";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
@@ -180,6 +181,29 @@ async function Results({ address }: { address: string }) {
     );
   }
 
+  // The index is not the registry. `balanceOf` is one call and settles whether
+  // there is anything to look for; the scan behind it runs only when the chain
+  // says this address holds more tokens than 8004scan listed, which is exactly
+  // the case that made Kawal's own registration invisible on Kawal.
+  let gap: ChainOnly = { ids: [], held: null, accounted: true };
+  try {
+    gap = await chainOnlyFor(
+      BSC_MAINNET,
+      address,
+      agents.map((a) => a.token_id),
+      async () => (await listAgents({ chainId: BSC_MAINNET, sortBy: "created_at", limit: 1 })).agents[0]?.token_id ?? null,
+    );
+    if (gap.ids.length > 0) {
+      const built = await Promise.all(gap.ids.map((id) => agentFromChain(BSC_MAINNET, id).catch(() => null)));
+      const extra = built.filter((a): a is NonNullable<typeof a> => a !== null);
+      agents = [...agents, ...extra];
+      total += extra.length;
+    }
+  } catch {
+    // A chain read that fails leaves the index's answer standing rather than
+    // taking the page down. `gap` stays empty and nothing below claims a gap.
+  }
+
   if (agents.length === 0) {
     return (
       <>
@@ -192,6 +216,14 @@ async function Results({ address }: { address: string }) {
             another chain, Kawal only reads BSC; if you minted from a different key, look that one up
             instead. Nothing was called.
           </p>
+          {gap.held !== null && gap.held > 0 && (
+            <p className="typed mt-2 max-w-[60ch] text-[0.9rem] text-stamp-red">
+              The Identity Registry disagrees: <code>balanceOf</code> says this address holds {gap.held}{" "}
+              identity token{gap.held === 1 ? "" : "s"}. Kawal looked for them by id and could not place{" "}
+              {gap.held === 1 ? "it" : "them"} within the window it scans, so nothing is listed above. The
+              token exists whatever this page can show.
+            </p>
+          )}
         </div>
         <Stamp ink="stamp-grey" size="lg">
           Empty
@@ -240,6 +272,20 @@ async function Results({ address }: { address: string }) {
           {broken.length > 0 && (
             <p className="typed mt-1 text-[0.9rem] text-carbon-2">
               The registry still lists them exactly as you registered them.
+            </p>
+          )}
+          {gap.ids.length > 0 && (
+            <p className="typed mt-2 max-w-[60ch] text-[0.85rem] text-carbon-2">
+              {gap.ids.length} of {agents.length} {gap.ids.length === 1 ? "is" : "are"} not in 8004scan&rsquo;s
+              index at all — token {gap.ids.join(", ")}, found by asking the Identity Registry which tokens this
+              address holds. {gap.ids.length === 1 ? "It carries" : "They carry"} no score or feedback count here,
+              because those are the index&rsquo;s numbers. The endpoint was called all the same.
+            </p>
+          )}
+          {gap.held !== null && !gap.accounted && (
+            <p className="typed mt-2 max-w-[60ch] text-[0.85rem] text-stamp-red">
+              The chain says this address holds {gap.held} tokens and only {agents.length} could be placed. The
+              rest were minted outside the window Kawal scans; they exist, and they are not on this page.
             </p>
           )}
           <p className="typed mt-2 text-[0.85rem] text-carbon-2">
@@ -293,6 +339,9 @@ async function Results({ address }: { address: string }) {
                 )}
                 <p className="typed mt-1 text-[0.8rem] text-carbon-3">
                   No. {agent.token_id} · {ownership}
+                  {gap.ids.includes(agent.token_id) && (
+                    <span className="text-stamp-red"> · not in 8004scan&rsquo;s index; this row is the chain&rsquo;s</span>
+                  )}
                 </p>
                 {d && !descriptor && (
                   <p className="typed mt-2 max-w-[60ch] text-[0.88rem] text-carbon-2">{d.summary}</p>

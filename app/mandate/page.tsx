@@ -1119,7 +1119,9 @@ function MarketSheet({ market, buyer }: { market: MarketSummary | null; buyer: A
                   <span className="cap !text-carbon-2">{j.statusName}</span>
                   <span className="text-carbon-2">provider {short(j.provider)}</span>
                   <span>{fromRaw(j.budget)} $U</span>
-                  <span className="text-carbon-3">
+                  {/* A memo is whatever the client wrote: agentmart's is unbroken JSON, and
+                      48 of those characters are wider than a phone. Let it break anywhere. */}
+                  <span className="min-w-0 break-all text-carbon-3">
                     {j.description.slice(0, 48)}
                     {j.description.length > 48 ? "…" : ""}
                   </span>

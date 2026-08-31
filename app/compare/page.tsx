@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { registeredOn } from "@/lib/unindexed";
 import { ListingRow, TierStamp } from "@/components/listing";
 import { CompareSubmit } from "@/components/compare-submit";
 import { browse } from "@/lib/catalog";
@@ -228,6 +229,12 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
                   are different agents to hire. */}
               <Row label="Score v5" columns={columns}>
                 {(c) => {
+                  // A column built off the chain has no score at all. Printing
+                  // its 0.00 beside a real 30.47 would read as the worst agent
+                  // in the table rather than as an unscored one.
+                  if (c.agent.indexed === false) {
+                    return <span className="text-carbon-3">not scored — 8004scan has no entry for this token</span>;
+                  }
                   const weakest = weakestV5(c.scoreV5);
                   if (!weakest) {
                     return (
@@ -267,7 +274,23 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
               </Row>
 
               <Row label="Registered" columns={columns}>
-                {(c) => <span>{new Date(c.agent.created_at).toISOString().slice(0, 10)}</span>}
+                {(c) => <span>{registeredOn(c.agent.created_at)}</span>}
+              </Row>
+
+              {/* Which of the two things Kawal reads this column came out of.
+                  Every row above means something different depending on the
+                  answer, so it is stated rather than left to be inferred from
+                  the blanks. */}
+              <Row label="Read from" columns={columns}>
+                {(c) =>
+                  c.agent.indexed === false ? (
+                    <span className="text-stamp-red">
+                      Not in the index — the Identity Registry and this agent&rsquo;s own registration document
+                    </span>
+                  ) : (
+                    <span className="text-carbon-3">8004scan&rsquo;s index, and the endpoint called from here</span>
+                  )
+                }
               </Row>
 
               <Row label="Checked at" columns={columns}>

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { settle } from "./settle.ts";
 
 /**
  * The whole journey by keyboard, and the sections that read the registry's
@@ -111,7 +112,7 @@ test("trending on the cover sheet is at most five rows, each stamped, or absent"
   const section = page.locator('section[aria-label="Moving this week"]');
   // Streamed in after the seats; give it its moment, then read whichever
   // state it settled in.
-  await page.waitForLoadState("networkidle");
+  await settle(page);
   const present = (await section.count()) > 0;
   if (!present) {
     // The registry did not say what is trending. That leaves no section and
@@ -137,7 +138,7 @@ test("trending on the cover sheet is at most five rows, each stamped, or absent"
 
 test("the unfiltered manifest carries the same strip above its rows, and no seat page does", async ({ page }) => {
   await page.goto("/agents");
-  await page.waitForLoadState("networkidle");
+  await settle(page);
   const strip = page.locator('section[aria-label="Moving this week"]');
   if ((await strip.count()) > 0) {
     expect(await strip.locator("li").count()).toBeLessThanOrEqual(5);
@@ -158,7 +159,7 @@ test("a dead registry leaves no trending section and no error", async ({ page })
   const res = await page.goto("http://127.0.0.1:3211/");
   expect(res?.status()).toBe(200);
   await expect(page.getByRole("heading", { name: /cannot be hired/i })).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await settle(page);
   await expect(page.locator('section[aria-label="Moving this week"]')).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Application error");
   await expect(page.locator("body")).not.toContainText("ECONNREFUSED");
@@ -210,7 +211,7 @@ test("the owner sheet prints the wallet's ledger as the registry's accounting", 
   await page.goto("/owner?address=0xda977767452c5dd021624511f14df67b6c9c2c1b");
   await expect(page.getByText(/registrations? on BSC|No registrations under this address/)).toBeVisible();
 
-  await page.waitForLoadState("networkidle");
+  await settle(page);
   const strip = page.locator('section[aria-label="The wallet"]');
   test.skip((await strip.count()) === 0, "8004scan has never indexed this wallet");
 
@@ -227,7 +228,7 @@ test("an agent wallet's payments are printed beside the wallet, or the row is ab
   await page.goto("/agents/56/43129");
   const registration = page.locator("section").filter({ hasText: "Registration · the registry" });
   await expect(registration).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await settle(page);
 
   const walletRow = registration.locator(".cell").filter({ has: page.locator("dt", { hasText: /^Agent wallet$/ }) });
   await expect(walletRow).toHaveCount(1);

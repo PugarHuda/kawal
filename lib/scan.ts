@@ -20,6 +20,7 @@
  */
 
 import { BSC_MAINNET } from "./chains.ts";
+import { agentFromChain } from "./unindexed.ts";
 import {
   ScanAgentDetailSchema,
   ScanStatsSchema,
@@ -307,11 +308,23 @@ export async function searchAgents(
 }
 
 export async function getAgent(chainId: number, tokenId: string) {
-  const { body } = await get<unknown>(`/agents/${chainId}/${tokenId}`);
-  // A detail page has one row and no fallback, so a shape we cannot parse is
-  // a hard failure rather than a silent drop — the caller already renders a
-  // 404 for a missing agent, which is the honest outcome either way.
-  return ScanAgentDetailSchema.parse(body.data) satisfies ScanAgentDetail;
+  try {
+    const { body } = await get<unknown>(`/agents/${chainId}/${tokenId}`);
+    // A shape we cannot parse is a hard failure rather than a silent drop, and
+    // falls through to the chain below like any other refusal.
+    return ScanAgentDetailSchema.parse(body.data) satisfies ScanAgentDetail;
+  } catch (err) {
+    // The index is not the registry. It said no; the Identity Registry is the
+    // contract that actually minted the token, so it gets asked before this
+    // becomes a 404 — and it answers for the two cases the index cannot: a
+    // registration too new to be indexed, and 8004scan being down.
+    //
+    // Kawal's own agent 320164 was the worked example: minted and readable
+    // through `ownerOf` within the minute, still 404 on this site hours later.
+    const fromChain = await agentFromChain(chainId, tokenId).catch(() => null);
+    if (fromChain) return fromChain;
+    throw err;
+  }
 }
 
 /**

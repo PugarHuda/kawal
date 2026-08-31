@@ -158,10 +158,10 @@ test("an endpoint proven silent is downgraded, whatever the registry says", asyn
   const text = await record.innerText();
   test.skip(!text.startsWith("0 of"), "this endpoint has answered at least once here");
 
-  // The stamp prints its Indonesian face; the English tier rides along for
-  // screen readers, so it is in the DOM without being visible.
+  // The stamp prints the tier itself now — `ae5b97a` took the Indonesian
+  // faces out, and with them the sr-only English twin this used to check for
+  // separately. One assertion, on the words a reader actually sees.
   await expect(page.getByText("Does not answer").first()).toBeVisible();
-  await expect(page.getByText("Does not answer").first()).toBeAttached();
   await expect(page.getByRole("heading", { name: "Can you hire it" })).toBeVisible();
   // The claim it contradicts must still be visible: the registry said MCP.
   // Two elements say so — the signal detail and the registration row — so

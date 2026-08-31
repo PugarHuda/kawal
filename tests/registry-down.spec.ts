@@ -47,10 +47,25 @@ test("navigation still works with nothing to navigate to", async ({ page }) => {
   await expect(page.locator("p.tnum", { hasText: "USDT / day" }).first()).toBeVisible();
 });
 
-test("an agent page answers 404 rather than 500 when the registry is gone", async ({ page }) => {
-  // With no registry the agent cannot be resolved, and "not found" is the
-  // honest answer. A 500 would tell a crawler the URL is broken forever.
+test("an agent page falls back to the chain when the registry is gone", async ({ page }) => {
+  // This used to assert 404, and 404 was the honest answer while 8004scan was
+  // the only thing Kawal asked. It is not the only thing any more: the
+  // Identity Registry minted the token and is reachable over RPC whatever the
+  // index is doing, so an outage now costs the score and the feedback count,
+  // not the page. The sheet says which it is.
   const res = await page.goto("/agents/56/43129");
+  expect(res?.status()).toBe(200);
+  await expect(page.getByText("Not in the index")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  // No invented numbers while the index is unreachable.
+  await expect(page.getByText("not scored — the index has no entry to score")).toBeVisible();
+});
+
+test("a token the chain has never minted is still 404", async ({ page }) => {
+  // The fallback must not turn every id into a page. `ownerOf` reverts on a
+  // token that does not exist, and that is a 404 earned from the contract
+  // rather than from an index that happened to be down.
+  const res = await page.goto("/agents/56/999999999");
   expect(res?.status()).toBe(404);
 });
 
@@ -74,14 +89,23 @@ test("health reports 503 with the failing dependency named", async ({ request })
   for (const probe of others) expect(probe.ok, `${probe.name}: ${probe.detail}`).toBe(true);
 });
 
-test("the comparison page degrades to its instructions", async ({ page }) => {
+test("the comparison still builds its columns from the chain", async ({ page }) => {
   const res = await page.goto("/compare?ids=56:43129,56:45381");
   expect(res?.status()).toBe(200);
 
-  // No columns can be built, so it falls back to the empty state that tells a
-  // visitor how to use it — a dead end avoided rather than a blank table.
-  await expect(page.getByRole("heading", { name: "Compare agents" })).toBeVisible();
+  // This used to degrade to the empty state, because two named agents could
+  // not be resolved without the index. They can: both tokens exist on the
+  // Identity Registry and both registration documents are fetched from their
+  // own origins, so the comparison a visitor asked for is still the one they
+  // get. What is gone is the index's scoring, and the columns say so.
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("·");
+  await expect(page.getByText("Not in the index").first()).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Application error");
+
+  // And no invented score sits beside the ones that are missing. A chain-built
+  // column has no total_score at all; printing its 0.00 next to a real 30.47
+  // would read as the worst agent in the table rather than an unscored one.
+  await expect(page.getByText("not scored — 8004scan has no entry for this token").first()).toBeVisible();
 });
 
 test("the endpoints that fetch on a caller's behalf have a ceiling", async ({ request }) => {

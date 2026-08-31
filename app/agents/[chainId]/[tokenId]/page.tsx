@@ -14,6 +14,7 @@ import {
   type ScoreHistory,
   type ScoreV5,
 } from "@/lib/scan";
+import { registeredOn } from "@/lib/unindexed";
 import { proveAgent, type EndpointProof, type ProbedTool } from "@/lib/probe";
 import { uptimeFor, observedFor, type Uptime } from "@/lib/uptime";
 import { checkX402Cached, networkName, type X402Check } from "@/lib/x402";
@@ -124,7 +125,6 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
   };
 
   const classification = classify(agent.name, agent.description);
-  const registered = new Date(agent.created_at);
   const seat = seatColor(classification.category);
 
   return (
@@ -144,6 +144,21 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
             <CheckedAt proof={findings.proof} />
           </Suspense>
         </div>
+
+        {/* The index had never heard of this token, so everything below was
+            read off the chain. Said before the entry rather than after it:
+            somebody reading a thin sheet needs to know why it is thin. */}
+        {agent.indexed === false && (
+          <p className="typed border-b-[1.5px] border-rule bg-paper-pink px-5 py-4 text-[0.9rem] text-carbon-2">
+            <span className="cap">Not in the index</span>
+            <br />
+            8004scan has no entry for {agent.chain_id}:{agent.token_id}. The Identity Registry at{" "}
+            <span className="serial">{agent.contract_address}</span> does: it names the owner below and points at
+            the registration document this sheet was built from. No score, no feedback count and no rank is
+            printed, because those are the index&rsquo;s numbers and the index does not have this agent. The
+            endpoint is still called, and that part is Kawal&rsquo;s own measurement either way.
+          </p>
+        )}
 
         {/* ------------------------------------------------- the entry --- */}
         <header className="grid grid-cols-[minmax(0,1fr)] gap-x-5 border-b-[1.5px] px-5 py-6 sm:grid-cols-[minmax(0,1fr)_auto]" style={{ borderColor: seat }}>
@@ -198,10 +213,12 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
             <Suspense fallback={null}>
               <AgentWalletRows chainId={agent.chain_id} tokenId={agent.token_id} indexed={agent.agent_wallet} />
             </Suspense>
-            <Row label="Registered">{registered.toISOString().slice(0, 10)}</Row>
+            <Row label="Registered">{registeredOn(agent.created_at)}</Row>
             <Row label="Protocols">{agent.supported_protocols.join(", ").toUpperCase() || "none declared"}</Row>
             <Row label="Reputation">
-              score {agent.total_score.toFixed(2)} · {agent.total_feedbacks} feedbacks · {agent.star_count} stars
+              {agent.indexed === false
+                ? "not scored — the index has no entry to score"
+                : `score ${agent.total_score.toFixed(2)} · ${agent.total_feedbacks} feedbacks · ${agent.star_count} stars`}
             </Row>
           </dl>
           {classification.matched.length > 0 && (

@@ -34,6 +34,7 @@
  */
 
 import { getAgent, getQuality, listAgents, type TrendingPeriod } from "./scan.ts";
+import { registeredOn } from "./unindexed.ts";
 import { proveAgent } from "./probe.ts";
 import { assess, tierLabel, v5Rows, weakestV5 } from "./signals.ts";
 import { declaredEndpoint, trendingListings } from "./liveness.ts";
@@ -723,7 +724,7 @@ function compareRow(c: Column): Json {
       : null,
     scoreTrend: h && h.data_points >= 2 && h.score_change !== null ? { change: h.score_change, periodDays: h.period_days } : null,
     flaggedRisks: (c.quality?.risk_flags ?? []).slice(0, 4).map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
-    registered: new Date(c.agent.created_at).toISOString().slice(0, 10),
+    registered: registeredOn(c.agent.created_at),
   };
 }
 
@@ -766,7 +767,7 @@ export async function deepReport(chainId: number, tokenId: string): Promise<Json
       tokenId,
       name: agent.name,
       owner: agent.owner_address,
-      registered: agent.created_at,
+      registered: registeredOn(agent.created_at),
       declared: agent.supported_protocols ?? [],
     },
     tier: assessment.tier,

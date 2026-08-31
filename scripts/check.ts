@@ -36,6 +36,8 @@ import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
+import { registeredOn } from "../lib/unindexed.ts";
+import { ScanAgentDetailSchema } from "../lib/scan.schema.ts";
 import type { ScanAgent } from "../lib/scan.ts";
 import { assertPublicUrl, BlockedUrlError } from "../lib/ssrf.ts";
 import { memo, clearMemo, memoStats } from "../lib/memo.ts";
@@ -1924,4 +1926,30 @@ assert.equal(pct(0), "0.00%");
   assert.equal(weakestV5(null), null);
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts");
+// -- an agent the index has never heard of ---------------------------------
+{
+  // The date a chain-built row does not have. `new Date("").toISOString()`
+  // throws a RangeError, which on the agent page is a 500 on the one path
+  // that exists to survive the index being unhelpful.
+  assert.equal(registeredOn("2026-08-27T03:52:41.769Z"), "2026-08-27");
+  assert.equal(registeredOn(""), "not published");
+  assert.equal(registeredOn("whenever"), "not published");
+
+  // Rows out of 8004scan carry no `indexed` field and must read as indexed;
+  // only a row that says otherwise is treated as chain-built, so a page can
+  // never mistake a scored agent for an unscored one.
+  const fromIndex = ScanAgentDetailSchema.parse({
+    id: "56:43129",
+    agent_id: "43129",
+    token_id: "43129",
+    chain_id: 56,
+    contract_address: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    name: "Venus powered by HeyAnon",
+    created_at: "2026-07-01T00:00:00Z",
+  });
+  assert.equal(fromIndex.indexed, true, "absent means indexed");
+  assert.equal(ScanAgentDetailSchema.parse({ ...fromIndex, indexed: false }).indexed, false);
+  assert.equal(ScanAgentDetailSchema.parse({ ...fromIndex, indexed: "no" }).indexed, true, "junk falls back to indexed");
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents");

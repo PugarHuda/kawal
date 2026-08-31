@@ -18,7 +18,15 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   reporter: [["list"]],
-  timeout: 90_000,
+  // Ninety seconds was too tight, and which test it failed moved between runs:
+  // the CSP check on the agent page one run, `goto("/mandate")` the next, both
+  // passing on their own in seconds. Every one of these pages renders from live
+  // third-party endpoints, and four workers calling them at once is a different
+  // proposition from one — /mandate answers in 2.6 s served alone and 3.7 s at
+  // six concurrent requests against production, so the app is not the slow
+  // part. A budget that fails on somebody else's latency reports a bug that
+  // does not exist and hides the ones that do.
+  timeout: 150_000,
   expect: { timeout: 20_000 },
 
   use: {

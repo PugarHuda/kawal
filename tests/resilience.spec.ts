@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { settle } from "./settle.ts";
 import AxeBuilder from "@axe-core/playwright";
 
 /**
@@ -65,7 +66,7 @@ for (const [label, path] of PAGES) {
 
     const res = await page.goto(path);
     expect(res?.headers()["content-security-policy"]).toContain("nonce-");
-    await page.waitForLoadState("networkidle");
+    await settle(page);
 
     expect(violations, violations.join(" | ")).toHaveLength(0);
   });
@@ -113,7 +114,7 @@ test("the 404 page is ours, styled, and offers a way back", async ({ page }) => 
 
   const res = await page.goto("/agents/56/999999999");
   expect(res?.status()).toBe(404);
-  await page.waitForLoadState("networkidle");
+  await settle(page);
 
   await expect(page.getByText("There is no agent at this address.")).toBeVisible();
   // A way out, not just an apology.

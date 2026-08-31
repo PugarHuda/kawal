@@ -245,6 +245,36 @@ and the suite reads it and then dials what it declares from the same origin.
 simulating the reference signatures against the live Identity Registry: it is
 the one that estimates rather than reverts.
 
+## When the index has not caught up
+
+The index is not the registry, and Kawal's own site used to forget that.
+Agent **320164** was minted on 2026-08-31 and `ownerOf(320164)` named the
+operator wallet within the minute; `/agents/56/320164` answered **404** for
+most of that day, because the page asked 8004scan and nothing else. A
+marketplace whose whole argument is that the index cannot be trusted should
+not vanish the moment the index falls behind.
+
+So `getAgent` now falls through to the Identity Registry when the index says
+no: `ownerOf` for whether the token exists, `tokenURI` for where its
+registration document lives, `getAgentWallet` for where it is paid, and the
+document fetched through the same SSRF guard every other declared URL goes
+through — a `tokenURI` is written by whoever minted the token and is exactly
+as untrusted as an endpoint. The sheet says **Not in the index** and prints no
+score, no feedback count and no rank, because those are 8004scan's numbers and
+8004scan does not have this agent. The endpoint is still called; that part was
+never the index's to give. A token the chain has never minted is still a 404,
+earned from the contract rather than from an index that happened to be down.
+
+`/owner` closes the same gap from the other side. One `balanceOf` says how
+many identity tokens an address really holds, and when that is more than the
+index listed, the missing ids are found by asking the registry `ownerOf` over
+a window of 3,000 ids through Multicall3 — measured at 1.9-7.5 s, and only
+ever run when the balance says there is something to find. The two cheap ways
+do not exist here: the registry is not `ERC721Enumerable`, and the public
+dataseed refuses `eth_getLogs` on it at every span tried, 5,000 blocks
+included. A window that cannot account for the whole balance says so on the
+page rather than letting a short list read as complete.
+
 ## Probes on a schedule
 
 Every reputation record Kawal wrote carried "probes are made when the site is
