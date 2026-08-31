@@ -230,8 +230,6 @@ export async function chainOnlyFor(
   const top = newest && /^\d+$/.test(newest) ? BigInt(newest) : null;
   if (top === null) return { ids: [], held, accounted: false };
 
-  const known = new Set(indexedIds);
-  const wanted = owner.toLowerCase();
   // Above the newest id the index knows about as well as below it: the index
   // is behind by definition here, so the true top of the registry is higher
   // than anything it has published.
@@ -252,6 +250,34 @@ export async function chainOnlyFor(
   } catch {
     return { ids: [], held, accounted: false };
   }
+
+  return sift({ results, first, owner, indexedIds, held });
+}
+
+/**
+ * Which ids in a scan belong to this owner and are missing from the index.
+ *
+ * Split out from the call above so it can be tested without three thousand
+ * RPC reads: this is where every decision the page acts on is made, and it was
+ * shipped with none. A revert is not an answer — the registry reverts on every
+ * id that was never minted, which is most of any window — and a hit the index
+ * already listed is not news.
+ *
+ * `accounted` is the one a reader depends on: it says the window found every
+ * token `balanceOf` promised, so the list above it is the whole list. When it
+ * is false the page must say the list is short rather than let it read as
+ * complete.
+ */
+export function sift(scan: {
+  results: ReadonlyArray<{ status: "success" | "failure"; result?: unknown }>;
+  first: bigint;
+  owner: string;
+  indexedIds: string[];
+  held: number;
+}): ChainOnly {
+  const { results, first, owner, indexedIds, held } = scan;
+  const known = new Set(indexedIds);
+  const wanted = owner.toLowerCase();
 
   const ids: string[] = [];
   results.forEach((r, i) => {

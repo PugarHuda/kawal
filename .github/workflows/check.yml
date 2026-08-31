@@ -1,0 +1,35 @@
+# The checks that need nothing but this repository.
+#
+# `npm run test:e2e` is deliberately not here. Every one of its 223 tests
+# renders a page that dials 8004scan and a stranger's MCP server, so running it
+# on every push would be flaky by construction and would point a scheduler at
+# other people's infrastructure. It stays a thing a person runs, and the README
+# says what it covers.
+#
+# What is here runs offline and is the difference between "223 tests pass" being
+# a claim and being checkable: the taxonomy, pricing, signing, mandate, sweep
+# and publication-record assertions in `npm run check`, plus lint and types.
+
+name: check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Matched to the version this is developed on, not rounded down.
+          # `npm run check` is a `.ts` file run directly by node, so the
+          # runtime's type stripping is doing real work here.
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      - run: npx tsc --noEmit

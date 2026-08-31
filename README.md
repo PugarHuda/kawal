@@ -11,7 +11,18 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # Kawal
 
 An agent marketplace for BNB Smart Chain, built for the *Build the Era*
-hackathon.
+hackathon. Live at **https://kawal-three.vercel.app**.
+
+![The cover sheet: a form with the roster's figures typed into it and a stamp pressed over the count of calls Kawal has placed](docs/home.png)
+
+*Form K-1, the cover sheet. Every figure on it was read from 8004scan or the
+chain at request time; the stamp is pressed only where Kawal called and
+something answered. The direction is documented in [DESIGN.md](DESIGN.md).*
+
+![An agent's inspection sheet, showing the probe result, the reputation panel and the registry's entries](docs/agent.png)
+
+*Form K-3, one agent. The verdict at the top is a call this instance made, not
+a field copied out of the registry.*
 
 BSC carries over 280,000 agents registered under ERC-8004 and adds a few
 thousand a day. Under a tenth declare an interface anything could call, and

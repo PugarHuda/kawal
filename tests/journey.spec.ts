@@ -207,6 +207,36 @@ test("the comparison names the weakest v5 part beside the total", async ({ page 
   }
 });
 
+test("the owner sheet claims no gap when the chain and the index agree", async ({ page }) => {
+  // Kawal's own operator wallet: `balanceOf` says one identity token and
+  // 8004scan lists that one, so the two agree and the sheet must say nothing
+  // about missing registrations. The scan behind that decision was shipped
+  // with no test, and every way it can be wrong shows up here — a false gap
+  // prints a red line, a double-counted merge prints a duplicate row, and a
+  // throw takes the whole section down.
+  //
+  // What this cannot do is exercise the gap itself: that branch only runs when
+  // the index is genuinely behind, which is not a state a test can arrange
+  // against a live registry. The decisions inside it are asserted offline in
+  // `npm run check` instead.
+  await page.goto("/owner?address=0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92");
+  await settle(page);
+
+  const rows = page.locator("li.manifest-row");
+  await expect(rows.first()).toBeVisible();
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByText("Identity Registry agrees")).toBeVisible();
+
+  for (const claim of [
+    /not in 8004scan/i,
+    /this row is the chain/i,
+    /could be placed/i,
+    /The Identity Registry disagrees/i,
+  ]) {
+    await expect(page.getByText(claim)).toHaveCount(0);
+  }
+});
+
 test("the owner sheet prints the wallet's ledger as the registry's accounting", async ({ page }) => {
   await page.goto("/owner?address=0xda977767452c5dd021624511f14df67b6c9c2c1b");
   await expect(page.getByText(/registrations? on BSC|No registrations under this address/)).toBeVisible();

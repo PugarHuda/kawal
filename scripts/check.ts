@@ -36,7 +36,7 @@ import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { take, takeDurable, groupOf, resetForTests } from "../lib/ratelimit.ts";
 import { buildFeedback, buildResponseTime, uptimePercent, windowDays, registryFor, MIN_OBSERVATIONS_TO_PUBLISH, KNOWN_DEFECTS, FEEDBACK_ABI } from "../lib/feedback.ts";
 import { decodeFunctionData, keccak256, toHex, isAddress, getAddress, sha256 } from "viem";
-import { registeredOn } from "../lib/unindexed.ts";
+import { registeredOn, sift } from "../lib/unindexed.ts";
 import { noteWrite, everyHash } from "../lib/published.ts";
 import { sweepLine } from "../lib/uptime.ts";
 import { ScanAgentDetailSchema } from "../lib/scan.schema.ts";
@@ -1936,6 +1936,49 @@ assert.equal(pct(0), "0.00%");
   assert.equal(registeredOn("2026-08-27T03:52:41.769Z"), "2026-08-27");
   assert.equal(registeredOn(""), "not published");
   assert.equal(registeredOn("whenever"), "not published");
+
+  // The scan that finds an owner's tokens the index missed. Shipped with no
+  // test at all, which is how the most intricate thing written that day became
+  // the least checked. `first` counts downward, so index 0 is the highest id.
+  const W = "0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92";
+  const other = "0x000000000000000000000000000000000000dEaD";
+  const ok = (a: string) => ({ status: "success" as const, result: a });
+  const revert = { status: "failure" as const };
+
+  // Most of any window is ids that were never minted; a revert is not a hit.
+  const found = sift({
+    results: [revert, ok(other), ok(W.toLowerCase()), revert, ok(W)],
+    first: 320900n,
+    owner: W,
+    indexedIds: [],
+    held: 2,
+  });
+  assert.deepEqual(found.ids, ["320898", "320896"], "case-insensitive, revert and stranger skipped");
+  assert.equal(found.accounted, true, "two held, two found");
+
+  // A token the index already listed is not news, and must not be counted
+  // twice towards the balance.
+  const partly = sift({
+    results: [ok(W), ok(W)],
+    first: 320900n,
+    owner: W,
+    indexedIds: ["320900"],
+    held: 2,
+  });
+  assert.deepEqual(partly.ids, ["320899"]);
+  assert.equal(partly.accounted, true, "one indexed plus one found is the whole balance");
+
+  // The reading a page must not dress up as complete: the window did not find
+  // everything `balanceOf` promised.
+  const short = sift({ results: [ok(W)], first: 320900n, owner: W, indexedIds: [], held: 3 });
+  assert.deepEqual(short.ids, ["320900"]);
+  assert.equal(short.accounted, false, "one of three is not the whole list");
+
+  // An empty window is honest about finding nothing rather than claiming the
+  // owner holds nothing.
+  const empty = sift({ results: [], first: 320900n, owner: W, indexedIds: [], held: 1 });
+  assert.deepEqual(empty.ids, []);
+  assert.equal(empty.accounted, false);
 
   // Rows out of 8004scan carry no `indexed` field and must read as indexed;
   // only a row that says otherwise is treated as chain-built, so a page can
