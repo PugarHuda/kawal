@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.pugarhuda/kawal",
+  "name": "io.github.PugarHuda/kawal",
   "title": "Kawal",
   "description": "Evidence about ERC-8004 agents on BNB Smart Chain, gathered by calling them. No key.",
   "version": "0.1.0",
