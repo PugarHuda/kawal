@@ -212,10 +212,12 @@ async function Inspected({ observed }: { observed: Promise<Observed | null> }) {
       <div className="mt-3">
         <p className="typed relative inline-block text-[3rem] font-bold leading-none sm:text-[3.8rem]">
           {o.checks.toLocaleString()}
-          {/* Pressed over the count's last digit and out into the margin:
-              it crosses the figure it certifies and nothing the reader
-              still needs to read. */}
-          <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-1.6rem)] sm:translate-x-[calc(100%-2.2rem)]">
+          {/* Pressed against the count's edge and out into the margin. It
+              used to sit 2.2rem in — a whole digit at this size — on the
+              theory that the last digit was not something the reader still
+              needed, and 2,92▮ is not a number. A stamp certifies a figure by
+              touching it, not by covering it. */}
+          <span className="stamp-responsive absolute -top-1 right-0 z-10 translate-x-[calc(100%-0.5rem)] sm:translate-x-[calc(100%-0.7rem)]">
             <Stamp ink="stamp-violet" size="lg" evidence={o.checks}>
               Hireable
             </Stamp>

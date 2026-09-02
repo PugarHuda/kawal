@@ -84,6 +84,18 @@ npm install
 npm run dev
 ```
 
+Or start from it with BNB Chain's own scaffolder, which clones any public
+repository as a template:
+
+```bash
+npx create-bnb-app@latest --example https://github.com/PugarHuda/kawal
+```
+
+Checked from a fresh clone on 2026-09-03: install, `next typegen`, `npm run
+check` and `tsc` all clean. To be plain about what that is and is not: BNB
+Agent Studio is a starting point for new agents, and Kawal was not scaffolded
+from it — it is offered *through* it, not built *with* it.
+
 Nothing below needs a wallet or an API key. The catalog reads live 8004scan
 data; the probes call live agents.
 
@@ -98,6 +110,7 @@ data; the probes call live agents.
 | `npm run sweep` | Calls every agent listed as hireable and records what answered |
 | `npm run reputation` | Reads ERC-8004 feedback from both ends of the BSC register and reports who wrote it |
 | `npm run roster` | Measures what the newest registrations are made of: template copies, distinct owners, declare rate |
+| `npm run templates` | Measures registrations whose endpoint is still a `{placeholder}`: refused as registered, alive once filled, bound to nothing — 6% of the BSC register |
 | `npm run x402` | Samples BSC registrations claiming x402 and counts how many actually demand payment |
 
 Commands that spend money are separate and refuse to run without enough
