@@ -21,6 +21,7 @@
     "reputation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/reputation.ts",
     "publish": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/publish-feedback.ts",
     "roster": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/roster.ts",
+    "templates": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/templates.ts",
     "ledger:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/ledger-push.ts",
     "register": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/register.ts",
     "history:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/history-push.ts",

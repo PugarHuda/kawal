@@ -286,6 +286,28 @@ dataseed refuses `eth_getLogs` on it at every span tried, 5,000 blocks
 included. A window that cannot account for the whole balance says so on the
 page rather than letting a short list read as complete.
 
+## Addresses that are not addresses
+
+`npm run templates` measures the largest single defect in BSC's agent
+register. RFC 3986 excludes braces from URIs, so a `{placeholder}` in a
+declared endpoint is never an address — it is the substitution the publisher
+meant to make and did not.
+
+On 2026-09-01 the registry returned **17,885** agents describing themselves as
+being on one platform. Every one of them declares A2A, which is about three
+quarters of every A2A declaration on the chain, and every one declares the same
+card URL with `{agentId}` still in it. Of 24 probed: 24 refused as registered,
+24 answered once the registry's own token id was put where the placeholder is,
+and **0** of those cards was bound to anything callable — each reports
+`status: UNBOUND`, `presence: offline`, `endpoint: null`.
+
+Both shorter readings are wrong. "The platform is broken" is refuted by the
+second number; "it works if you substitute" is refuted by the third. Kawal
+reports all three, and probes the endpoint exactly as published — repairing a
+registration quietly on the reader's behalf would hide the thing being
+measured. The agent sheet says so on the page, beside the failure rather than
+instead of it.
+
 ## Probes on a schedule
 
 Every reputation record Kawal wrote carried "probes are made when the site is
