@@ -1,8 +1,9 @@
 /**
  * The on-chain proof: grant a real mandate, use it, and show the limits bite.
  *
- * Run: npm run onchain            (BSC testnet)
- *      npm run onchain -- mainnet (BSC mainnet — spends real BNB)
+ * Run: npm run onchain                          (BSC testnet)
+ *      npm run onchain -- mainnet               (BSC mainnet — spends real BNB)
+ *      npm run onchain -- mainnet health,yield  (only those seats)
  *
  * A marketplace that only *plans* sessions has proven nothing. This walks the
  * whole path a user's capital would take:
@@ -28,10 +29,10 @@ import {
   sessionFromSeat,
   type GrantedSeat,
 } from "../lib/altana.ts";
-import { VENUES } from "../lib/mandate.ts";
+import { VENUES, SEAT_POLICIES } from "../lib/mandate.ts";
 import { BSC_MAINNET, BSC_TESTNET } from "../lib/chains.ts";
 import { publicClientFor, cycleCost } from "../lib/rpc.ts";
-import { adminKey, hasAdminKey, withLedgerLock, writeLedger, KEY_FILE, SESSION_FILE } from "../lib/vault.ts";
+import { adminKey, hasAdminKey, readLedger, withLedgerLock, writeLedger, KEY_FILE, SESSION_FILE } from "../lib/vault.ts";
 
 const NETS = {
   testnet: { chainId: BSC_TESTNET, faucet: "https://testnet.bnbchain.org/faucet-smart" },
@@ -44,6 +45,20 @@ if (!net) {
   console.error(`unknown network "${which}" — expected testnet or mainnet`);
   process.exit(1);
 }
+
+// An optional comma list of seat categories, so a wallet that cannot afford
+// the full bench can still seat the pair `preempt` needs.
+const requested = process.argv[3]?.split(",");
+const policies = requested
+  ? SEAT_POLICIES.filter((p) => requested.includes(p.category))
+  : SEAT_POLICIES;
+if (requested && policies.length !== requested.length) {
+  console.error(
+    `unknown seat in "${process.argv[3]}" — expected any of: ${SEAT_POLICIES.map((p) => p.category).join(", ")}`,
+  );
+  process.exit(1);
+}
+const wantsGrid = policies.some((p) => p.category === "grid");
 
 /**
  * The mandate ceiling for this run.
@@ -95,18 +110,21 @@ const balance = await rpc.getBalance({ address: wallet.address });
 console.log(`balance       ${formatEther(balance)} BNB\n`);
 
 // Each key registered in the KeyStore costs a fee the controller sets itself,
-// so ask it rather than carrying a number that quietly goes stale. Five keys
-// get registered: the admin key on the wallet's first execute, then one per
-// seat.
-// Five keys get registered: the admin key on the wallet's first execute, then
-// one per seat. Six transactions, at a generous gas allowance each, so a busy
-// chain does not strand the run halfway through granting.
-const KEYS_TO_REGISTER = 5;
+// so ask it rather than carrying a number that quietly goes stale. One key per
+// seat, plus the admin key on the wallet's first execute — and that first
+// execute happened already if the ledger holds any seat granted from this
+// wallet on this chain, so a re-grant does not budget for it twice. Gas gets
+// a generous allowance per transaction, so a busy chain does not strand the
+// run halfway through granting.
+const adminKeyRegistered = readLedger().some(
+  (s) => s.walletAddress === wallet.address && s.chainId === net.chainId,
+);
+const KEYS_TO_REGISTER = policies.length + (adminKeyRegistered ? 0 : 1);
 const { fee, gas: gasBudget, total } = await cycleCost(net.chainId, {
   keys: KEYS_TO_REGISTER,
-  transactions: 6,
+  transactions: policies.length + 2,
 });
-const NEEDED = total + WRAP;
+const NEEDED = total + (wantsGrid ? WRAP : 0n);
 
 console.log(`registration  ${formatEther(fee)} BNB per key x ${KEYS_TO_REGISTER} keys`);
 console.log(`gas budget    ${formatEther(gasBudget)} BNB`);
@@ -136,6 +154,7 @@ const { granted, failures } = await grantMandate({
     durationDays: DURATION_DAYS,
     now: Math.floor(Date.now() / 1000),
   },
+  policies,
   onSeat: (seat, stage, detail) => {
     if (stage === "granting") process.stdout.write(`  ${seat.padEnd(18)} granting... `);
     else if (stage === "granted") console.log(`ok  key ${String(detail).slice(0, 20)}...`);
@@ -156,15 +175,20 @@ withLedgerLock((seats) => {
   seats.push(...granted);
   writeLedger(seats);
 });
-console.log(`\n${granted.length}/4 seats granted and registered in KeyStore -> ${SESSION_FILE}`);
+console.log(`\n${granted.length}/${policies.length} seats granted and registered in KeyStore -> ${SESSION_FILE}`);
 if (failures.length) console.log(`failures:\n  ${failures.join("\n  ")}`);
 
 // --- use one ---------------------------------------------------------------
 
 const trader = granted.find((s) => s.category === "grid");
-if (!trader) {
+if (!trader && wantsGrid) {
   console.error("\nthe execution trader was not granted — cannot run the execution proof");
   process.exit(1);
+}
+if (!trader) {
+  console.log("\nexecution proof skipped — the execution trader seat was not requested this run");
+  summary();
+  process.exit(0);
 }
 
 const traderSession = sessionFromSeat(trader);
@@ -223,10 +247,14 @@ if (!offLimits) {
   }
 }
 
-console.log(`\nwallet    ${explorerAddress(net.chainId, wallet.address)}`);
-console.log(`sessions  ${SESSION_FILE} (${granted.length} seats, revocable from /mandate)`);
+summary();
+
+function summary() {
+  console.log(`\nwallet    ${explorerAddress(net.chainId, wallet.address)}`);
+  console.log(`sessions  ${SESSION_FILE} (${granted.length} seats, revocable from /mandate)`);
+  console.log(granted.map(seatLine).join("\n"));
+}
 
 function seatLine(s: GrantedSeat) {
   return `  ${s.seat.padEnd(18)} ${s.allowlist.length} contract(s), cap ${formatEther(BigInt(s.spendLimit))} BNB/${s.spendPeriod}`;
 }
-console.log(granted.map(seatLine).join("\n"));
