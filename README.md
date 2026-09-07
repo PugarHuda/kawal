@@ -13,7 +13,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # Kawal
 
 An agent marketplace for BNB Smart Chain, built for the *Build the Era*
-hackathon. Live at **https://kawal-three.vercel.app**.
+hackathon. Live at **https://kawal-three.vercel.app** · [demo video, 2:28](https://x.com/BangDropID/status/2097000740187418959) — the forms being read, narrated, with two seats live on mainnet.
 
 ![The cover sheet: a form with the roster's figures typed into it and a stamp pressed over the count of calls Kawal has placed](docs/home.png)
 
@@ -108,6 +108,7 @@ data; the probes call live agents.
 | `npm run lint` | ESLint |
 | `npm run audit:coverage` | Live: how many agents each of the four categories actually holds |
 | `npm run verify:venues` | Proves every allowlisted contract address on BSC mainnet (add `-- testnet` for chain 97) |
+| `cd demo && npm run capture && npm run voice && npm run render` | Builds the demo film: Playwright stills of the live site, an edge-tts narration with word timings, and a Remotion composition that points a cursor and a ring at what is being said. Writes `demo/out/kawal-demo.mp4` |
 | `npm run advantage` | Runs the TermiX Agent Advantage Report — three real tasks, hired vs by hand. Writes `ADVANTAGE.md` and the results the `/advantage` page renders |
 | `npm run sweep` | Calls every agent listed as hireable and records what answered |
 | `npm run reputation` | Reads ERC-8004 feedback from both ends of the BSC register and reports who wrote it |

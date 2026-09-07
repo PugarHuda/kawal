@@ -91,6 +91,8 @@ evidence and anti-reference, not a constraint.
 
 ## Evidence on Hand
 
+- Demo video (2:28, narrated, captioned): https://x.com/BangDropID/status/2097000740187418959 — built from live stills by `demo/`, so every figure in it was on the site when it was captured.
+
 - Live figures: 288,072 agents on BSC, 8.5% declaring an interface chain-wide
   and 38.8% among the newest 600; 62.8% of the newest 600 are template copies
   across 464 owners; 1,200 sampled feedback records from 53 addresses.
