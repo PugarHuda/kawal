@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Kawal's own stamp: the violet HIREABLE die, pressed with a K. -->
+  <g transform="rotate(-8 32 32)" fill="none" stroke="#4a2a7d">
+    <rect x="5.5" y="5.5" width="53" height="53" rx="3" stroke-width="3.5"/>
+    <rect x="12" y="12" width="40" height="40" rx="1.5" stroke-width="1.8"/>
+    <path d="M24 19v26M24 34l15-15M28.5 29.5L40 45" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter"/>
+  </g>
+</svg>

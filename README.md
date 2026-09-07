@@ -8,6 +8,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+<img src="public/logo.svg" alt="Kawal" width="232" height="64">
+
 # Kawal
 
 An agent marketplace for BNB Smart Chain, built for the *Build the Era*

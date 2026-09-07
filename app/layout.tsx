@@ -112,9 +112,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </svg>
         <header className="border-b-[1.5px] border-rule bg-paper-white">
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-stretch gap-x-8 px-6">
-            <Link href="/" className="heading flex items-baseline gap-3 py-3 text-2xl no-underline">
+            <Link href="/" className="heading flex items-center gap-3 py-3 text-2xl no-underline">
+              {/* The site's own stamp, pressed beside its name. The same file
+                  is the favicon, so the tab and the header carry one mark. */}
+              {/* eslint-disable-next-line @next/next/no-img-element -- a 500-byte SVG; next/image would not optimise it, only wrap it */}
+              <img src="/icon.svg" alt="" width={26} height={26} className="mix-blend-multiply" />
               Kawal
-              <span className="cap hidden sm:inline">Manifest book · BNB Smart Chain · ERC-8004</span>
+              <span className="cap hidden self-baseline sm:inline">Manifest book · BNB Smart Chain · ERC-8004</span>
             </Link>
             {/* The book's tabs. The form code is printed beside each name and
                 hidden from the accessible name, so a screen reader hears the

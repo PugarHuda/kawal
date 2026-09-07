@@ -1,0 +1,89 @@
+[
+ {
+  "id": "intro",
+  "kind": "intro",
+  "say": "Kawal. An agent marketplace for BNB Smart Chain. Agents you can hire, and limits they cannot cross."
+ },
+ {
+  "id": "cover",
+  "url": "/",
+  "target": "main .stamp--lg",
+  "say": "The ERC-8004 registry on BSC lists over three hundred thousand agents. Kawal refuses to take its word. Every stamp on this form was pressed only after Kawal called the endpoint itself."
+ },
+ {
+  "id": "jobs",
+  "url": "/",
+  "target": "h2:has-text('Hire by the job')",
+  "scope": "section",
+  "say": "Hiring starts from the job: keep a lending position healthy, find where the yield is, rebalance a portfolio, run a grid, or guard security."
+ },
+ {
+  "id": "manifest",
+  "url": "/agents",
+  "target": "article >> nth=0 >> .stamp",
+  "say": "Form K-2 is the manifest. Kawal dials each declared endpoint, an MCP handshake, or an A2A card and a harmless question, and stamps HIREABLE only where something answered in its declared protocol."
+ },
+ {
+  "id": "sheet",
+  "url": "/agents/56/43129",
+  "target": "main .stamp--lg",
+  "say": "One agent, one inspection sheet. The verdict at the top is a call this instance just made, not a field copied out of the registry."
+ },
+ {
+  "id": "tally",
+  "url": "/agents/56/43129",
+  "target": ".tally >> nth=0",
+  "say": "The probe history is a punched tally, not a chart. Every call this instance placed, answered or not, is on the strip."
+ },
+ {
+  "id": "feedback",
+  "url": "/agents/56/43129",
+  "target": "h2:has-text('We read the feedback')",
+  "scope": "section",
+  "say": "Reputation is read by who wrote it, not by how much of it there is. One source is printed as one source, and the blind spot is printed under the stamp."
+ },
+ {
+  "id": "hire",
+  "url": "/agents/56/43129",
+  "target": "h2:has-text('Can you hire it')",
+  "scope": "section",
+  "say": "When it answers and quotes a price, the counterfoil to hire it under a cap is right there on the sheet."
+ },
+ {
+  "id": "mandate",
+  "url": "/mandate",
+  "target": "h2:has-text('Granted on-chain')",
+  "scope": "section",
+  "say": "Form K-5 is the mandate. Two seats are live on BSC mainnet right now: a risk officer and an allocator. Each one is an Altana session key with a spend cap, a contract allowlist, and an expiry."
+ },
+ {
+  "id": "preempt",
+  "url": "/mandate",
+  "target": "h2:has-text('Preemption')",
+  "scope": "section",
+  "say": "Preemption is executed, not drawn. The risk officer can narrow the allocator's cap on-chain: revoke, then regrant, with the balance checked for the whole cycle first."
+ },
+ {
+  "id": "revoke",
+  "url": "/mandate",
+  "target": ".counterfoil--pink >> nth=0",
+  "say": "And every seat is revocable from this page. One click, one transaction, and the key is gone from the KeyStore for good."
+ },
+ {
+  "id": "evidence",
+  "url": "/advantage",
+  "target": "main h1",
+  "say": "Form K-7 is the evidence. The TermiX advantage report ran three real tasks, hired versus by hand, and prints where each side won."
+ },
+ {
+  "id": "machines",
+  "url": "/",
+  "target": "footer .cap:has-text('MCP')",
+  "say": "Agents can ask too. Ten MCP tools, an A2A card and an ERC-8004 registration, with no key and nothing to sign."
+ },
+ {
+  "id": "outro",
+  "kind": "outro",
+  "say": "Kawal. Built for Build the Era on BNB Chain. kawal dash three dot vercel dot app."
+ }
+]

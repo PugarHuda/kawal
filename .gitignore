@@ -78,3 +78,9 @@ skills-lock.json
 .codex/
 .impeccable/questions/
 .kawal-operator.token
+
+# demo video: rendered media and the stills/audio it is built from
+demo/node_modules
+demo/out
+demo/public/shots
+demo/public/audio

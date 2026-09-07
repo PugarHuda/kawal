@@ -284,6 +284,8 @@ The probe history as a perforated tally strip: 11px cells with a 1px Rule border
 ### Legend (signature)
 Every form carries its key: a `<section aria-label="Legend">` — a 1px Rule Soft box on paper-white opening with the caption `Key`, followed by a `<dl>` pairing each mark in use on that page (a small flat stamp, a punched square) with its typed 0.8rem Carbon 2 meaning. Pass only the entries the page actually uses.
 
+### Mark (logo)
+Kawal's own stamp, pressed with a K: the violet die (double ring, 3px corner, the page's one -8deg) around a condensed K drawn as three square-capped strokes so it needs no font. `app/icon.svg` is the favicon and, by `<img src="/icon.svg">`, the mark beside the site name in the header (multiplied into the paper like every stamp); `app/favicon.ico` and `app/apple-icon.png` are rasters of the same file; `public/logo.svg` sets the wordmark beside it in the pre-printed face. No other lockup, no colour variant: the mark is the HIREABLE ink because that is the verdict Kawal exists to press.
 ### Serial
 Courier Prime at 0.06em in Stamp Red: the numbering machine's strike. `.serial--seat` takes the row's seat ink instead.
 
