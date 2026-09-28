@@ -155,6 +155,14 @@ trusting the script that wrote it.
   the whole cycle first, because stopping between the two steps leaves the
   seat with no authority and no way back.
 
+- **Kawal's own contract, KawalLedger:**
+  [`0x156535B2…61d40C1`](https://bscscan.com/address/0x156535B2F5ED2598Da111AB0F6453565161d40C1)
+  (source verified on [Sourcify](https://repo.sourcify.dev/contracts/full_match/56/0x156535B2F5ED2598Da111AB0F6453565161d40C1/),
+  exact match). It holds 28 days of probe history anchored on 2026-09-28,
+  2026-08-31 to 2026-09-27, 4,311 probes. After each write, the contract's own
+  `verify` confirmed a probe of that day against the root it had just stored.
+  [Deploy](https://bscscan.com/tx/0x695e4f034bed459fc3c356d94dddefac7f9827cfdf984e27325a599d90ea3181).
+
 Wallet: [`0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92`](https://bscscan.com/address/0xc7F5cdC8dd028E0b9aF2cA9d3891F135b23f4B92)
 
 ## An agent can ask too
@@ -343,7 +351,8 @@ follows Kawal's call. OASF endpoints are dialled too, not just counted.
 
 Every "answered 209 of 209" on this site comes out of Kawal's own database,
 and a database row is something its owner can edit. **KawalLedger**
-(`contracts/src/KawalLedger.sol`, Kawal's own contract on BSC) is where that
+(`contracts/src/KawalLedger.sol`, Kawal's own contract on BSC at
+[`0x156535B2F5ED2598Da111AB0F6453565161d40C1`](https://bscscan.com/address/0x156535B2F5ED2598Da111AB0F6453565161d40C1)) is where that
 stops. Once a UTC day has been over for an hour, the Merkle root of that day's
 probes is written to it, and a day can be written **once**. A second write for
 the same day reverts.

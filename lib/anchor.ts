@@ -21,7 +21,7 @@
 import { encodeAbiParameters, keccak256, concat, parseAbi, type Hex, type Address } from "viem";
 
 /** The deployed KawalLedger on BSC mainnet. */
-export const LEDGER_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+export const LEDGER_ADDRESS: Address = "0x156535B2F5ED2598Da111AB0F6453565161d40C1";
 export const LEDGER_CHAIN = 56;
 
 export const LEDGER_ABI = parseAbi([
