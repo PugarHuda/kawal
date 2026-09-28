@@ -25,6 +25,9 @@ import { classify, type Classification } from "@/lib/taxonomy";
 import { assess, tierLabel, v5Rows, type Assessment, type Tier } from "@/lib/signals";
 import { categoryLabel, seatColor, Stamp, Tally, Legend, tierInk } from "@/components/listing";
 import { AgentWalletRows } from "@/components/wallet";
+import { anchoringFor } from "@/lib/anchor.run";
+import { LEDGER_ADDRESS, LEDGER_CHAIN, dayLabel } from "@/lib/anchor";
+import { explorerAddress } from "@/lib/altana";
 
 /*
  * Form K-3: the inspection sheet for one agent.
@@ -102,7 +105,11 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
 
   // The nonce the proxy minted for this request, so the JSON-LD block below
   // passes the same policy as every other script on the page.
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const h = await headers();
+  const nonce = h.get("x-nonce") ?? undefined;
+  // The address to share is this page's own, on whichever host served it.
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const pageUrl = host ? `${host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https"}://${host}/agents/${chainId}/${tokenId}` : null;
 
   // Knock on the door ourselves. 8004scan's report is a reading from some
   // earlier moment; this one is from now, from here, and it is the only check
@@ -189,6 +196,10 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
         </Suspense>
 
         <Suspense fallback={null}>
+          <AnchorSection findings={findings} />
+        </Suspense>
+
+        <Suspense fallback={null}>
           <PaymentSection findings={findings} />
         </Suspense>
 
@@ -226,6 +237,33 @@ export default async function AgentPage({ params }: PageProps<"/agents/[chainId]
           )}
         </section>
       </article>
+
+      {/* The share card for this link is the sheet itself (opengraph-image.tsx
+          beside this page): the stamp and the tally travel with the URL. */}
+      {pageUrl && (
+        <p className="cap mt-4 flex flex-wrap gap-x-4 gap-y-1">
+          <span>Share this sheet:</span>
+          <a
+            className="underline"
+            href={`https://x.com/intent/post?text=${encodeURIComponent(`${agent.name}, inspected by Kawal`)}&url=${encodeURIComponent(pageUrl)}`}
+          >
+            X
+          </a>
+          <a
+            className="underline"
+            href={`https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(`${agent.name}, inspected by Kawal`)}`}
+          >
+            Telegram
+          </a>
+          {/* The bot reads the start payload as `/watch 56 43129`; shown only
+              where a bot is configured, so the link never leads nowhere. */}
+          {process.env.TELEGRAM_BOT_USERNAME && (
+            <a className="underline" href={`https://t.me/${process.env.TELEGRAM_BOT_USERNAME}?start=${chainId}_${tokenId}`}>
+              Alert me on Telegram when this stops answering
+            </a>
+          )}
+        </p>
+      )}
 
       <div className="mt-6">
         <Legend
@@ -468,6 +506,73 @@ async function ProbeSection({
     );
   }
   return <LiveProbe proof={proof} uptime={uptime} scan={scan} />;
+}
+
+/**
+ * Whether the tally above can still be edited.
+ *
+ * The tally is Kawal's own database, and Kawal could rewrite it. Each finished
+ * day's probes are Merkle-rooted into KawalLedger on BSC, write-once, and this
+ * section asks the contract — now, not from a cache of our own — whether the
+ * newest anchored call to this endpoint is in its day's root. Absent when the
+ * ledger is not deployed or this endpoint has no history: nothing to say.
+ */
+async function AnchorSection({ findings }: { findings: Findings }) {
+  const proof = await findings.proof;
+  if (!proof) return null;
+  const a = await anchoringFor(proof.endpoint).catch(() => null);
+  if (!a) return null;
+  const contract = explorerAddress(LEDGER_CHAIN, LEDGER_ADDRESS);
+  const latest = a.latest;
+  return (
+    <section className="border-b-[1.5px] border-rule px-5 py-6">
+      <h2 className="cap">Anchored on BSC · KawalLedger</h2>
+      <p className="typed mt-2 max-w-[64ch] text-[0.95rem]">
+        <span className="font-bold">
+          {a.daysAnchored} of {a.daysCalled}
+        </span>{" "}
+        days of calls to this endpoint are anchored on-chain.
+        {latest ? (
+          <>
+            {" "}
+            The newest anchored call, {new Date(latest.checkedAt * 1000).toISOString().replace("T", " ").slice(0, 19)} UTC
+            ({latest.answered ? "answered" : "no answer"}), was checked against the contract as this page was built:{" "}
+            <span className="font-bold">
+              {latest.included === true
+                ? "included in its day’s root"
+                : latest.included === false
+                  ? "NOT in its day’s root — this row changed after it was anchored"
+                  : "the chain could not be asked"}
+            </span>
+            .
+          </>
+        ) : (
+          " None of them has been anchored yet; a day is anchored once it has been over for an hour."
+        )}
+      </p>
+      <p className="cap mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        {contract && (
+          <a href={contract} className="underline">
+            Contract on BscScan
+          </a>
+        )}
+        {latest && (
+          <a href={`/api/anchor/${dayLabel(latest.day)}?endpoint=${encodeURIComponent(proof.endpoint)}`} className="underline">
+            {dayLabel(latest.day)}: rows, root and proofs
+          </a>
+        )}
+        {latest && (
+          <a href={`https://bscscan.com/block/${latest.blockNumber}`} className="underline">
+            anchored in block {latest.blockNumber.toLocaleString("en-US")}
+          </a>
+        )}
+      </p>
+      <p className="stamp-note mt-2 max-w-[64ch]">
+        An anchor proves a day&rsquo;s probes have not changed since it was written. It does not prove they were
+        honest when they were made.
+      </p>
+    </section>
+  );
 }
 
 async function PaymentSection({ findings }: { findings: Findings }) {

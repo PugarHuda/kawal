@@ -28,6 +28,7 @@ import { isOperator, operatorConfigured } from "@/lib/operator";
 import { readHealth, effectiveHealthFactor, describeHealth, type HealthReading } from "./health";
 import { readRates, pct, type VenueRates } from "./rates";
 import { readPools, quote, magnitude, type PoolQuotes } from "./pools";
+import { readRupiah, rupiah, type Rupiah } from "./rupiah";
 import { marketSummary, uHeld, buyerAddress, ERC8183_ADDRESSES, type MarketSummary } from "@/lib/erc8183";
 
 /*
@@ -168,7 +169,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
   // wallet's lending position, the agent named in the URL, the venues'
   // rates, the market-maker seat's pools, the ERC-8183 market and the $U. None of them is allowed
   // to take the planner down with it.
-  const [holdings, health, agent, rates, pools, market, uHeldRaw] = await Promise.all([
+  const [holdings, health, agent, rates, pools, market, uHeldRaw, idr] = await Promise.all([
     firstSeat ? walletHoldings(firstSeat.chainId, firstSeat.walletAddress) : null,
     firstSeat ? readHealth(firstSeat.chainId, firstSeat.walletAddress).catch(() => null) : null,
     hire.agent ? getAgent(hire.agent.chainId, hire.agent.tokenId).catch(() => null) : null,
@@ -176,6 +177,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
     readPools(BSC_MAINNET).catch(() => null),
     marketSummary({ chainId: BSC_MAINNET }).catch(() => null),
     buyer ? uHeld(buyer, BSC_MAINNET).catch(() => null) : null,
+    readRupiah().catch(() => null),
   ]);
   // A seat can only be hired for when the wallet can pay and the key that
   // pays is here; the operator gate is checked again inside the action.
@@ -310,6 +312,7 @@ export default async function MandatePage({ searchParams }: PageProps<"/mandate"
                 }
                 rates={rates}
                 pools={pools}
+                idr={idr}
                 hiring={hireCtx}
               />
             ))}
@@ -822,6 +825,7 @@ function SeatLine({
   filledBy,
   rates,
   pools,
+  idr,
   hiring,
 }: {
   plan: SessionPlan;
@@ -829,6 +833,7 @@ function SeatLine({
   filledBy: FilledBy;
   rates: VenueRates | null;
   pools: PoolQuotes | null;
+  idr: Rupiah | null;
   hiring: Hiring;
 }) {
   const policy = SEAT_POLICIES.find((s) => s.category === plan.category);
@@ -908,6 +913,15 @@ function SeatLine({
               USDT / {spend?.period ?? "day"}
             </span>
           </p>
+          {idr && (
+            <p className="typed text-[0.85rem] text-carbon-2">
+              &asymp; {rupiah((Number(formatUnits(limit, 18)) * idr.idrPerUsdt))} / {spend?.period ?? "day"}
+              <span className="stamp-note block max-w-[30ch]">
+                at {Math.round(idr.idrPerUsdt).toLocaleString("en-US")} IDR per USDT, PancakeSwap&rsquo;s IDRX pool (about $
+                {Math.round(idr.depthUsdt).toLocaleString("en-US")} deep), block {idr.readAt.block.toLocaleString("en-US")}
+              </span>
+            </p>
+          )}
         </div>
       </div>
     </div>

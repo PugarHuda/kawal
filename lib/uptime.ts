@@ -343,6 +343,40 @@ export async function observedFor(endpoint: string | null | undefined) {
   return seen ? { checks: seen.checks, answered: seen.answered } : undefined;
 }
 
+/**
+ * Every probe kept in `[from, to)`, unix seconds, in the shape `lib/anchor.ts`
+ * hashes. Optionally one endpoint's only.
+ *
+ * Null when the store cannot be read, and an empty array when it can and the
+ * window holds nothing. The anchor needs to tell those apart: a root built
+ * from a read that failed is a root of nothing, written for good.
+ */
+export async function probesBetween(
+  from: number,
+  to: number,
+  endpoint?: string,
+): Promise<Array<{ endpoint: string; checkedAt: number; answered: boolean; latencyMs: number; protocol: string }> | null> {
+  const store = await open();
+  if (!store) return null;
+  try {
+    const rows = await store.all<{ endpoint: string; checked_at: number; is_mcp: number; latency_ms: number; protocol: string }>(
+      `SELECT endpoint, checked_at, is_mcp, latency_ms, protocol FROM probe
+        WHERE checked_at >= ? AND checked_at < ?${endpoint ? " AND endpoint = ?" : ""}
+        ORDER BY checked_at`,
+      endpoint ? [from, to, endpoint] : [from, to],
+    );
+    return rows.map((r) => ({
+      endpoint: String(r.endpoint),
+      checkedAt: Number(r.checked_at),
+      answered: Number(r.is_mcp) === 1,
+      latencyMs: Number(r.latency_ms),
+      protocol: String(r.protocol),
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export type Observed = {
   /** Every probe Kawal has kept, across all agents. */
   checks: number;

@@ -79,7 +79,11 @@ test("the health endpoint exercises its dependencies rather than pinging itself"
 
   const body = await res.json();
   expect(body.status).toBe("ok");
-  expect(body.probes).toHaveLength(4);
+  expect(body.probes).toHaveLength(5);
+  // The anchor probe reads KawalLedger's own counters, so it names the
+  // contract's state rather than restating that one exists.
+  const anchor = body.probes.find((p: { name: string }) => p.name === "anchor");
+  expect(anchor.detail).toMatch(/KawalLedger/);
 
   // Each probe has to have done real work. A registry check that returns a
   // constant would satisfy a shape assertion and tell an operator nothing.

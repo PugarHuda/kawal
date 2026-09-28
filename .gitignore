@@ -84,3 +84,8 @@ demo/node_modules
 demo/out
 demo/public/shots
 demo/public/audio
+
+# foundry build output
+/contracts/out
+/contracts/cache
+/contracts/broadcast

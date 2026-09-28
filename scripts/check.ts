@@ -49,6 +49,9 @@ import { readTool } from "../lib/probe.ts";
 import { verdictFor, winnerOf, type TaskResult } from "../lib/advantage.report.ts";
 import { explorerTx, explorerAddress } from "../lib/altana.ts";
 import { loginMessage, signable } from "../lib/scan.auth.ts";
+import { probeLeaf, buildTree, verifyProof, summariseDay, dayOf, dayLabel, parseDay } from "../lib/anchor.ts";
+import { parseCommand, transition } from "../lib/watch.ts";
+import { idrPerUsdtFrom, rupiah, IDRX_BSC } from "../app/mandate/rupiah.ts";
 
 function agent(over: Partial<ScanAgent> = {}): ScanAgent {
   return {
@@ -2174,4 +2177,74 @@ assert.equal(pct(0), "0.00%");
   assert.equal(magnitude(10n), "10^1");
 }
 
-console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting, seat caps, unfilled templates, pool quotes");
+/* ------------------------------------------------ probe anchoring --- */
+{
+  // The leaf must be byte-identical to the contract's `leafOf`. This vector
+  // was computed with Foundry's `cast` — abi-encode, keccak, keccak — which
+  // shares no code with viem, so agreement is evidence rather than a tautology.
+  const row = { endpoint: "https://a.example/mcp", checkedAt: 1790000000, answered: true, latencyMs: 120, protocol: "mcp" };
+  assert.equal(probeLeaf(row), "0x8e5c1302e089e443dde1017813d26e39fb601822cd4c18be9150d304d3939bcc");
+  assert.notEqual(probeLeaf({ ...row, answered: false }), probeLeaf(row), "the outcome is part of the leaf");
+
+  // Every leaf of every tree size proves, including the odd one carried up.
+  for (const n of [1, 2, 3, 5, 8, 33]) {
+    const rows = Array.from({ length: n }, (_, i) => ({ ...row, checkedAt: row.checkedAt + i, latencyMs: 100 + i }));
+    const { tree, probes } = summariseDay(rows);
+    assert.equal(probes, n);
+    for (const r of rows) {
+      const leaf = probeLeaf(r);
+      assert.ok(verifyProof(leaf, tree.proof(leaf)!, tree.root), `leaf of ${n} proves`);
+    }
+    // An edited row is not in the root: the property the anchor exists for.
+    const edited = probeLeaf({ ...rows[0]!, answered: !rows[0]!.answered });
+    assert.equal(tree.proof(edited), null);
+    assert.ok(!verifyProof(edited, tree.proof(probeLeaf(rows[0]!))!, tree.root), "an edited row fails its old proof");
+  }
+
+  // Order-independent: the root depends on which probes a day holds, not on
+  // the order the database returned them.
+  const three = [0, 1, 2].map((i) => probeLeaf({ ...row, checkedAt: row.checkedAt + i }));
+  assert.equal(buildTree(three).root, buildTree([...three].reverse()).root);
+  assert.throws(() => buildTree([]), RangeError, "a day with no probes has no root");
+
+  assert.equal(dayLabel(dayOf(1790000000)), "2026-09-21");
+  assert.equal(parseDay("2026-09-21"), dayOf(1790000000));
+  assert.equal(parseDay("21-09-2026"), null);
+}
+
+/* ------------------------------------------------------- rupiah --- */
+{
+  // From the live IDRX/USDT 0.05% pool on 2026-09-28, where USDT sorts first:
+  // 17,908 IDR per USDT against 17,921 from a USD/IDR FX feed.
+  const sqrt = 10602304883974139163517n;
+  const USDT = "0x55d398326f99059fF775485246999027B3197955";
+  const idr = idrPerUsdtFrom(sqrt, USDT, 18, 0);
+  assert.ok(idr > 15_000 && idr < 20_000, `IDR per USDT should be in the tens of thousands, got ${idr}`);
+  // Sorted the other way, the same slot0 would mean something absurd, not
+  // something close: the test cannot pass on a mis-inverted price.
+  assert.ok(idrPerUsdtFrom(sqrt, IDRX_BSC, 18, 0) > 1e20);
+  assert.equal(rupiah(62_680_000.4), "Rp 62.680.000");
+}
+
+/* ------------------------------------------------ telegram watch --- */
+{
+  const w = { kind: "watch", chainId: 56, tokenId: "43129" };
+  assert.deepEqual(parseCommand("/watch 56 43129"), w);
+  assert.deepEqual(parseCommand("/watch 56:43129"), w);
+  assert.deepEqual(parseCommand("/watch@KawalBot https://kawal-three.vercel.app/agents/56/43129"), w);
+  // The deep link t.me/<bot>?start=56_43129 arrives as `/start 56_43129`.
+  assert.deepEqual(parseCommand("/start 56_43129"), w);
+  assert.deepEqual(parseCommand("/unwatch 56 43129"), { ...w, kind: "unwatch" });
+  assert.deepEqual(parseCommand("/start"), { kind: "help" });
+  assert.deepEqual(parseCommand("/watch 1 43129"), { kind: "help" }, "only the chains Kawal reads");
+  assert.deepEqual(parseCommand("hello"), { kind: "help" });
+  assert.deepEqual(parseCommand("/list"), { kind: "list" });
+
+  // Only a change is news; a first reading is a baseline, not an alert.
+  assert.equal(transition("Venus", "56:1", null, false), null);
+  assert.equal(transition("Venus", "56:1", true, true), null);
+  assert.match(transition("Venus", "56:1", true, false)!, /stopped answering/);
+  assert.match(transition("Venus", "56:1", false, true)!, /answers again/);
+}
+
+console.log("ok - taxonomy, signals, mandate, ssrf guard, memo, schemas, pricing, verdicts, links, uptime, vault and ledger, x402, reputation, feedback, mcp server, failure kinds, charging, a2a, a2a server, rate limit, signing in, self-rating, evidence on ipfs, jcs, signed cards, erc8183 market, venue rates, v5 parts, unindexed agents, publication record, sweep reporting, seat caps, unfilled templates, pool quotes, probe anchoring, rupiah, telegram watch");

@@ -26,7 +26,9 @@
     "register": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/register.ts",
     "history:push": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/history-push.ts",
     "pay": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pay.ts",
-    "hire": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/hire.ts"
+    "hire": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/hire.ts",
+    "anchor": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/anchor.ts",
+    "telegram": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/telegram.ts"
   },
   "dependencies": {
     "@altananetwork/sdk": "^0.8.0",

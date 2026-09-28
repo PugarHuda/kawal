@@ -339,6 +339,52 @@ one), and an agent that answered and serves its registration document is
 handed to 8004scan's `verify-endpoint`, so the registry's own verified mark
 follows Kawal's call. OASF endpoints are dialled too, not just counted.
 
+## The history cannot be quietly rewritten
+
+Every "answered 209 of 209" on this site comes out of Kawal's own database,
+and a database row is something its owner can edit. **KawalLedger**
+(`contracts/src/KawalLedger.sol`, Kawal's own contract on BSC) is where that
+stops. Once a UTC day has been over for an hour, the Merkle root of that day's
+probes is written to it, and a day can be written **once**. A second write for
+the same day reverts.
+
+- `/api/anchor/2026-09-27` serves the day's rows, the root rebuilt from them
+  now, and the root the contract holds, so anyone can compare them.
+  `?endpoint=` narrows the rows to one endpoint and adds each probe's Merkle
+  proof.
+- The contract's `verify(day, leaf, proof)` answers for a single probe, and
+  `leafOf(...)` hashes a row, so checking one needs BscScan and nothing else.
+- Each agent's sheet asks the contract, as the page is built, whether the
+  newest anchored call to that endpoint is in its day's root.
+- The scheduled sweep anchors finished days with a dedicated key
+  (`KAWAL_ANCHOR_KEY`) that can write day roots and do nothing else. The
+  operator can rotate it, and `npm run anchor -- --send` anchors by hand.
+
+The leaf encoding is pinned in `npm run check` against a vector computed with
+Foundry's `cast`, which shares no code with viem. The contract has its own
+Forge tests (`cd contracts && forge test`). What an anchor proves: a day's
+probes have not changed since it was written. What it does not prove: that
+they were honest when they were made.
+
+## Alerts on Telegram
+
+Owners should not learn their endpoint died from a buyer. Message the bot
+`/watch 56 43129`, or use the "Alert me on Telegram" link on an agent's sheet.
+Watched agents are called first on every scheduled sweep, and a chat gets one
+message when the outcome **changes** (answering to silent, or back), never on
+a day when nothing moved. There are at most ten watches per chat. Set it up
+with `npm run telegram -- --set-webhook`. It needs `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_WEBHOOK_SECRET`, and `TELEGRAM_BOT_USERNAME` for the link.
+
+## Caps in rupiah
+
+Every spend cap on the mandate is in USDT, and someone in Jakarta thinks in
+rupiah. Each cap also prints `≈ Rp …/day`, read from the chain: PancakeSwap
+V3's own factory is asked for the IDRX/USDT 0.05% pool, the price comes from
+its `slot0`, and the pool's depth and block are printed beside it. On
+2026-09-28 it quoted 17,908 IDR per USDT against 17,921 from an FX feed. It is
+one thin pool's price, not an FX rate, and the page says so.
+
 ## Is your agent still answering?
 
 `/owner` is the other half of the market. Nothing on BSC tells an owner their
@@ -452,6 +498,8 @@ is what they were. Renaming would have orphaned every observation kept so far.
 | `SCAN_API_KEY` | 8004scan Pro tier, lifting the rate limit |
 | `SCAN_API_ORIGIN` | Points the registry client elsewhere. The test suite aims it at a host that refuses connections to prove the outage path is real |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Moves every store from local SQLite files to one libSQL database. Set by the Vercel Turso integration |
+| `KAWAL_ANCHOR_KEY` | The dedicated key the sweep anchors finished days with. It can write day roots to KawalLedger and nothing else |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | Turn on the Telegram alert bot. Unset means the bot is off and the sweep behaves as before |
 | `KAWAL_PAY_TO` | Where `/api/report` takes payment, for deployments that keep the wallet key off the platform |
 
 Holding the token is permission; holding the key is capability. An instance

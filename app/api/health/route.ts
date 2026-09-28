@@ -3,6 +3,8 @@ import { getStats } from "@/lib/scan";
 import { loadLedger, isLive, hasAdminKey } from "@/lib/sessions";
 import { uptimeFor, lastSweep, sweepLine } from "@/lib/uptime";
 import { isRemote } from "@/lib/db";
+import { isDeployed, dayLabel, LEDGER_ABI, LEDGER_ADDRESS, LEDGER_CHAIN } from "@/lib/anchor";
+import { publicClientFor } from "@/lib/rpc";
 
 /**
  * Whether this instance can actually do its job.
@@ -65,6 +67,16 @@ export async function GET() {
       return seats.length === 0
         ? "no sessions granted on this instance"
         : `${live} live of ${seats.length} recorded`;
+    }),
+
+    timed("anchor", async () => {
+      if (!isDeployed()) return "KawalLedger is not deployed for this instance";
+      const rpc = publicClientFor(LEDGER_CHAIN);
+      const [latest, count] = await Promise.all([
+        rpc.readContract({ address: LEDGER_ADDRESS, abi: LEDGER_ABI, functionName: "latestDay" }),
+        rpc.readContract({ address: LEDGER_ADDRESS, abi: LEDGER_ABI, functionName: "anchoredDays" }),
+      ]);
+      return count === 0 ? "KawalLedger holds no days yet" : `${count} days anchored in KawalLedger, latest ${dayLabel(latest)}`;
     }),
 
     timed("probe-history", async () => {

@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { getStats, bscStats } from "@/lib/scan";
 import { observedTotals } from "@/lib/uptime";
+import { fonts } from "@/lib/og";
 
 /**
  * The cover sheet as a share card: the same numbers the form prints, on
@@ -16,38 +17,6 @@ export const dynamic = "force-dynamic";
 export const alt = "Kawal — Form K-1, the cover sheet";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-
-// Google's CSS endpoint serves a TTF to a UA that cannot take woff2; the
-// files are fetched once per instance and shared across renders.
-const FONT_CSS =
-  "https://fonts.googleapis.com/css2?family=Courier+Prime:wght@700&family=Barlow+Condensed:wght@600&display=swap";
-
-type Font = { name: string; data: ArrayBuffer; weight: 600 | 700; style: "normal" };
-let fontsPromise: Promise<Font[]> | null = null;
-
-async function fonts(): Promise<Font[]> {
-  fontsPromise ??= (async (): Promise<Font[]> => {
-    try {
-      const css = await fetch(FONT_CSS, { headers: { "user-agent": "Mozilla/5.0 (Windows NT 6.1)" } }).then((r) =>
-        r.text(),
-      );
-      const faces = [...css.matchAll(/font-family: '([^']+)';[\s\S]*?src: url\(([^)]+)\) format\('truetype'\)/g)]
-        .map((m) => ({ name: m[1] ?? "", url: m[2] ?? "" }))
-        .filter((f) => f.name && f.url);
-      return await Promise.all(
-        faces.map(async (f): Promise<Font> => ({
-          name: f.name,
-          weight: f.name === "Courier Prime" ? 700 : 600,
-          style: "normal",
-          data: await fetch(f.url).then((r) => r.arrayBuffer()),
-        })),
-      );
-    } catch {
-      return [];
-    }
-  })();
-  return fontsPromise;
-}
 
 export default async function Image() {
   const [stats, observed, loaded] = await Promise.all([

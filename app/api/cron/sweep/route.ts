@@ -8,6 +8,10 @@ import { recordSweep } from "@/lib/uptime";
 import { guardedFetch, readCapped } from "@/lib/ssrf";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
+import { privateKeyToAccount } from "viem/accounts";
+import { isDeployed } from "@/lib/anchor";
+import { watchedAgents, transition, sendTelegram, noteOutcome, botEnabled } from "@/lib/watch";
+import { anchorableDays, anchorDay, readAnchors, type AnchorOutcome } from "@/lib/anchor.run";
 
 /**
  * The scheduled sweep: probes on a clock, not only when somebody looks.
@@ -119,10 +123,21 @@ export async function GET(request: Request) {
 
   // Rotate by the hour so successive runs start from different points.
   const offset = targets.length === 0 ? 0 : (new Date().getUTCHours() * 7) % targets.length;
-  const batch = [...targets.slice(offset), ...targets.slice(0, offset)].slice(0, PER_RUN);
+  const rotated = [...targets.slice(offset), ...targets.slice(0, offset)];
+
+  // Agents somebody asked the Telegram bot to watch are called first, every
+  // run, whether or not they are in the rotation's window today: an alert
+  // that depends on which hour the rotation reached is not an alert.
+  const watched = botEnabled() ? await watchedAgents().catch(() => []) : [];
+  const watchedRefs = new Set(watched.map((w) => `${w.chainId}:${w.tokenId}`));
+  const batch = [
+    ...watched.map((w) => ({ chainId: w.chainId, tokenId: w.tokenId, name: `${w.chainId}:${w.tokenId}` })),
+    ...rotated.filter((t) => !watchedRefs.has(`${t.chainId}:${t.tokenId}`)),
+  ].slice(0, PER_RUN + watched.length);
 
   const results = await mapLimit(batch, CONCURRENCY, async (t) => {
     const row = {
+      chainId: t.chainId,
       tokenId: t.tokenId,
       name: t.name,
       probed: false,
@@ -133,6 +148,7 @@ export async function GET(request: Request) {
     };
     try {
       const detail = await getAgent(t.chainId, t.tokenId);
+      row.name = detail.name;
       const proof = await proveAgent(detail, { timeoutMs: PROBE_TIMEOUT_MS });
       if (!proof) return row;
       row.probed = true;
@@ -157,6 +173,19 @@ export async function GET(request: Request) {
     }
   });
 
+  // A watched agent whose outcome changed since the last reading gets one
+  // message per watching chat; an unchanged one gets none.
+  let alerts = 0;
+  for (const w of watched) {
+    const r = results.find((x) => x.chainId === w.chainId && x.tokenId === w.tokenId);
+    if (!r || !r.probed || r.answered === null) continue;
+    for (const c of w.chats) {
+      const text = transition(r.name, `${w.chainId}:${w.tokenId}`, c.lastAnswered, r.answered);
+      if (text && (await sendTelegram(c.chatId, text))) alerts++;
+      await noteOutcome(c.chatId, w.chainId, w.tokenId, r.answered).catch(() => {});
+    }
+  }
+
   const probed = results.filter((r) => r.probed);
   const run = {
     ranAt: new Date(started).toISOString(),
@@ -173,12 +202,36 @@ export async function GET(request: Request) {
   };
   await recordSweep(run);
 
+  // Anchor the finished days KawalLedger does not hold yet. The key here is
+  // the dedicated anchoring key, which can write day roots and nothing else;
+  // without it this instance only probes. Three days at most per run, so a
+  // backlog drains over a few runs instead of holding one open.
+  let anchoring: AnchorOutcome[] | string = "no KAWAL_ANCHOR_KEY on this instance";
+  const anchorKey = process.env.KAWAL_ANCHOR_KEY;
+  if (anchorKey && isDeployed()) {
+    try {
+      const days = await anchorableDays();
+      if (days === null) anchoring = "probe store unreadable; nothing anchored";
+      else {
+        const held = await readAnchors(days);
+        const account = privateKeyToAccount(anchorKey as `0x${string}`);
+        anchoring = [];
+        for (const day of days.filter((d) => !held.has(d)).slice(-3)) anchoring.push(await anchorDay(day, account));
+      }
+    } catch (e) {
+      anchoring = `anchoring failed: ${e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160)}`;
+    }
+  }
+
   return NextResponse.json(
     {
       ...run,
       ms: Date.now() - started,
       eligible: targets.length,
       offset,
+      anchoring,
+      watched: watched.length,
+      alerts,
       results,
     },
     { headers: { "cache-control": "no-store" } },
