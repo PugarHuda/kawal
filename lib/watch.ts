@@ -53,19 +53,25 @@ export type Command =
   | { kind: "help" }
   | { kind: "usage"; verb: "watch" | "unwatch" };
 
+const AGENT_URL = /\/agents\/(\d+)\/(\d+)(?!\d)/;
+
 /**
  * A chat message to a command. Accepts `/watch 56 43129`, `/watch 56:43129`,
  * a pasted agent URL, and the deep-link form `/start 56_43129` that a
- * t.me/<bot>?start= link sends. Anything else is a request for help.
+ * t.me/<bot>?start= link sends. A pasted agent URL on its own, with no
+ * command, is a /watch: that is what someone pasting one means. Anything else
+ * is a request for help.
  */
 export function parseCommand(text: string): Command {
   const t = text.trim();
-  const m = /^\/(watch|unwatch|start|list|help)(?:@\w+)?\s*(.*)$/i.exec(t);
+  const m = /^\/(watch|unwatch|start|list|help)(?:@\w+)?\s*([\s\S]*)$/i.exec(t) ?? (AGENT_URL.test(t) ? [t, "watch", t] : null);
   if (!m) return { kind: "help" };
   const verb = m[1]!.toLowerCase();
   if (verb === "list") return { kind: "list" };
   if (verb === "help") return { kind: "help" };
-  const ref = /(\d+)\s*[\s:_/]\s*(\d+)\s*$/.exec(m[2] ?? "");
+  // A URL is read by its path, so a trailing slash, a query or a fragment
+  // (share links carry them) does not hide the agent it names.
+  const ref = AGENT_URL.exec(m[2] ?? "") ?? /(\d+)\s*[\s:_/]\s*(\d+)\s*$/.exec(m[2] ?? "");
   // A bare /start is someone opening the bot, so they get the help. A /watch
   // that names no agent Kawal reads is told what is missing instead.
   const usage: Command = verb === "start" ? { kind: "help" } : { kind: "usage", verb: verb as "watch" | "unwatch" };

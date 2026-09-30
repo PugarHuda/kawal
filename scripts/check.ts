@@ -2239,6 +2239,10 @@ assert.equal(pct(0), "0.00%");
   assert.deepEqual(parseCommand("/watch 1 43129"), { kind: "usage", verb: "watch" }, "only the chains Kawal reads");
   assert.deepEqual(parseCommand("/watch"), { kind: "usage", verb: "watch" }, "a bare /watch is told what is missing");
   assert.deepEqual(parseCommand("/unwatch"), { kind: "usage", verb: "unwatch" });
+  assert.deepEqual(parseCommand("/watch https://kawal-three.vercel.app/agents/56/43129/"), w, "trailing slash");
+  assert.deepEqual(parseCommand("/watch https://kawal-three.vercel.app/agents/56/43129?ref=x#top"), w, "query and fragment");
+  assert.deepEqual(parseCommand("https://kawal-three.vercel.app/agents/56/43129"), w, "a pasted URL alone is a watch");
+  assert.deepEqual(parseCommand("/watch https://kawal-three.vercel.app/agents/56/43129​ "), w, "invisible characters after a pasted URL");
   assert.deepEqual(parseCommand("hello"), { kind: "help" });
   assert.deepEqual(parseCommand("/list"), { kind: "list" });
 
