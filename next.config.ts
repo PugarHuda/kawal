@@ -82,6 +82,8 @@ const nextConfig: NextConfig = {
       // The MCP server card directories scan for. It is the endpoint's own
       // GET description, so the card is built from the tool list it serves.
       { source: "/.well-known/mcp/server-card.json", destination: "/api/mcp" },
+      // The hackathon pitch deck, at an address short enough to paste.
+      { source: "/pitch", destination: "/pitch.pdf" },
     ];
   },
 };
