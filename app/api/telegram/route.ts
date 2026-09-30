@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAgent } from "@/lib/scan";
 import { proveAgent } from "@/lib/probe";
 import { originOf } from "@/lib/origin";
-import { parseCommand, HELP, addWatch, removeWatch, watchesOf, noteOutcome, sendTelegram, botEnabled } from "@/lib/watch";
+import { parseCommand, HELP, usageOf, addWatch, removeWatch, watchesOf, noteOutcome, sendTelegram, botEnabled } from "@/lib/watch";
 
 /**
  * The Telegram bot's webhook.
@@ -33,6 +33,8 @@ export async function POST(request: Request) {
   let reply: string;
   if (cmd.kind === "help") {
     reply = HELP;
+  } else if (cmd.kind === "usage") {
+    reply = usageOf(cmd.verb);
   } else if (cmd.kind === "list") {
     const mine = await watchesOf(chat);
     reply = mine.length

@@ -50,7 +50,8 @@ export type Command =
   | { kind: "watch"; chainId: number; tokenId: string }
   | { kind: "unwatch"; chainId: number; tokenId: string }
   | { kind: "list" }
-  | { kind: "help" };
+  | { kind: "help" }
+  | { kind: "usage"; verb: "watch" | "unwatch" };
 
 /**
  * A chat message to a command. Accepts `/watch 56 43129`, `/watch 56:43129`,
@@ -65,12 +66,18 @@ export function parseCommand(text: string): Command {
   if (verb === "list") return { kind: "list" };
   if (verb === "help") return { kind: "help" };
   const ref = /(\d+)\s*[\s:_/]\s*(\d+)\s*$/.exec(m[2] ?? "");
-  if (!ref) return { kind: "help" };
+  // A bare /start is someone opening the bot, so they get the help. A /watch
+  // that names no agent Kawal reads is told what is missing instead.
+  const usage: Command = verb === "start" ? { kind: "help" } : { kind: "usage", verb: verb as "watch" | "unwatch" };
+  if (!ref) return usage;
   const chainId = Number(ref[1]);
   const tokenId = ref[2]!;
-  if (chainId !== 56 && chainId !== 97) return { kind: "help" };
+  if (chainId !== 56 && chainId !== 97) return usage;
   return { kind: verb === "unwatch" ? "unwatch" : "watch", chainId, tokenId };
 }
+
+export const usageOf = (verb: "watch" | "unwatch") =>
+  `Which agent? Send /${verb} 56 43129 (chain id, then token id) or paste its Kawal page URL. Kawal reads BSC (56) and BSC testnet (97).`;
 
 export const HELP =
   "Kawal watches ERC-8004 agents on BNB Smart Chain and tells you when its calls to one change outcome.\n\n" +

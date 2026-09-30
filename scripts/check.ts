@@ -2236,7 +2236,9 @@ assert.equal(pct(0), "0.00%");
   assert.deepEqual(parseCommand("/start 56_43129"), w);
   assert.deepEqual(parseCommand("/unwatch 56 43129"), { ...w, kind: "unwatch" });
   assert.deepEqual(parseCommand("/start"), { kind: "help" });
-  assert.deepEqual(parseCommand("/watch 1 43129"), { kind: "help" }, "only the chains Kawal reads");
+  assert.deepEqual(parseCommand("/watch 1 43129"), { kind: "usage", verb: "watch" }, "only the chains Kawal reads");
+  assert.deepEqual(parseCommand("/watch"), { kind: "usage", verb: "watch" }, "a bare /watch is told what is missing");
+  assert.deepEqual(parseCommand("/unwatch"), { kind: "usage", verb: "unwatch" });
   assert.deepEqual(parseCommand("hello"), { kind: "help" });
   assert.deepEqual(parseCommand("/list"), { kind: "list" });
 
