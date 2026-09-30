@@ -68,7 +68,7 @@ const wantsGrid = policies.some((p) => p.category === "grid");
  * registration fees and the one real transaction below need actual balance.
  */
 const CAPITAL = 10_000_000_000_000_000n; // 0.01 BNB
-const DURATION_DAYS = 7;
+const DURATION_DAYS = 14;
 /** How much the execution trader actually wraps. Must sit under its own cap. */
 const WRAP = 10_000_000_000_000n; // 0.00001 BNB
 
