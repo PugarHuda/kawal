@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "capture": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON capture.ts",
+    "live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON live.ts",
     "voice": "python voice.py",
     "preview": "remotion studio src/index.ts",
     "render": "remotion render src/index.ts Demo out/kawal-demo.mp4 --codec h264"
