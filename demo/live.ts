@@ -3,8 +3,8 @@
  * slide, and writes subtitles timed to what was on screen when.
  *
  * Run: npm run live          -> out/live/raw.webm + out/live/live.srt
- * Then burn the subtitles and drop the page loads (run in out/live):
- *   ffmpeg -i raw.webm -vf "fps=30,select='not($(cat cuts.txt))',setpts=N/30/TB,subtitles=live.srt" -an -c:v libx264 -pix_fmt yuv420p ../kawal-live-demo.mp4
+ * Then drop the page loads and burn the subtitles into a band under the picture, so they cover nothing (run in out/live):
+ *   ffmpeg -i raw.webm -vf "fps=30,select='not($(cat cuts.txt))',setpts=N/30/TB,scale=1387:780,pad=1600:900:106:0:color=0x16140f,subtitles=live.srt:force_style='FontName=Arial,Bold=1,FontSize=14,MarginV=6'" -an -c:v libx264 -pix_fmt yuv420p ../kawal-live-demo.mp4
  *
  * A real recording, not stills: the point of this clip is that the site is live.
  */
