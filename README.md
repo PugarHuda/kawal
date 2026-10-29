@@ -345,7 +345,7 @@ endpoint that makes Kawal dial the whole roster must not run because a
 variable is missing. Each run is recorded (`/api/health` reports the last
 one), and an agent that answered and serves its registration document is
 handed to 8004scan's `verify-endpoint`, so the registry's own verified mark
-follows Kawal's call. OASF endpoints are dialled too, not just counted.
+follows Kawal's call. OASF endpoints are dialled too, not just counted. Anchoring the finished days into KawalLedger runs as its own cron, `/api/cron/anchor`, an hour later, oldest day first: it used to ride at the end of the sweep and silently wrote nothing from 2026-09-28.
 
 ## The history cannot be quietly rewritten
 

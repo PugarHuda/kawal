@@ -8,10 +8,7 @@ import { recordSweep } from "@/lib/uptime";
 import { guardedFetch, readCapped } from "@/lib/ssrf";
 import { mapLimit } from "@/lib/concurrency";
 import { BSC_MAINNET } from "@/lib/chains";
-import { privateKeyToAccount } from "viem/accounts";
-import { isDeployed } from "@/lib/anchor";
 import { watchedAgents, transition, sendTelegram, noteOutcome, botEnabled } from "@/lib/watch";
-import { anchorableDays, anchorDay, readAnchors, type AnchorOutcome } from "@/lib/anchor.run";
 
 /**
  * The scheduled sweep: probes on a clock, not only when somebody looks.
@@ -202,26 +199,8 @@ export async function GET(request: Request) {
   };
   await recordSweep(run);
 
-  // Anchor the finished days KawalLedger does not hold yet. The key here is
-  // the dedicated anchoring key, which can write day roots and nothing else;
-  // without it this instance only probes. Three days at most per run, so a
-  // backlog drains over a few runs instead of holding one open.
-  let anchoring: AnchorOutcome[] | string = "no KAWAL_ANCHOR_KEY on this instance";
-  const anchorKey = process.env.KAWAL_ANCHOR_KEY;
-  if (anchorKey && isDeployed()) {
-    try {
-      const days = await anchorableDays();
-      if (days === null) anchoring = "probe store unreadable; nothing anchored";
-      else {
-        const held = await readAnchors(days);
-        const account = privateKeyToAccount(anchorKey as `0x${string}`);
-        anchoring = [];
-        for (const day of days.filter((d) => !held.has(d)).slice(-3)) anchoring.push(await anchorDay(day, account));
-      }
-    } catch (e) {
-      anchoring = `anchoring failed: ${e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160)}`;
-    }
-  }
+  // Anchoring runs on its own schedule now, in /api/cron/anchor, so a slow
+  // roster cannot starve it.
 
   return NextResponse.json(
     {
@@ -229,7 +208,6 @@ export async function GET(request: Request) {
       ms: Date.now() - started,
       eligible: targets.length,
       offset,
-      anchoring,
       watched: watched.length,
       alerts,
       results,

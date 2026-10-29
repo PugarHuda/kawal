@@ -148,3 +148,12 @@ test("the scheduled sweep is gated by its secret, and runs when given it", async
   expect(body.probed).toBe(0);
   expect(Array.isArray(body.results)).toBe(true);
 });
+
+test("scheduled anchoring is gated by the same secret", async ({ request }) => {
+  // Only the refusals. This instance loads `.env.local`, which may hold the
+  // real anchoring key, and the authorised path sends a mainnet transaction.
+  const wrong = await request.get("/api/cron/anchor", { headers: { authorization: "Bearer nope" } });
+  expect(wrong.status()).toBe(401);
+  const missing = await request.get("/api/cron/anchor");
+  expect(missing.status()).toBe(401);
+});
